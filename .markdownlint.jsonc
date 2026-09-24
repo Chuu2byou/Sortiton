@@ -1,0 +1,15 @@
+{
+  // The app icon is sized with <img src="assets/icon.png" width="64"> in
+  // README.md; Markdown itself cannot set an image size, so allow that one
+  // element. Every other inline HTML is still reported (MD033).
+  "MD033": { "allowed_elements": ["img"] },
+
+  // Prose stays at 80 columns; the tables and the shell examples in the
+  // README and in CONTRIBUTING.md are wider by design (MD013).
+  "MD013": {
+    "line_length": 80,
+    "code_blocks": false,
+    "tables": false,
+    "headings": false
+  }
+}

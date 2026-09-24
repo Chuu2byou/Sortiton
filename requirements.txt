@@ -1,0 +1,4 @@
+# Optional but recommended: reads and writes tags faster.
+# ffmpeg/ffprobe and tkinter come from the distribution (see README).
+
+mutagen>=1.46

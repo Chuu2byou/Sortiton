@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sortiton"
+# Keep in sync with sortiton/__init__.py::__version__ - tests/smoke.py::test_version
+# fails when they drift apart. It cannot be read from there: the entry script
+# sortiton.py sits next to the package, and setuptools would load that file.
+version = "1.0.0"
+description = "Sort a music library: clean tags, rename files, tidy folders"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Chuu2byou" }]
+keywords = ["music", "tags", "mp3", "flac", "ogg", "library", "sorter", "tkinter"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+# No hard dependency: without mutagen, ffprobe/ffmpeg do the work. Tkinter and
+# ffmpeg come from the distribution, they cannot be installed with pip.
+dependencies = []
+
+[project.optional-dependencies]
+mutagen = ["mutagen>=1.42"]
+dev = ["pylint>=3.0", "pyinstaller>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/Chuu2byou/Sortiton"
+Source = "https://github.com/Chuu2byou/Sortiton"
+Releases = "https://github.com/Chuu2byou/Sortiton/releases"
+
+[project.scripts]
+sortiton = "sortiton.cli:main"
+sortiton-gui = "sortiton.gui.launch:main"
+
+[tool.setuptools]
+# Explicit: the entry scripts sortiton.py and sortiton_gui.py sit next to the
+# package and must not be installed as modules of the same name.
+#
+# TODO: assets/icon.png lies outside the package, so a wheel install shows the
+# default Tk icon. The release builds do not care, they bundle the folder.
+packages = ["sortiton", "sortiton.gui"]

@@ -1,0 +1,14 @@
+<svg width="120" height="120" viewBox="0 0 120 120" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Sortiton – App-Icon (Dunkel)</title>
+  <desc>Plattenregal als App-Icon mit abgerundetem dunklem Hintergrund</desc>
+  <rect width="120" height="120" rx="27" fill="#2C2C2A"/>
+  <g transform="translate(12,14)" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 84H88" stroke="#F1EFE8"/>
+    <rect x="14" y="40" width="10" height="44" rx="2" stroke="#F1EFE8"/>
+    <rect x="28" y="34" width="10" height="50" rx="2" stroke="#F1EFE8"/>
+    <rect x="42" y="42" width="10" height="42" rx="2" stroke="#F1EFE8"/>
+    <rect x="56" y="24" width="10" height="46" rx="2" stroke="#F0997B"/>
+    <rect x="70" y="38" width="10" height="46" rx="2" stroke="#F1EFE8"/>
+    <path d="M56 14L61 8L66 14" stroke="#F0997B"/>
+  </g>
+</svg>

@@ -1,0 +1,26 @@
+# Runtime artefacts
+__pycache__/
+*.py[cod]
+logs/
+backups/
+
+# Build output of tools/build_app.sh
+build/
+dist/
+package/
+*.AppImage
+
+# Left behind by "pip install ." / python -m build
+*.egg-info/
+
+# Scratch file of tools/make_screenshots.py (only after a crashed run)
+assets/*.new.png
+
+# Personal files (different for every user)
+my_rules.ini
+settings.ini
+
+# Editor / OS
+.vscode/
+.DS_Store
+*.swp

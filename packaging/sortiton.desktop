@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sortiton
+GenericName=Music sorter
+Comment=Sorts a music library into artist and album folders
+Exec=Sortiton
+Icon=sortiton
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+Keywords=music;tags;mp3;flac;sort;library;

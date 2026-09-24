@@ -1,0 +1,97 @@
+name: Security
+
+# The security checks, on every push and once a week (new advisories do not
+# wait for a commit).
+#
+#   bandit          reads the Python source for insecure patterns
+#   pip-audit       checks the requirement files against the PyPI advisory
+#                   database
+#   detect-secrets  looks for credentials in the committed files
+#
+# No CodeQL: it needs GitHub code scanning, and the API answers 403 "Code
+# scanning is not enabled" for this private repository. The tools report into
+# the job log instead. If code scanning ever gets switched on, bandit can emit
+# SARIF with `-f sarif -o` and upload-sarif.
+#
+# No Python matrix here - the result does not depend on the interpreter, and the
+# linter already spends six jobs per push.
+on:
+  push:
+  pull_request:
+  schedule:
+    # Monday, 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push makes a running check pointless.
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  bandit:
+    name: bandit (source)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+    - name: Install bandit
+      run: pip install "bandit>=1.7"
+    # -ll: medium severity and above. The low findings are the subprocess calls
+    # and try/except-pass blocks the program is built from - on purpose.
+    - name: Run bandit
+      run: bandit -r sortiton sortiton.py sortiton_gui.py tests tools -ll
+
+  pip-audit:
+    name: pip-audit (dependencies)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+    - name: Install pip-audit
+      run: pip install "pip-audit>=2.7"
+    # Both requirement files. --strict fails on an advisory and on a package
+    # that could not be checked at all.
+    - name: Run pip-audit
+      run: pip-audit -r requirements.txt -r requirements-dev.txt --strict --progress-spinner=off
+
+  secrets:
+    name: detect-secrets (credentials)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+    - name: Install detect-secrets
+      run: pip install "detect-secrets>=1.5"
+    # GitHub's secret scanning is not in the free plan for private repos, so the
+    # open-source scanner runs instead - over the files git knows.
+    - name: Scan the committed files
+      run: |
+        detect-secrets scan > "$RUNNER_TEMP/secrets.json"
+        python3 - <<'PY'
+        import json
+        import os
+        import pathlib
+        import sys
+
+        report = pathlib.Path(os.environ["RUNNER_TEMP"], "secrets.json")
+        results = json.loads(report.read_text(encoding="utf-8"))["results"]
+        for path, findings in sorted(results.items()):
+            print("%s: %s" % (path, ", ".join(item["type"] for item in findings)))
+        print("%d file(s) with findings" % len(results))
+        # The scanner itself always exits 0 - the report decides.
+        sys.exit(1 if results else 0)
+        PY

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Entry point of the AppImage: start the program next to this file.
+#
+# Inside an AppImage "$0" is AppRun in the mount point - resolved, because the
+# desktop environment may call it through a symlink.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/Sortiton" "$@"

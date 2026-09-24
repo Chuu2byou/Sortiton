@@ -1,0 +1,122 @@
+name: Release
+
+# Publishes the standalone Linux app: a tar.gz with the unpacked program, a
+# single-file AppImage and the checksums, all attached to the GitHub release of
+# the tag.
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# The tag must match sortiton/__init__.py::__version__. A manual run
+# (workflow_dispatch) builds the files and keeps them as artifacts, without
+# touching a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    # ubuntu-22.04, the oldest runner GitHub still offers: something built on
+    # 24.04 dies on 22.04 with "GLIBC_2.39 not found", the other way round it
+    # runs.
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    # Needed while building and for the smoke tests. tkinter and mutagen end up
+    # inside the app, ffmpeg stays a requirement of the target machine.
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg python3-tk xvfb
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+    - name: Check that the tag matches the package version
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        python3 - <<'PY'
+        import os
+        import sortiton
+
+        tag = os.environ["GITHUB_REF_NAME"]
+        expected = "v" + sortiton.__version__
+        if tag != expected:
+            raise SystemExit(f"tag {tag} does not match the version {expected}")
+        print(f"{tag} matches sortiton.__version__")
+        PY
+    - name: Install appimagetool
+      run: |
+        url=https://github.com/AppImage/appimagetool/releases/download/continuous
+        curl -fsSL -o "$RUNNER_TEMP/appimagetool" "$url/appimagetool-x86_64.AppImage"
+        chmod +x "$RUNNER_TEMP/appimagetool"
+        echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+    - name: Build the app
+      run: tools/build_app.sh --appimage
+    # The wheel and the sdist, for "pip install" users. Built into their own
+    # folder, because twine check chokes on the AppImage and the app tar.gz in
+    # dist/.
+    - name: Build the wheel and the sdist
+      run: |
+        python -m pip install --upgrade build twine
+        python -m build --outdir package
+        twine check package/*
+        cp package/* dist/
+    - name: Install the wheel and run it
+      run: |
+        python -m venv /tmp/wheel-test
+        /tmp/wheel-test/bin/pip install dist/*.whl
+        /tmp/wheel-test/bin/sortiton scan "$(mktemp -d)"
+    - name: Run the frozen CLI
+      run: |
+        work="$(mktemp -d)"
+        ./dist/sortiton --help > /dev/null
+        ./dist/sortiton scan "$work"
+    # A Tkinter program has no "did it exit cleanly" - it runs until the window
+    # is closed, so staying alive for eight seconds means the window is up.
+    - name: Start the frozen GUI
+      run: |
+        xvfb-run -a -s "-screen 0 1400x1000x24" bash -c '
+          ./dist/Sortiton/Sortiton & pid=$!
+          sleep 8
+          kill -0 "$pid" && { kill "$pid"; exit 0; }
+          wait "$pid" || exit 1'
+    # --appimage-extract unpacks without FUSE, so this needs no privileges.
+    - name: Unpack the AppImage and start it
+      run: |
+        ./dist/Sortiton-*.AppImage --appimage-extract > /dev/null
+        xvfb-run -a -s "-screen 0 1400x1000x24" bash -c '
+          squashfs-root/AppRun & pid=$!
+          sleep 8
+          kill -0 "$pid" && { kill "$pid"; exit 0; }
+          wait "$pid" || exit 1'
+    - name: Write the checksum file
+      run: |
+        cd dist
+        sha256sum ./*.tar.gz ./*.AppImage ./*.whl > SHA256SUMS
+        cat SHA256SUMS
+    - name: Upload the build as an artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sortiton-linux
+        path: |
+          dist/*.tar.gz
+          dist/*.AppImage
+          dist/*.whl
+          dist/SHA256SUMS
+    - name: Publish them on the release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          dist/*.tar.gz
+          dist/*.AppImage
+          dist/*.whl
+          dist/SHA256SUMS
+        generate_release_notes: true

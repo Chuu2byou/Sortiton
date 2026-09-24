@@ -1,0 +1,22 @@
+# Tools for development and CI - not needed to run Sortiton.
+#
+#   pip install -r requirements-dev.txt
+#
+# requirements.txt stays the list of runtime dependencies: users need ffmpeg,
+# tkinter and optionally mutagen, nothing from this file.
+
+pylint>=3.0
+
+# Freezes the program for the release files (tools/build_app.sh); never needed
+# to run Sortiton.
+pyinstaller>=6.0
+
+# Security checks, same calls as .github/workflows/security.yml:
+#   bandit          static analysis of the source
+#   pip-audit       advisories in requirements.txt / requirements-dev.txt
+#   detect-secrets  credentials committed by accident
+# The newest releases want Python 3.10+. On 3.8 pip falls back to bandit 1.7.9
+# and pip-audit 2.7.3, which still do the job.
+bandit>=1.7
+pip-audit>=2.7
+detect-secrets>=1.5
