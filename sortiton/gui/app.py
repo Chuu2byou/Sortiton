@@ -44,8 +44,8 @@ TARGET_FOLDER = Path(_ENV_TARGET) if _ENV_TARGET else Path.home() / "Musik"
 PATTERN_DEFAULT = "%artist% - %title%"
 
 # Rows of the root grid (named so the layout can be changed in one place).
-ROW_TABS, ROW_LINE_TOP, ROW_CONTENT, ROW_RESULT = 0, 1, 2, 3
-ROW_LINE_BOTTOM, ROW_FOOTER = 4, 5
+ROW_TABS, ROW_LINE_TOP, ROW_CONTENT, ROW_ACTIONS, ROW_RESULT = 0, 1, 2, 3, 4
+ROW_LINE_BOTTOM, ROW_FOOTER = 5, 6
 
 RESULT_HEIGHT = 176      # result area in counter mode
 LOG_HEIGHT = 320         # … and with the full log open
@@ -177,6 +177,7 @@ class SortitonGUI:
             child.destroy()
         self.action_buttons = []
         self._execute_buttons = {}
+        self._action_frames = {}
         self._preview_notes = {}
         self._previews = {}
         self._stats_labels = {}
@@ -208,12 +209,15 @@ class SortitonGUI:
         """
         self.root.title(i18n.t("gui.window.title"))
         if not keep_geometry:
-            width = min(1040, self.root.winfo_screenwidth() - 80)
-            height = min(900, self.root.winfo_screenheight() - 100)
-            x = max((self.root.winfo_screenwidth() - width) // 2, 0)
-            y = max((self.root.winfo_screenheight() - height) // 2 - 30, 0)
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            width = min(1040, max(min(640, screen_width - 40), int(screen_width * 0.86)))
+            height = min(900, max(min(420, screen_height - 40), int(screen_height * 0.86)))
+            x = max((screen_width - width) // 2, 0)
+            y = max((screen_height - height) // 2, 0)
             self.root.geometry(f"{width}x{height}+{x}+{y}")
-        self.root.minsize(920, 780)
+        self.root.minsize(min(640, self.root.winfo_screenwidth() - 40),
+                          min(420, self.root.winfo_screenheight() - 40))
         self.root.configure(bg=BACKGROUND)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(ROW_CONTENT, weight=1)
@@ -292,10 +296,32 @@ class SortitonGUI:
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_TOP, column=0,
                                                       sticky="ew", pady=(14, 0))
 
-        content = tk.Frame(self.root, bg=BACKGROUND)
-        content.grid(row=ROW_CONTENT, column=0, sticky="nsew", padx=22, pady=(14, 4))
+        viewport = tk.Frame(self.root, bg=BACKGROUND)
+        viewport.grid(row=ROW_CONTENT, column=0, sticky="nsew", padx=22, pady=(14, 4))
+        viewport.columnconfigure(0, weight=1)
+        viewport.rowconfigure(0, weight=1)
+        canvas = tk.Canvas(viewport, bg=BACKGROUND, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview,
+                                  style="Dark.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        content = tk.Frame(canvas, bg=BACKGROUND)
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+        self._content_scrollbar = scrollbar
+        content.bind("<Configure>", lambda _event: self._update_content_scrollbar())
+        canvas.bind("<Configure>", lambda event: self._resize_content_canvas(
+            event, content_window))
+        self._content_canvas = canvas
+        self.root.bind_all("<MouseWheel>", self._scroll_content)
+        self.root.bind_all("<Button-4>", self._scroll_content)
+        self.root.bind_all("<Button-5>", self._scroll_content)
+
+        self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
+        self._actions_area.grid(row=ROW_ACTIONS, column=0, sticky="ew", padx=22,
+                                pady=(0, 6))
+        self._actions_area.columnconfigure(0, weight=1)
 
         self.pages = {
             "tags":   self._page_tags(content),
@@ -307,12 +333,51 @@ class SortitonGUI:
             page.grid(row=0, column=0, sticky="nsew")
         self._show_page(self.var_page.get())
 
+    def _resize_content_canvas(self, event, content_window: int) -> None:
+        self._content_canvas.itemconfigure(content_window, width=event.width)
+        self.root.after_idle(self._update_content_scrollbar)
+
+    def _update_content_scrollbar(self) -> None:
+        """Show a scrollbar only when the active page exceeds the viewport."""
+        canvas = self._content_canvas
+        region = canvas.bbox("all")
+        if region is None:
+            return
+        canvas.configure(scrollregion=region)
+        content_height = region[3] - region[1]
+        if content_height > canvas.winfo_height() + 1:
+            self._content_scrollbar.grid(row=0, column=1, sticky="ns")
+        else:
+            self._content_scrollbar.grid_remove()
+
     def _show_page(self, value: str) -> None:
         for name, page in self.pages.items():
             if name == value:
                 page.grid()
             else:
                 page.grid_remove()
+        for name, frame in self._action_frames.items():
+            if name == value:
+                frame.grid()
+            else:
+                frame.grid_remove()
+
+    def _scroll_content(self, event) -> str | None:
+        """Scroll the central viewport only while the pointer is over it."""
+        canvas = self._content_canvas
+        x, y = event.x_root, event.y_root
+        if not (canvas.winfo_rootx() <= x < canvas.winfo_rootx() + canvas.winfo_width()
+                and canvas.winfo_rooty() <= y < canvas.winfo_rooty() + canvas.winfo_height()):
+            return None
+        number = getattr(event, "num", None)
+        if number == 4:
+            amount = -1
+        elif number == 5:
+            amount = 1
+        else:
+            amount = -1 if getattr(event, "delta", 0) > 0 else 1
+        canvas.yview_scroll(amount, "units")
+        return "break"
 
     def _new_page(self, parent: tk.Frame) -> tk.Frame:
         page = tk.Frame(parent, bg=BACKGROUND)
@@ -326,7 +391,7 @@ class SortitonGUI:
                                              self.var_tags_folder)])
         self._rules_card(page, 1)
         self._preview_card(page, 2, "tags")
-        self._actions(page, 3, "tags", preview=lambda: self._run_tags(False),
+        self._actions("tags", preview=lambda: self._run_tags(False),
                       execute=lambda: self._run_tags(True),
                       execute_text=i18n.t("gui.button.write_tags"))
         return page
@@ -339,7 +404,7 @@ class SortitonGUI:
         self._pattern_row(options, 0, self.var_ren_pattern)
         self._hint(options, 2, i18n.t("gui.hint.rename_placeholders"))
         self._preview_card(page, 2, "rename")
-        self._actions(page, 3, "rename", preview=lambda: self._run_rename(False),
+        self._actions("rename", preview=lambda: self._run_rename(False),
                       execute=lambda: self._run_rename(True),
                       execute_text=i18n.t("gui.button.rename"))
         return page
@@ -355,7 +420,7 @@ class SortitonGUI:
         self._mode_row(options, 2, self.var_sort_mode)
         self._hint(options, 4, i18n.t("gui.hint.sort"))
         self._preview_card(page, 2, "sort")
-        self._actions(page, 3, "sort", preview=lambda: self._run_sort(False),
+        self._actions("sort", preview=lambda: self._run_sort(False),
                       execute=lambda: self._run_sort(True),
                       execute_text=i18n.t("gui.button.sort"))
         return page
@@ -371,7 +436,7 @@ class SortitonGUI:
         self._mode_row(options, 2, self.var_all_mode)
         self._hint(options, 4, i18n.t("gui.hint.all"))
         self._preview_card(page, 2, "all")
-        self._actions(page, 3, "all", preview=lambda: self._run_all(False),
+        self._actions("all", preview=lambda: self._run_all(False),
                       execute=lambda: self._run_all(True),
                       execute_text=i18n.t("gui.button.run_all"))
         return page
@@ -481,15 +546,15 @@ class SortitonGUI:
         if chosen:
             variable.set(chosen)
 
-    def _actions(self, page: tk.Frame, row: int, key: str, preview, execute,
-                 execute_text: str) -> None:
+    def _actions(self, key: str, preview, execute, execute_text: str) -> None:
         """Preview as the primary action, the changing one clearly separated.
 
         The changing button stays disabled until a preview for exactly these
         inputs has run.
         """
-        frame = tk.Frame(page, bg=BACKGROUND)
-        frame.grid(row=row, column=0, sticky="w", pady=(2, 4))
+        frame = tk.Frame(self._actions_area, bg=BACKGROUND)
+        frame.grid(row=0, column=0, sticky="w")
+        self._action_frames[key] = frame
 
         first = RoundButton(frame, i18n.t("gui.button.preview_create"), preview,
                             style="primary")
@@ -1035,7 +1100,7 @@ class SortitonGUI:
         self._rebuild_result_header(values.get("backup", ""))
         self._refresh_recent()
 
-    def _start(self, page: str, description: str, function, args, last_path: str,
+    def _start(self, page: str, description: str, function, args, last_path: str | Path,
                source: str = "", target_root: str = "") -> None:
         if self.running:
             return

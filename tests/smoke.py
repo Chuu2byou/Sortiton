@@ -509,12 +509,41 @@ def test_gui() -> None:
     try:
         gui = SortitonGUI(root)
         root.update()
+        region = gui._content_canvas.bbox("all")
+        content_overflows = (region is not None
+                             and region[3] - region[1]
+                             > gui._content_canvas.winfo_height() + 1)
+        check("scrollbar visibility matches content overflow",
+              gui._content_scrollbar.winfo_ismapped() == content_overflows)
+        check("result panel keeps its configured height",
+              gui._result_area.winfo_height() >= gui_app.RESULT_HEIGHT)
+        previous_geometry = root.geometry()
+        root.geometry("900x460")
+        root.update()
+        region = gui._content_canvas.bbox("all")
+        if (region is not None and region[3] - region[1]
+                > gui._content_canvas.winfo_height() + 1):
+            gui._content_canvas.yview_moveto(1)
+            root.update_idletasks()
+            position = gui._content_canvas.yview()[0]
+            gui._update_content_scrollbar()
+            root.update_idletasks()
+            check("layout refresh preserves scroll position",
+                  abs(gui._content_canvas.yview()[0] - position) < 0.01)
+        else:
+            check("small window creates scrollable content", False)
+        gui._content_canvas.yview_moveto(0)
+        root.geometry(previous_geometry)
+        root.update()
         for page in ("tags", "rename", "sort", "all"):
             gui._show_page(page)
             root.update()
+            check(f"{page} action bar is visible",
+                  gui._action_frames[page].winfo_ismapped())
         check("all pages exist",
               set(gui.pages) == {"tags", "rename", "sort", "all"},
               ", ".join(sorted(gui.pages)))
+        check("content viewport exists", gui._content_canvas.winfo_exists())
         check("window icon loaded", gui._icon_large is not None)
 
         gui._log_line("marker-123")

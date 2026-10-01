@@ -19,7 +19,7 @@ class PreferencesWindow:
         self.window = tk.Toplevel(parent)
         self.window.title(i18n.t("gui.settings.title"))
         self.window.configure(bg=BACKGROUND)
-        self.window.transient(parent)
+        self.window.transient(parent.winfo_toplevel())
         self.window.resizable(False, False)
         self.window.columnconfigure(0, weight=1)
 

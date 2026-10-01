@@ -7,6 +7,7 @@ say what will happen - so this window shows the counts and the backup switch.
 from __future__ import annotations
 
 import tkinter as tk
+from typing import cast
 
 from . import design
 from .design import BACKGROUND, FIELD, TEXT, TEXT_MUTED, YELLOW
@@ -27,7 +28,7 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
     window.withdraw()
     window.title(title)
     window.configure(bg=BACKGROUND)
-    window.transient(parent)
+    window.transient(parent.winfo_toplevel())
     window.resizable(False, False)
 
     state = {"confirmed": False}
