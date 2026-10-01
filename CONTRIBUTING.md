@@ -54,7 +54,8 @@ Notes:
 - `.pylintrc` disables warnings, conventions and refactorings (errors only), so
   naming and dead code are not checked.
 - Markdown prose stays at 80 columns; tables and code blocks are exempt.
-- CI: `.github/workflows/pylint.yml` on Python 3.8 / 3.9 / 3.10.
+- CI: `.github/workflows/pylint.yml` runs Pylint on Python 3.14 and smoke tests
+  on Python 3.12 / 3.13 / 3.14.
 - Security: `.github/workflows/security.yml` runs bandit at medium severity and
   above, pip-audit over both requirement files and detect-secrets. No CodeQL -
   code scanning is not available for private repositories, so the tools report
@@ -116,9 +117,8 @@ The scripts in the main folder are entry points; the logic lives in the
 
 ## Conventions
 
-- Target Python 3.8: no `match`, no `X | Y` at runtime (`Union` instead), no
-  `str.removeprefix`, no `Path.is_relative_to`. `from __future__ import
-  annotations` is set everywhere.
+- Target Python 3.12 or newer; the minimum supported version is declared in
+  `pyproject.toml`.
 - Every visible text lives in `sortiton/i18n.py`, in `_EN` **and** `_DE` (keep
   the lines aligned); `tests/smoke.py` enforces both catalogs and every
   `i18n.t("literal")`.

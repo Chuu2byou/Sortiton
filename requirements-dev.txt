@@ -15,8 +15,7 @@ pyinstaller>=6.0
 #   bandit          static analysis of the source
 #   pip-audit       advisories in requirements.txt / requirements-dev.txt
 #   detect-secrets  credentials committed by accident
-# The newest releases want Python 3.10+. On 3.8 pip falls back to bandit 1.7.9
-# and pip-audit 2.7.3, which still do the job.
+# CI runs these tools on Python 3.12.
 bandit>=1.7
 pip-audit>=2.7
 detect-secrets>=1.5

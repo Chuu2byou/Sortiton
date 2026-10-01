@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Union
 
 from . import i18n, journal
 from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, LOG_DIR,
@@ -26,8 +25,7 @@ from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_fi
 from .tags import probe_many, write_tags
 
 # CLI: argparse.Namespace, GUI: SimpleNamespace.
-# typing.Union instead of "A | B": the CI matrix also runs Python 3.8/3.9.
-CmdArgs = Union[argparse.Namespace, SimpleNamespace]
+CmdArgs = argparse.Namespace | SimpleNamespace
 
 _SUMMARY_LINE = "=" * 62
 _STEP_LINE = "#" * 62
