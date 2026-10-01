@@ -1,5 +1,5 @@
 [MAIN]
 # CI check for real errors (E) and fatal problems (F) only. Style (C),
 # refactoring (R) and warnings (W) stay off: they depend on the pylint version
-# (the CI matrix runs 3.8-3.10) and would fail on taste.
+# and would fail on taste.
 disable=W,C,R

@@ -33,7 +33,7 @@ Both come from [Releases](https://github.com/Chuu2byou/Sortiton/releases);
 not. Logs, backups, `settings.ini` and `my_rules.ini` live in
 `~/.local/share/sortiton/`; `SORTITON_DATA_DIR` moves the folder.
 
-From the source (Python 3.8 or newer):
+From the source (Python 3.12 or newer):
 
 ```bash
 sudo apt install ffmpeg python3-tk        # Debian/Ubuntu
