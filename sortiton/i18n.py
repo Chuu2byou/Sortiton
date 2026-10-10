@@ -38,6 +38,18 @@ _EN: dict[str, str] = {
     "cli.log_file": "  Log file: {path}",
     "cli.scan.help": "count files, albums and artists (nothing is changed)",
     "cli.scan.folder": "music folder (recursive)",
+    "cli.quiet": "suppress the progress line on stderr",
+    "cli.export.help": "Read a music folder and write reports for an LLM (read only)",
+    "cli.export.folder": "music folder (recursive)",
+    "cli.export.output": "output folder (default: in the export folder)",
+    "cli.export.chunk": "characters per tracks_partNN.tsv (default: 60000)",
+    "cli.export.examples": "examples per report section (default: 40)",
+    "cli.export.jsonl": "also write alle_tags.jsonl with all tags",
+    "cli.export.check_case": "flag upper/lower case differences only",
+    "cli.export.fingerprint": "compare audio fingerprints (needs fpcalc)",
+    "cli.export.fp_seconds": "seconds per fingerprint (default: 120)",
+    "cli.export.fp_threshold": "similarity threshold 0.0-1.0 (default: 0.70)",
+    "cli.export.threads": "parallel readers (default: number of CPUs)",
     "cli.tags.backup": "copy the files into a backup folder before writing",
     "cli.all.backup": "copy the files into a backup folder before writing",
     "cli.rule_warning": "  RULE WARNING: {text}",
@@ -57,9 +69,14 @@ _EN: dict[str, str] = {
     "external.hint.mutagen": "  mutagen is missing - run: pip install mutagen.",
 
     # export feature (read-only reports for an LLM)
+    "export.title": "EXPORT - reports for an LLM (read only)",
     "export.done": "  Done: {files} file(s) -> {outdir}",
+    "export.fp.cache": "  Fingerprints: {cached} from cache, {todo} to compute",
+    "export.fp.failed": ("  Note: {count} file(s) without fingerprint, "
+                         "details in fpcalc_fehler.log"),
     "export.error.threshold": "  ERROR: --fp-threshold must be between 0.0 and 1.0.",
     "export.error.no_files": "  ERROR: no audio files found.",
+    "export.error.tools": "  ERROR: neither mutagen nor ffprobe is available.",
 
     # output / log file
     "log.title": "# Sortiton - log",
@@ -289,6 +306,7 @@ _EN: dict[str, str] = {
     "gui.job.rename": "Rename",
     "gui.job.sort": "Sort",
     "gui.job.all": "Apply all",
+    "gui.job.export": "Export reports",
     "gui.job.preview": "{name} (preview)",
     "gui.job.run": "{name} (run)",
     "gui.log.job": "▶ {description}",
@@ -461,6 +479,18 @@ _DE: dict[str, str] = {
     "cli.log_file": "  Protokoll: {path}",
     "cli.scan.help": "Dateien, Alben und Künstler zählen (ändert nichts)",
     "cli.scan.folder": "Musikordner (rekursiv)",
+    "cli.quiet": "Fortschrittszeile auf stderr unterdrücken",
+    "cli.export.help": "Musikordner lesen und Berichte für ein LLM schreiben (nur lesend)",
+    "cli.export.folder": "Musikordner (rekursiv)",
+    "cli.export.output": "Ausgabeordner (Standard: im Export-Ordner)",
+    "cli.export.chunk": "Zeichen pro tracks_partNN.tsv (Standard: 60000)",
+    "cli.export.examples": "Beispiele pro Report-Abschnitt (Standard: 40)",
+    "cli.export.jsonl": "zusätzlich alle_tags.jsonl mit allen Tags schreiben",
+    "cli.export.check_case": "nur Groß-/Kleinschreibungs-Unterschiede melden",
+    "cli.export.fingerprint": "Audio-Fingerprints vergleichen (braucht fpcalc)",
+    "cli.export.fp_seconds": "Sekunden pro Fingerprint (Standard: 120)",
+    "cli.export.fp_threshold": "Ähnlichkeitsschwelle 0.0-1.0 (Standard: 0.70)",
+    "cli.export.threads": "parallele Leser (Standard: Anzahl der CPUs)",
     "cli.tags.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
     "cli.all.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
     "cli.rule_warning": "  REGEL-WARNUNG: {text}",
@@ -480,9 +510,14 @@ _DE: dict[str, str] = {
     "external.hint.mutagen": "  mutagen fehlt - bitte ausführen: pip install mutagen.",
 
     # Export-Feature (nur lesende Berichte für ein LLM)
+    "export.title": "EXPORT - Berichte für ein LLM (nur lesend)",
     "export.done": "  Fertig: {files} Datei(en) -> {outdir}",
+    "export.fp.cache": "  Fingerprints: {cached} aus Cache, {todo} neu zu berechnen",
+    "export.fp.failed": ("  Hinweis: {count} Datei(en) ohne Fingerprint, "
+                         "Details in fpcalc_fehler.log"),
     "export.error.threshold": "  FEHLER: --fp-schwelle muss zwischen 0.0 und 1.0 liegen.",
     "export.error.no_files": "  FEHLER: Keine Audiodateien gefunden.",
+    "export.error.tools": "  FEHLER: weder mutagen noch ffprobe verfügbar.",
 
     # Ausgabe / Protokolldatei
     "log.title": "# Sortiton - Protokoll",
@@ -713,6 +748,7 @@ _DE: dict[str, str] = {
     "gui.job.rename": "Umbenennen",
     "gui.job.sort": "Sortieren",
     "gui.job.all": "Alles anwenden",
+    "gui.job.export": "Berichte exportieren",
     "gui.job.preview": "{name} (Vorschau)",
     "gui.job.run": "{name} (ausführen)",
     "gui.log.job": "▶ {description}",

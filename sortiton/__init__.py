@@ -22,6 +22,7 @@ from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_fi
 from .tags import probe_many, probe_tags, write_tags
 from .tasks import (CmdArgs, cmd_all, cmd_rename, cmd_restore, cmd_rules, cmd_scan,
                     cmd_sort, cmd_tags)
+from .features.export import cmd_export
 
 __all__ = [
     "__version__",
@@ -42,6 +43,7 @@ __all__ = [
     "clean_text_field",
     "close_log_file",
     "cmd_all",
+    "cmd_export",
     "cmd_rename",
     "cmd_restore",
     "cmd_rules",
