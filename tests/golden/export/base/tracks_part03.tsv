@@ -1,0 +1,16 @@
+path	artist	albumartist	album	title	track	disc	year	genre	sek	kbps	codec	cover
+Artist H/Album Eight/01 - Eight 1.flac	Artist H	Artist H	Album Eight	Eight 1				Rock	0	60	FLAC	n
+Artist H/Album Eight/02 - Eight 2.flac	Artist H	Artist H	Album Eight	Eight 2				Rock	0	60	FLAC	n
+Artist H/Album Eight/03 - Eight 3.flac	Artist H	Artist H	Album Eight	Eight 3				Rock	0	60	FLAC	n
+Cover Artist/Cover Album/Art.flac	Cover Artist	Cover Artist	Cover Album	Art	1			Rock	0	60	FLAC	j
+Fp/other.opus	Fp Artist	Fp Artist	Fp Album	Other Song	2			Electronic	6	46	OggOpus	n
+Fp/same_a.opus	Fp Artist	Fp Artist	Fp Album	Same Song	1			Electronic	6	50	OggOpus	n
+Fp/same_b.mp3	Fp Artist	Fp Artist	Fp Album	Same Song	1			Electronic	6	48	MP3	n
+Sampler/01.mp3	Alpha		Sampler	Alpha One	1			Pop	1	128	MP3	n
+Sampler/02.mp3	Beta		Sampler	Beta One	1			Pop	1	128	MP3	n
+Sampler/03.mp3	Gamma		Sampler	Gamma One	2			Pop	1	128	MP3	n
+Sampler/04.mp3	Delta		Sampler	Delta One	3			Pop	1	128	MP3	n
+Sampler/05.mp3	Epsilon		Sampler	Epsilon One	4			Pop	1	128	MP3	n
+Wrong Folder/Album Three/01.flac	Artist C	Artist C	Different Album	Wrong One	1			Rock	0	60	FLAC	n
+Ünïcode/ほ.flac	Ünïcode	Ünïcode	Ünïcode Album	ほ	1			J-Pop	0	60	FLAC	n
+Ünïcode/ぼ.flac	Unicode	Unicode	Ünïcode Album	ぼ	2			J-Pop	0	60	FLAC	n
