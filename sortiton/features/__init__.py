@@ -1,18 +1,17 @@
 """The static feature registry: the CLI and the GUI read the very same tuple.
 
 Registration is explicit (no plugin loader): every feature is imported here by
-name, so the wheel and a PyInstaller build both see it. ``features/export`` is
-imported in step 1.5; until then the registry is empty on purpose.
+name, so the wheel and a PyInstaller build both see it.
 """
 
 from __future__ import annotations
 
 from .base import Feature
+from .export import FEATURE as _EXPORT
 
 __all__ = ["Feature", "FEATURES", "get"]
 
-# TODO(phase 1, step 1.5): FEATURES = (export.FEATURE,)
-FEATURES: tuple[Feature, ...] = ()
+FEATURES: tuple[Feature, ...] = (_EXPORT,)
 
 
 def get(key: str) -> Feature | None:
