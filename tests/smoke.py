@@ -9,6 +9,7 @@ Run:  python3 tests/smoke.py
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import os
 import re
@@ -219,6 +220,75 @@ def test_external_tools() -> None:
     check("external.error.missing in en+de",
           "external.error.missing" in i18n.catalog("en")
           and "external.error.missing" in i18n.catalog("de"))
+
+
+def test_features_base() -> None:
+    print("feature description (base)")
+    from sortiton.features import base, get
+
+    def _noop(args) -> int:
+        return 0
+
+    feature = base.Feature(
+        key="dummy",
+        title_key="",
+        help_key="",
+        run=_noop,
+        options=(
+            base.Option("folder", "folder", positional=True),
+            base.Option("text", "text", "x", flags=("--text",)),
+            base.Option("flag", "bool", False, flags=("--flag",)),
+            base.Option("count", "int", 3, flags=("--count",)),
+            base.Option("ratio", "float", 0.5, flags=("--ratio",)),
+            base.Option("mode", "choice", "a", flags=("--mode",), choices=("a", "b")),
+        ),
+    )
+
+    parser = argparse.ArgumentParser(prog="dummy")
+    sub = parser.add_subparsers(dest="command", required=True)
+    base.add_feature_parser(sub, feature)
+
+    given = parser.parse_args(["dummy", "FOLDER", "--text", "hi", "--flag",
+                               "--count", "5", "--ratio", "0.25", "--mode", "b"])
+    check("folder (positional) parsed", given.folder == "FOLDER")
+    check("text parsed", given.text == "hi")
+    check("bool parsed", given.flag is True)
+    check("int parsed", given.count == 5)
+    check("float parsed", given.ratio == 0.25)
+    check("choice parsed", given.mode == "b")
+
+    defaults = parser.parse_args(["dummy", "FOLDER"])
+    check("folder positional is required", defaults.folder == "FOLDER")
+    check("bool default", defaults.flag is False)
+    check("text default", defaults.text == "x")
+    check("int default", defaults.count == 3)
+    check("float default", defaults.ratio == 0.5)
+    check("choice default", defaults.mode == "a")
+
+    check("run wired as func", defaults.func is _noop)
+    check("feature wired on the namespace", defaults.feature is feature)
+
+    # resolve_args fills the options a GUI namespace left out, keeps the rest.
+    resolved = base.resolve_args(feature, SimpleNamespace(folder="FOLDER"))
+    check("resolve_args fills defaults",
+          resolved.flag is False and resolved.text == "x" and resolved.count == 3
+          and resolved.ratio == 0.5 and resolved.mode == "a")
+    check("resolve_args keeps given values",
+          base.resolve_args(feature, SimpleNamespace(folder="FOLDER", count=9)).count == 9)
+    check("resolve_args keeps the folder", resolved.folder == "FOLDER")
+
+    # A bool option that defaults to True is refused, not built wrongly.
+    stubborn = base.Feature(key="bad", title_key="", help_key="", run=_noop,
+                            options=(base.Option("x", "bool", True, flags=("--x",)),))
+    raised = False
+    try:
+        base.add_feature_parser(sub, stubborn)
+    except NotImplementedError:
+        raised = True
+    check("bool default True is refused", raised)
+
+    # The registry answers, and an unknown key gives None.
+    check("features.get on an unknown key returns None", get("nope") is None)
 
 
 def test_scan() -> None:
@@ -773,8 +843,8 @@ def test_gui() -> None:
 def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
-                 test_german_cli, test_external_tools, test_scan, test_export_fixture,
-                 test_export_reference,
+                 test_german_cli, test_external_tools, test_features_base, test_scan,
+                 test_export_fixture, test_export_reference,
                  test_journal, test_logs, test_screenshot_guard, test_restore, test_gui):
         test()
     print()
