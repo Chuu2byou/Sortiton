@@ -213,6 +213,113 @@ def test_export_fixture() -> None:
           (result.stdout or result.stderr).strip().splitlines()[-1][:120])
 
 
+def _load_export_helper():
+    """Load ``tests/export_golden.py`` by path (it is not an installed module)."""
+    target = BASE / "tests" / "export_golden.py"
+    spec = importlib.util.spec_from_file_location("export_golden", target)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _export_texts(directory: Path, helper,
+                  keep: tuple[str, ...] = ()) -> dict[str, str]:
+    """Normalized text of every stored file, optionally limited to a prefix."""
+    texts: dict[str, str] = {}
+    for path in sorted(directory.iterdir()):
+        if path.is_file() and (not keep or path.name.startswith(keep)):
+            texts[path.name] = helper.normalize_export_text(
+                path.read_text(encoding="utf-8"))
+    return texts
+
+
+def _first_difference(left: dict[str, str], right: dict[str, str]) -> str:
+    """Name the first differing file, so a failure stays readable."""
+    if sorted(left) != sorted(right):
+        return f"files: {sorted(left)} != {sorted(right)}"
+    for name in sorted(left):
+        if left[name] != right[name]:
+            return f"first difference in {name}"
+    return ""
+
+
+def _run_export_reference(script: Path, fixture: Path, outdir: Path,
+                          cache: Path, extra: tuple[str, ...]) -> int:
+    """Run the old script once; the caller reads the files it wrote."""
+    env = os.environ.copy()
+    env["XDG_CACHE_HOME"] = str(cache)      # keep the user's fingerprint cache out
+    env["LC_ALL"] = "C.UTF-8"
+    result = subprocess.run(
+        [sys.executable, str(script), str(fixture), "-o", str(outdir), *extra],
+        capture_output=True, text=True, encoding="utf-8", env=env,
+        timeout=600, check=False)
+    return result.returncode
+
+
+def test_export_reference() -> None:
+    """Temporary guard (step 0.4): the old script must reproduce the golden.
+
+    Runs ``musik_export.py`` on the committed fixture and compares the
+    normalized output with ``tests/golden/export``.  Replaced by
+    ``test_export_golden`` in step 1.9, together with the old script.
+    """
+    print("export reference (old script vs. golden)")
+    script = BASE / "musik_export.py"
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+    if not fixture.is_dir():
+        skip("export reference", "fixture missing")
+        return
+    if not script.is_file():
+        skip("export reference (musik_export.py)", "old script is gone")
+        return
+    if importlib.util.find_spec("mutagen") is None:
+        # The golden was built on the mutagen path; without it the old script
+        # falls back to ffprobe and the machine columns differ.
+        skip("export reference (needs mutagen)", "mutagen is missing")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        cache = work / "cache"
+
+        # Variant A twice: the same input must give the same bytes.
+        first, second = work / "base_a", work / "base_b"
+        rc_first = _run_export_reference(script, fixture, first, cache,
+                                         helper.BASE_ARGS)
+        rc_second = _run_export_reference(script, fixture, second, cache,
+                                          helper.BASE_ARGS)
+        check("export reference: base run works",
+              rc_first == 0 and rc_second == 0,
+              "" if rc_first == rc_second == 0 else f"{rc_first} / {rc_second}")
+
+        produced = _export_texts(first, helper)
+        repeated = _export_texts(second, helper)
+        check("export reference: two runs are identical", produced == repeated,
+              _first_difference(produced, repeated))
+
+        golden = _export_texts(helper.GOLDEN_DIR / "base", helper)
+        same_names = sorted(produced) == sorted(golden)
+        check("export reference: base file list matches", same_names,
+              "" if same_names else f"{sorted(produced)} != {sorted(golden)}")
+        for name in sorted(golden):
+            check(f"export reference: base/{name}",
+                  produced.get(name) == golden.get(name))
+
+        # Variant B: only the 01_* and 02_* files were stored.
+        case_out = work / "case"
+        rc_case = _run_export_reference(script, fixture, case_out, cache,
+                                        helper.CASE_ARGS)
+        check("export reference: case run works", rc_case == 0,
+              "" if rc_case == 0 else str(rc_case))
+        case_produced = _export_texts(case_out, helper, ("01_", "02_"))
+        case_golden = _export_texts(helper.GOLDEN_DIR / "case", helper)
+        for name in sorted(case_golden):
+            check(f"export reference: case/{name}",
+                  case_produced.get(name) == case_golden.get(name))
+
+
 def _restore_args(path, *, apply: bool = False, keep_copies: bool = False,
                   list_journals: bool = False):
     """The argument set cmd_restore expects (CLI: argparse, here a namespace)."""
@@ -628,8 +735,8 @@ def test_gui() -> None:
 def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
-                 test_german_cli, test_scan, test_export_fixture, test_journal, test_logs,
-                 test_screenshot_guard, test_restore, test_gui):
+                 test_german_cli, test_scan, test_export_fixture, test_export_reference,
+                 test_journal, test_logs, test_screenshot_guard, test_restore, test_gui):
         test()
     print()
     if FAILURES:
