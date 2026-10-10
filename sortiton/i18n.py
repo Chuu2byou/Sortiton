@@ -44,6 +44,18 @@ _EN: dict[str, str] = {
     "cli.custom_rules": "  Custom rules: {summary}  ({file})",
     "cli.cancelled": "  Cancelled.",
 
+    # external helpers (programs on PATH, optional Python modules)
+    "external.error.missing": "  ERROR: missing tool(s): {tools}",
+    "external.hint.ffprobe": ("  ffprobe is missing - install ffmpeg "
+                              "(Debian/Ubuntu: sudo apt install ffmpeg | "
+                              "Fedora: sudo dnf install ffmpeg | "
+                              "Arch: sudo pacman -S ffmpeg)."),
+    "external.hint.fpcalc": ("  fpcalc is missing - Debian/Ubuntu: "
+                             "sudo apt install libchromaprint-tools | "
+                             "Fedora: sudo dnf install chromaprint-tools | "
+                             "Arch: sudo pacman -S chromaprint."),
+    "external.hint.mutagen": "  mutagen is missing - run: pip install mutagen.",
+
     # output / log file
     "log.title": "# Sortiton - log",
     "log.start": "# Start   : {time}",
@@ -449,6 +461,18 @@ _DE: dict[str, str] = {
     "cli.rule_warning": "  REGEL-WARNUNG: {text}",
     "cli.custom_rules": "  Eigene Regeln: {summary}  ({file})",
     "cli.cancelled": "  Abgebrochen.",
+
+    # Externe Helfer (Programme im PATH, optionale Python-Module)
+    "external.error.missing": "  FEHLER: fehlende(s) Werkzeug(e): {tools}",
+    "external.hint.ffprobe": ("  ffprobe fehlt - bitte ffmpeg installieren "
+                              "(Debian/Ubuntu: sudo apt install ffmpeg | "
+                              "Fedora: sudo dnf install ffmpeg | "
+                              "Arch: sudo pacman -S ffmpeg)."),
+    "external.hint.fpcalc": ("  fpcalc fehlt - Debian/Ubuntu: "
+                             "sudo apt install libchromaprint-tools | "
+                             "Fedora: sudo dnf install chromaprint-tools | "
+                             "Arch: sudo pacman -S chromaprint."),
+    "external.hint.mutagen": "  mutagen fehlt - bitte ausführen: pip install mutagen.",
 
     # Ausgabe / Protokolldatei
     "log.title": "# Sortiton - Protokoll",

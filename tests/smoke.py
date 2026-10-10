@@ -185,6 +185,42 @@ def test_german_cli() -> None:
     check("SORTITON_LANG=de switches", "Regeldatei" in out.stdout)
 
 
+def test_external_tools() -> None:
+    print("external tools")
+    import unittest.mock as mock
+
+    from sortiton import external
+
+    # available() mirrors shutil.which for programs - both branches, patched.
+    with mock.patch.object(external.shutil, "which", return_value="/usr/bin/ffprobe"):
+        check("available(FFPROBE) sees a program on PATH",
+              external.available(external.FFPROBE))
+    with mock.patch.object(external.shutil, "which", return_value=None):
+        check("available(FFPROBE) reports a missing program",
+              not external.available(external.FFPROBE))
+
+    # Unpatched it has to agree with the real PATH.
+    check("available(FFPROBE) matches shutil.which",
+          external.available(external.FFPROBE) == (shutil.which("ffprobe") is not None))
+
+    # mutagen follows config.MUTAGEN_AVAILABLE (tests switch it off there).
+    with mock.patch.object(config, "MUTAGEN_AVAILABLE", False):
+        check("available(MUTAGEN) follows config (off)",
+              not external.available(external.MUTAGEN))
+    with mock.patch.object(config, "MUTAGEN_AVAILABLE", True):
+        check("available(MUTAGEN) follows config (on)",
+              external.available(external.MUTAGEN))
+
+    # Every hint key exists in both catalogs.
+    for tool in (external.FFPROBE, external.FPCALC, external.MUTAGEN):
+        ok = (tool.hint_key in i18n.catalog("en")
+              and tool.hint_key in i18n.catalog("de"))
+        check(f"hint key {tool.hint_key} in en+de", ok)
+    check("external.error.missing in en+de",
+          "external.error.missing" in i18n.catalog("en")
+          and "external.error.missing" in i18n.catalog("de"))
+
+
 def test_scan() -> None:
     print("folder scan")
     with tempfile.TemporaryDirectory() as tmp:
@@ -737,7 +773,8 @@ def test_gui() -> None:
 def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
-                 test_german_cli, test_scan, test_export_fixture, test_export_reference,
+                 test_german_cli, test_external_tools, test_scan, test_export_fixture,
+                 test_export_reference,
                  test_journal, test_logs, test_screenshot_guard, test_restore, test_gui):
         test()
     print()
