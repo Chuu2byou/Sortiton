@@ -15,8 +15,8 @@ from .files import build_name, free_path, free_target, iter_audio, safe_name, sa
 from .journal import (find_journals, latest_journal, read_journal, resolve_journal,
                       summarize as summarize_journal)
 from .output import (banner, close_log_file, last_stats, latest_log_file, message,
-                     open_log_file, report_plan, report_stats, set_logger, set_plan_sink,
-                     set_progress, set_stats_sink)
+                     open_log_file, progress, report_plan, report_stats, set_logger,
+                     set_plan_sink, set_progress, set_stats_sink)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
                     load_custom_rules, rules_status, rules_summary, rules_template)
 from .tags import probe_many, probe_tags, write_tags
@@ -60,6 +60,7 @@ __all__ = [
     "open_log_file",
     "probe_many",
     "probe_tags",
+    "progress",
     "read_journal",
     "report_plan",
     "report_stats",

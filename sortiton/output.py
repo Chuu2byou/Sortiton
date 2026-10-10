@@ -55,8 +55,13 @@ def set_progress(sink) -> None:
     _progress_sink = sink
 
 
-def _progress(current: int, total: int, text: str = "") -> None:
+def progress(current: int, total: int, text: str = "") -> None:
+    """Report progress to the current sink: ``sink(current, total, text)``."""
     _emit(_progress_sink, current, total, str(text))
+
+
+# Older modules (tasks.py) still import the former private name; keep it working.
+_progress = progress
 
 
 def set_plan_sink(sink) -> None:
