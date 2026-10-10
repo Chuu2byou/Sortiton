@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 logs/
 backups/
+exports/
+cache/
 
 # Build output of tools/build_app.sh
 build/

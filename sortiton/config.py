@@ -55,6 +55,10 @@ SETTINGS_FILE = Path(os.environ.get("SORTITON_SETTINGS", PROJECT_DIR / "settings
 # Copies of the original files, taken before tags are changed (GUI option).
 BACKUP_DIR = Path(os.environ.get("SORTITON_BACKUP_DIR", PROJECT_DIR / "backups"))
 
+# Where "sortiton export" puts its reports and where fingerprints are cached.
+EXPORT_DIR = Path(os.environ.get("SORTITON_EXPORT_DIR", PROJECT_DIR / "exports"))
+CACHE_DIR = Path(os.environ.get("SORTITON_CACHE_DIR", PROJECT_DIR / "cache"))
+
 # SORTITON_LANG overrides settings.ini.
 DEFAULT_LANGUAGE = "en"
 

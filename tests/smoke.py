@@ -27,6 +27,8 @@ _TMP = Path(tempfile.mkdtemp(prefix="sortiton-smoke-"))
 os.environ["SORTITON_SETTINGS"] = str(_TMP / "settings.ini")
 os.environ["SORTITON_RULES"] = str(_TMP / "my_rules.ini")
 os.environ["SORTITON_LOG_DIR"] = str(_TMP / "logs")
+os.environ["SORTITON_EXPORT_DIR"] = str(_TMP / "exports")
+os.environ["SORTITON_CACHE_DIR"] = str(_TMP / "cache")
 os.environ.pop("SORTITON_LANG", None)
 
 sys.path.insert(0, str(BASE))
