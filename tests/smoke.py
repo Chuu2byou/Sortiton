@@ -291,6 +291,176 @@ def test_features_base() -> None:
     check("features.get on an unknown key returns None", get("nope") is None)
 
 
+def test_features_registry() -> None:
+    """Step 1.9: the registry is well-formed and every key is translated."""
+    print("feature registry")
+    from sortiton.features import FEATURES
+
+    keys = [feature.key for feature in FEATURES]
+    check("feature keys are unique", len(keys) == len(set(keys)), ", ".join(keys))
+
+    problems: list[str] = []
+    missing_keys: list[str] = []
+    en, de = i18n.catalog("en"), i18n.catalog("de")
+
+    for feature in FEATURES:
+        if not callable(feature.run):
+            problems.append(f"{feature.key}: run is not callable")
+        names = [option.name for option in feature.options]
+        if len(names) != len(set(names)):
+            problems.append(f"{feature.key}: duplicate option name")
+        flags = [flag for option in feature.options for flag in option.flags]
+        if len(flags) != len(set(flags)):
+            problems.append(f"{feature.key}: duplicate flag")
+        for key in (feature.title_key, feature.help_key):
+            if key not in en or key not in de:
+                missing_keys.append(key)
+        for option in feature.options:
+            if option.help_key and (option.help_key not in en or option.help_key not in de):
+                missing_keys.append(option.help_key)
+        for requirement in feature.requires:
+            for tool in requirement.any_of:
+                if tool.hint_key and (tool.hint_key not in en or tool.hint_key not in de):
+                    missing_keys.append(tool.hint_key)
+
+    check("option names and flags are unique", not problems, "; ".join(problems))
+    check("every feature/option/tool key exists in en+de", not missing_keys,
+          ", ".join(sorted(set(missing_keys))))
+
+
+def test_features_isolation() -> None:
+    """Step 1.9: a feature must stay loadable without the GUI or the tasks.
+
+    Scans every module of ``sortiton/features`` for imports of the GUI or
+    ``tasks`` and for ``print``/``sys.exit``/``global QUIET`` - the rules that
+    keep a feature a loose plugin.
+    """
+    print("feature isolation")
+    import ast
+
+    imports: list[str] = []
+    calls: list[str] = []
+    for path in sorted((BASE / "sortiton" / "features").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in {"sortiton.gui", "sortiton.tasks"} or \
+                            alias.name.startswith(("sortiton.gui.", "sortiton.tasks.")):
+                        imports.append(f"{path.name}:{node.lineno} import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module in {"gui", "tasks"} or \
+                        module.startswith(("sortiton.gui", "sortiton.tasks")):
+                    imports.append(f"{path.name}:{node.lineno} from {module}")
+                for alias in node.names:
+                    if alias.name in {"gui", "tasks"}:
+                        imports.append(f"{path.name}:{node.lineno} imports {alias.name}")
+            elif isinstance(node, ast.Call):
+                function = node.func
+                if isinstance(function, ast.Name) and function.id == "print":
+                    calls.append(f"{path.name}:{node.lineno} print()")
+                elif isinstance(function, ast.Attribute) and function.attr == "exit" and \
+                        isinstance(function.value, ast.Name) and function.value.id == "sys":
+                    calls.append(f"{path.name}:{node.lineno} sys.exit()")
+            elif isinstance(node, ast.Global) and "QUIET" in node.names:
+                calls.append(f"{path.name}:{node.lineno} global QUIET")
+
+    check("features never import gui or tasks", not imports, "; ".join(imports[:3]))
+    check("features never print, exit or use global QUIET", not calls,
+          "; ".join(calls[:3]))
+
+
+def test_packages_complete() -> None:
+    """Step 1.9: every package of ``sortiton`` is listed for the wheel (P9)."""
+    print("wheel packages")
+    import tomllib
+
+    text = (BASE / "pyproject.toml").read_text(encoding="utf-8")
+    listed = set(tomllib.loads(text)["tool"]["setuptools"]["packages"])
+    needed = {path.parent.relative_to(BASE).as_posix().replace("/", ".")
+              for path in (BASE / "sortiton").rglob("__init__.py")}
+    missing = sorted(needed - listed)
+    check("pyproject lists every package with an __init__.py", not missing,
+          ", ".join(missing))
+
+
+def test_export_public_api() -> None:
+    """Step 1.9: the export entry point and progress are part of the public API."""
+    print("export public interface")
+    check("ms.cmd_export is public", hasattr(ms, "cmd_export") and "cmd_export" in ms.__all__)
+    check("ms.progress is public", hasattr(ms, "progress") and "progress" in ms.__all__)
+
+
+class _FakeTTY:
+    """A stream that claims to be a terminal and records what was written."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def write(self, data: str) -> int:
+        self.text += data
+        return len(data)
+
+    def flush(self) -> None:
+        """No-op: nothing is buffered."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+def test_console_progress() -> None:
+    """Step 1.9: the stderr sink throttles, ends the line and obeys ``--quiet``."""
+    print("console progress")
+    import unittest.mock as mock
+
+    from sortiton import cli
+
+    cli._progress_last = 0.0
+    cli._progress_open = False
+    stream = _FakeTTY()
+    with mock.patch.object(cli.sys, "stderr", stream):
+        cli.console_progress(1, 3, "a")
+        first = stream.text
+        cli.console_progress(2, 3, "b")          # too soon after the first
+        throttled = stream.text
+        cli.console_progress(3, 3, "c")          # last entry: always drawn
+        final = stream.text
+    check("the sink draws a progress line", first.startswith("\r") and "1/3" in first,
+          repr(first))
+    check("the sink throttles repeated writes", throttled == first)
+    check("the last entry ends the line", final.endswith("3/3  c\n"), repr(final))
+
+    def _run_main(quiet: bool):
+        """Call ``cli.main`` with a stub parser; return (rc, set_progress mock)."""
+        args = SimpleNamespace(command="export", feature=None, quiet=quiet,
+                               func=lambda _args: 0)
+        with mock.patch.object(cli, "_build_parser") as build, \
+                mock.patch.object(cli.sys, "argv", ["sortiton.py", "export"]), \
+                mock.patch.object(cli.sys, "stderr", _FakeTTY()), \
+                mock.patch.object(cli, "open_log_file", return_value=None), \
+                mock.patch.object(cli, "load_custom_rules", return_value=[]), \
+                mock.patch.object(cli, "rules_summary", return_value=""), \
+                mock.patch.object(output, "set_progress") as installed:
+            build.return_value.parse_args.return_value = args
+            rc = cli.main()
+        return rc, installed
+
+    cli._progress_last = 0.0
+    cli._progress_open = False
+    rc, installed = _run_main(False)
+    check("main runs on a TTY", rc == 0, str(rc))
+    check("a TTY installs the console sink", installed.call_count == 1)
+    check("the sink is cli.console_progress",
+          installed.call_args is not None
+          and installed.call_args.args[0] is cli.console_progress)
+
+    cli._progress_open = False
+    rc, installed = _run_main(True)
+    check("main runs with --quiet", rc == 0, str(rc))
+    check("--quiet installs no progress sink", not installed.called)
+
+
 def test_scan() -> None:
     print("folder scan")
     with tempfile.TemporaryDirectory() as tmp:
@@ -352,80 +522,278 @@ def _first_difference(left: dict[str, str], right: dict[str, str]) -> str:
     return ""
 
 
-def _run_export_reference(script: Path, fixture: Path, outdir: Path,
-                          cache: Path, extra: tuple[str, ...]) -> int:
-    """Run the old script once; the caller reads the files it wrote."""
-    env = os.environ.copy()
-    env["XDG_CACHE_HOME"] = str(cache)      # keep the user's fingerprint cache out
-    env["LC_ALL"] = "C.UTF-8"
-    result = subprocess.run(
-        [sys.executable, str(script), str(fixture), "-o", str(outdir), *extra],
-        capture_output=True, text=True, encoding="utf-8", env=env,
-        timeout=600, check=False)
-    return result.returncode
+def _export_args(fixture: Path, outdir: Path, **overrides) -> SimpleNamespace:
+    """Arguments for ``cmd_export`` the way the CLI would deliver them.
 
-
-def test_export_reference() -> None:
-    """Temporary guard (step 0.4): the old script must reproduce the golden.
-
-    Runs ``musik_export.py`` on the committed fixture and compares the
-    normalized output with ``tests/golden/export``.  Replaced by
-    ``test_export_golden`` in step 1.9, together with the old script.
+    ``cmd_export`` fills every field it does not find with the option default
+    (:func:`sortiton.features.base.resolve_args`), so a test only sets what it
+    means to change.
     """
-    print("export reference (old script vs. golden)")
-    script = BASE / "musik_export.py"
+    values = {"folder": str(fixture), "output": str(outdir)}
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_export_golden() -> None:
+    """Step 1.9: ``cmd_export`` reproduces the golden files of the old script.
+
+    Variant A is the plain run whose whole output was stored in
+    ``tests/golden/export/base``; variant B adds ``check_case`` and only
+    ``01_*``/``02_*`` were stored.  Both are compared after
+    ``normalize_export_text`` (folder and timestamp).
+    """
+    print("export golden")
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
     helper = _load_export_helper()
     fixture = helper.FIXTURE_DIR
     if not fixture.is_dir():
-        skip("export reference", "fixture missing")
-        return
-    if not script.is_file():
-        skip("export reference (musik_export.py)", "old script is gone")
+        skip("export golden", "fixture missing")
         return
     if importlib.util.find_spec("mutagen") is None:
-        # The golden was built on the mutagen path; without it the old script
-        # falls back to ffprobe and the machine columns differ.
-        skip("export reference (needs mutagen)", "mutagen is missing")
+        skip("export golden", "mutagen not installed")
         return
 
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        cache = work / "cache"
 
-        # Variant A twice: the same input must give the same bytes.
-        first, second = work / "base_a", work / "base_b"
-        rc_first = _run_export_reference(script, fixture, first, cache,
-                                         helper.BASE_ARGS)
-        rc_second = _run_export_reference(script, fixture, second, cache,
-                                          helper.BASE_ARGS)
-        check("export reference: base run works",
-              rc_first == 0 and rc_second == 0,
-              "" if rc_first == rc_second == 0 else f"{rc_first} / {rc_second}")
-
-        produced = _export_texts(first, helper)
-        repeated = _export_texts(second, helper)
-        check("export reference: two runs are identical", produced == repeated,
-              _first_difference(produced, repeated))
-
+        out = work / "base"
+        with mock.patch.object(output, "message"):
+            rc = cmd_export(_export_args(fixture, out, chunk_chars=1500,
+                                         examples=5, jsonl=True))
+        check("golden base run works", rc == 0, "" if rc == 0 else str(rc))
+        produced = _export_texts(out, helper)
         golden = _export_texts(helper.GOLDEN_DIR / "base", helper)
         same_names = sorted(produced) == sorted(golden)
-        check("export reference: base file list matches", same_names,
+        check("golden base file list matches", same_names,
               "" if same_names else f"{sorted(produced)} != {sorted(golden)}")
+        check("golden base output matches", produced == golden,
+              _first_difference(produced, golden))
         for name in sorted(golden):
-            check(f"export reference: base/{name}",
-                  produced.get(name) == golden.get(name))
+            check(f"golden base/{name}", produced.get(name) == golden.get(name))
 
         # Variant B: only the 01_* and 02_* files were stored.
         case_out = work / "case"
-        rc_case = _run_export_reference(script, fixture, case_out, cache,
-                                        helper.CASE_ARGS)
-        check("export reference: case run works", rc_case == 0,
-              "" if rc_case == 0 else str(rc_case))
+        with mock.patch.object(output, "message"):
+            rc_case = cmd_export(_export_args(fixture, case_out, chunk_chars=1500,
+                                              examples=5, jsonl=True, check_case=True))
+        check("golden case run works", rc_case == 0, "" if rc_case == 0 else str(rc_case))
         case_produced = _export_texts(case_out, helper, ("01_", "02_"))
         case_golden = _export_texts(helper.GOLDEN_DIR / "case", helper)
         for name in sorted(case_golden):
-            check(f"export reference: case/{name}",
-                  case_produced.get(name) == case_golden.get(name))
+            check(f"golden case/{name}", case_produced.get(name) == case_golden.get(name))
+
+
+def _export_columns(directory: Path, columns: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
+    """The given TSV columns of every row, keyed by path (chunking independent)."""
+    rows: dict[str, tuple[str, ...]] = {}
+    for path in sorted(directory.glob("tracks_part*.tsv")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        head = lines[0].split("\t")
+        index = [head.index(name) for name in columns]
+        for line in lines[1:]:
+            if line:
+                cells = line.split("\t")
+                rows[cells[index[0]]] = tuple(cells[i] for i in index)
+    return rows
+
+
+def _genre_values(value: str) -> frozenset[str]:
+    """Genre as a set: mutagen joins with ``" | "``, ffprobe with ``";"``."""
+    return frozenset(part.strip() for part in re.split(r"[;|]", value) if part.strip())
+
+
+def test_export_ffprobe_loose() -> None:
+    """Step 1.9: without mutagen the ffprobe reader yields the same tag columns.
+
+    Only the columns both readers fill from tags are compared; ``sek``,
+    ``kbps``, ``codec`` and ``cover`` come from different tools and may differ.
+    ``genre`` is compared as a set of values, because the two readers join
+    several genres differently.
+    """
+    print("export ffprobe reader")
+    import unittest.mock as mock
+
+    from sortiton import config as cfg
+    from sortiton.features.export import cmd_export
+
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+    if not fixture.is_dir():
+        skip("export ffprobe reader", "fixture missing")
+        return
+    if shutil.which("ffprobe") is None:
+        skip("export ffprobe reader", "ffprobe not installed")
+        return
+
+    columns = ("path", "artist", "albumartist", "album", "title", "track",
+               "disc", "year", "genre")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        with mock.patch.object(cfg, "MUTAGEN_AVAILABLE", False), \
+                mock.patch.object(output, "message"):
+            rc = cmd_export(_export_args(fixture, out, chunk_chars=1500, examples=5))
+        check("ffprobe run works", rc == 0, "" if rc == 0 else str(rc))
+        produced = _export_columns(out, columns)
+        golden = _export_columns(helper.GOLDEN_DIR / "base", columns)
+
+    check("ffprobe reads every file", sorted(produced) == sorted(golden),
+          ", ".join(sorted(set(produced) ^ set(golden))[:3]))
+    mismatched = []
+    for key in sorted(set(produced) & set(golden)):
+        for position, column in enumerate(columns):
+            left, right = produced[key][position], golden[key][position]
+            same = (_genre_values(left) == _genre_values(right) if column == "genre"
+                    else left == right)
+            if not same:
+                mismatched.append(f"{key}: {column} {left!r} != {right!r}")
+    check("ffprobe tag columns match the golden", not mismatched,
+          "; ".join(mismatched[:3]))
+
+
+def test_export_fingerprint() -> None:
+    """Step 1.9: a fingerprint run groups the identical pair, not the other file.
+
+    No byte comparison (fpcalc versions produce different fingerprints), only
+    the grouping in ``03_duplikate.md``.  The default ``fp_seconds`` is used:
+    the fixture chirp is 5.5 s and a shorter window would leave too few
+    sub-fingerprints for the comparison.
+    """
+    print("export fingerprint duplicates")
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+    if not fixture.is_dir():
+        skip("export fingerprint", "fixture missing")
+        return
+    if shutil.which("fpcalc") is None:
+        skip("export fingerprint", "fpcalc not installed")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        with mock.patch.object(output, "message"):
+            rc = cmd_export(_export_args(fixture, out, fingerprint=True))
+        check("fingerprint run works", rc == 0, "" if rc == 0 else str(rc))
+        report = out / "03_duplikate.md"
+        check("03_duplikate.md exists", report.is_file())
+        text = report.read_text(encoding="utf-8") if report.is_file() else ""
+        paired = any("same_a.opus" in line and "same_b.mp3" in line
+                     for line in text.splitlines())
+        check("the identical pair shares one group", paired)
+        check("the different file stays out of the groups", "other.opus" not in text)
+
+
+def _tree_digest(root: Path) -> list[tuple[str, int, int, str]]:
+    """Path, size, mtime (ns) and SHA-256 of every file under ``root``."""
+    import hashlib
+
+    digest: list[tuple[str, int, int, str]] = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            stat = path.stat()
+            digest.append((path.relative_to(root).as_posix(), stat.st_size,
+                           stat.st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest()))
+    return digest
+
+
+def test_export_source_untouched() -> None:
+    """Step 1.9: the export is read-only - the source tree stays untouched."""
+    print("export leaves the source alone")
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+    if not fixture.is_dir():
+        skip("export source untouched", "fixture missing")
+        return
+    if importlib.util.find_spec("mutagen") is None:
+        skip("export source untouched", "mutagen not installed")
+        return
+
+    before = _tree_digest(fixture)
+    with tempfile.TemporaryDirectory() as tmp:
+        with mock.patch.object(output, "message"):
+            rc = cmd_export(_export_args(fixture, Path(tmp) / "out", chunk_chars=1500,
+                                         examples=5, jsonl=True))
+    after = _tree_digest(fixture)
+    check("export run over the fixture works", rc == 0, "" if rc == 0 else str(rc))
+    check("the source tree is byte-identical afterwards", before == after,
+          f"{len(before)} file(s) checked")
+
+
+def test_export_errors() -> None:
+    """Step 1.9: the documented return codes of ``cmd_export``."""
+    print("export error paths")
+    import unittest.mock as mock
+
+    from sortiton import config as cfg, external
+    from sortiton.features.export import cmd_export
+
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        out = work / "out"
+        messages: list[str] = []
+
+        with mock.patch.object(output, "message", side_effect=messages.append):
+            rc = cmd_export(_export_args(fixture, out, fp_threshold=1.5))
+        check("a threshold outside 0..1 is an input error", rc == 2, str(rc))
+
+        with mock.patch.object(output, "message", side_effect=messages.append):
+            rc = cmd_export(_export_args(work / "missing", out))
+        check("a missing folder is an input error", rc == 2, str(rc))
+
+        empty = work / "empty"
+        empty.mkdir()
+        with mock.patch.object(output, "message", side_effect=messages.append):
+            rc = cmd_export(_export_args(empty, out))
+        check("an empty folder reports no files", rc == 1, str(rc))
+
+        messages.clear()
+        with mock.patch.object(cfg, "MUTAGEN_AVAILABLE", False), \
+                mock.patch.object(external.shutil, "which", return_value=None), \
+                mock.patch.object(output, "message", side_effect=messages.append):
+            rc = cmd_export(_export_args(fixture, out))
+        check("without mutagen and ffprobe it is an input error", rc == 2, str(rc))
+        check("the missing-tool hint is printed",
+              any("mutagen" in text for text in messages), str(messages[:1]))
+
+
+def test_export_cli() -> None:
+    """Step 1.9: the ``export`` sub-command and the German flag aliases."""
+    print("export cli")
+    script = BASE / "sortiton.py"
+    fixture = _load_export_helper().FIXTURE_DIR
+    command = [sys.executable, str(script), "export"]
+
+    help_en = subprocess.run(command + ["--help"], capture_output=True, text=True,
+                             check=False)
+    check("export --help lists --fp-threshold", "--fp-threshold" in help_en.stdout)
+
+    help_de = subprocess.run(command + ["--help"], capture_output=True, text=True,
+                             env={**os.environ, "SORTITON_LANG": "de"}, check=False)
+    check("export --help is German with SORTITON_LANG=de",
+          "Ähnlichkeitsschwelle" in help_de.stdout)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        run = subprocess.run(
+            command + [str(fixture), "--ausgabe", str(out), "--quiet"],
+            capture_output=True, text=True, check=False,
+            env={**os.environ, "SORTITON_LOG_DIR": str(Path(tmp) / "logs")})
+        check("export --ausgabe (alias) runs", run.returncode == 0,
+              "" if run.returncode == 0 else (run.stderr or run.stdout)[-120:])
+        check("export wrote its reports", (out / "01_zusammenfassung.md").is_file())
 
 
 def test_export_cache_migration() -> None:
@@ -903,9 +1271,13 @@ def test_gui() -> None:
 def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
-                 test_german_cli, test_external_tools, test_features_base, test_scan,
-                 test_export_fixture, test_export_reference, test_export_cache_migration,
-                 test_journal, test_logs, test_screenshot_guard, test_restore, test_gui):
+                 test_german_cli, test_external_tools, test_features_base, test_features_registry,
+                 test_features_isolation, test_packages_complete, test_scan,
+                 test_export_fixture, test_export_golden, test_export_ffprobe_loose,
+                 test_export_fingerprint, test_export_source_untouched, test_export_errors,
+                 test_export_cli, test_export_cache_migration, test_export_public_api,
+                 test_console_progress, test_journal, test_logs, test_screenshot_guard,
+                 test_restore, test_gui):
         test()
     print()
     if FAILURES:
