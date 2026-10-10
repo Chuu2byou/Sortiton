@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from collections import Counter, defaultdict
@@ -18,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from ... import output
+from ... import config, output
 from .analysis import lst, norm
 
 _popcount = (lambda x: x.bit_count()) if hasattr(int, "bit_count") else (lambda x: bin(x).count("1"))
@@ -47,11 +48,32 @@ def run_fpcalc(path, secs) -> tuple[Any, str]:
     return None, r.stderr.strip() or "keine FINGERPRINT-Ausgabe"
 
 
-def fp_cache_path(root: Path) -> Path:
+def _legacy_fp_cache_path(key: str) -> Path:
+    """Cache file the old standalone script used (read once, for migration)."""
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "musik_export"
-    base.mkdir(parents=True, exist_ok=True)
-    key = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
     return base / f"fp_{key}.json"
+
+
+def fp_cache_path(root: Path) -> Path:
+    """Fingerprint cache for ``root`` under ``SORTITON_CACHE_DIR``.
+
+    The first time it is missing, the cache of the old standalone script is
+    copied over once - otherwise every user would recompute all fingerprints
+    (hours for a large library). It is a copy, never a move or a delete, and the
+    cache format stays the same.
+    """
+    key = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
+    base = config.CACHE_DIR / "fingerprints"
+    base.mkdir(parents=True, exist_ok=True)
+    target = base / f"fp_{key}.json"
+    if not target.exists():
+        legacy = _legacy_fp_cache_path(key)
+        if legacy.is_file():
+            try:
+                shutil.copy2(legacy, target)
+            except OSError:
+                pass
+    return target
 
 
 def compute_fingerprints(recs, root: Path, secs: int,

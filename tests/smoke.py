@@ -428,6 +428,66 @@ def test_export_reference() -> None:
                   case_produced.get(name) == case_golden.get(name))
 
 
+def test_export_cache_migration() -> None:
+    """Step 1.7: the old fingerprint cache is taken over once.
+
+    The legacy cache lives in ``$XDG_CACHE_HOME/musik_export``, the new one in
+    ``SORTITON_CACHE_DIR/fingerprints``. With the old file copied over, a run
+    has to serve every file from the cache and call ``fpcalc`` for none of them.
+    """
+    print("export fingerprint cache migration")
+    import hashlib
+    import json
+    import unittest.mock as mock
+
+    from sortiton import config as cfg
+    from sortiton.features.export import fingerprint
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        root = work / "music"
+        root.mkdir()
+        recs = []
+        entries = {}
+        for name in ("a.flac", "b.flac"):
+            file = root / name
+            file.write_bytes(b"\x00" * 128)
+            stat = file.stat()
+            recs.append({"path": name})
+            entries[name] = {"meta": [stat.st_size, int(stat.st_mtime)],
+                             "k": "len3", "fp": [1, 2, 3]}
+
+        # The old script kept its cache under $XDG_CACHE_HOME/musik_export.
+        fake_xdg = work / "xdg-cache"
+        legacy_dir = fake_xdg / "musik_export"
+        legacy_dir.mkdir(parents=True)
+        key = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
+        legacy = legacy_dir / f"fp_{key}.json"
+        legacy.write_text(json.dumps(entries), encoding="utf-8")
+
+        new_dir = work / "cache"
+        calls: list[str] = []
+
+        def fake_fpcalc(path, secs):
+            calls.append(str(path))
+            return [9, 9, 9], ""
+
+        with mock.patch.object(cfg, "CACHE_DIR", new_dir), \
+                mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(fake_xdg)}), \
+                mock.patch.object(fingerprint, "run_fpcalc", fake_fpcalc):
+            fps = fingerprint.compute_fingerprints(recs, root, 3, 1, work)
+
+        migrated = new_dir / "fingerprints" / f"fp_{key}.json"
+        check("migration copies the legacy cache into the new place",
+              migrated.is_file(), str(migrated))
+        check("the legacy cache is kept (copy, not move)", legacy.is_file())
+        check("a migrated cache has nothing to compute (todo == 0)",
+              calls == [], str(calls))
+        check("every file is served from the cache", len(fps) == len(recs), str(fps))
+        check("the cached fingerprints are used",
+              all(fps.get(i) == [1, 2, 3] for i in range(len(recs))), str(fps))
+
+
 def _restore_args(path, *, apply: bool = False, keep_copies: bool = False,
                   list_journals: bool = False):
     """The argument set cmd_restore expects (CLI: argparse, here a namespace)."""
@@ -844,7 +904,7 @@ def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_scan,
-                 test_export_fixture, test_export_reference,
+                 test_export_fixture, test_export_reference, test_export_cache_migration,
                  test_journal, test_logs, test_screenshot_guard, test_restore, test_gui):
         test()
     print()
