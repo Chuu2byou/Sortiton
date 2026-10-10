@@ -195,6 +195,24 @@ def test_scan() -> None:
               cmd_scan(SimpleNamespace(folder=str(Path(tmp) / "nope"))) == 2)
 
 
+def test_export_fixture() -> None:
+    print("export fixture library")
+    fixture = BASE / "tests" / "fixtures" / "export_library"
+    script = BASE / "tools" / "make_export_fixture.py"
+    if not fixture.is_dir():
+        skip("export fixture present", "missing - run tools/make_export_fixture.py")
+        return
+    total = sum(item.stat().st_size for item in fixture.rglob("*") if item.is_file())
+    check("export fixture is under 300 kB", total < 300_000, f"{total} bytes")
+    if importlib.util.find_spec("mutagen") is None:
+        skip("export fixture matches the script", "mutagen is missing")
+        return
+    result = subprocess.run([sys.executable, str(script), "--check"],
+                            capture_output=True, text=True, check=False)
+    check("export fixture matches the script", result.returncode == 0,
+          (result.stdout or result.stderr).strip().splitlines()[-1][:120])
+
+
 def _restore_args(path, *, apply: bool = False, keep_copies: bool = False,
                   list_journals: bool = False):
     """The argument set cmd_restore expects (CLI: argparse, here a namespace)."""
@@ -610,7 +628,7 @@ def test_gui() -> None:
 def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
-                 test_german_cli, test_scan, test_journal, test_logs,
+                 test_german_cli, test_scan, test_export_fixture, test_journal, test_logs,
                  test_screenshot_guard, test_restore, test_gui):
         test()
     print()
