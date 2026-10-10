@@ -56,6 +56,11 @@ _EN: dict[str, str] = {
                              "Arch: sudo pacman -S chromaprint."),
     "external.hint.mutagen": "  mutagen is missing - run: pip install mutagen.",
 
+    # export feature (read-only reports for an LLM)
+    "export.done": "  Done: {files} file(s) -> {outdir}",
+    "export.error.threshold": "  ERROR: --fp-threshold must be between 0.0 and 1.0.",
+    "export.error.no_files": "  ERROR: no audio files found.",
+
     # output / log file
     "log.title": "# Sortiton - log",
     "log.start": "# Start   : {time}",
@@ -473,6 +478,11 @@ _DE: dict[str, str] = {
                              "Fedora: sudo dnf install chromaprint-tools | "
                              "Arch: sudo pacman -S chromaprint."),
     "external.hint.mutagen": "  mutagen fehlt - bitte ausführen: pip install mutagen.",
+
+    # Export-Feature (nur lesende Berichte für ein LLM)
+    "export.done": "  Fertig: {files} Datei(en) -> {outdir}",
+    "export.error.threshold": "  FEHLER: --fp-schwelle muss zwischen 0.0 und 1.0 liegen.",
+    "export.error.no_files": "  FEHLER: Keine Audiodateien gefunden.",
 
     # Ausgabe / Protokolldatei
     "log.title": "# Sortiton - Protokoll",

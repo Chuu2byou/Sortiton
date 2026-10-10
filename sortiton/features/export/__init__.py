@@ -32,8 +32,7 @@ def cmd_export(args: CmdArgs) -> int:
     args = resolve_args(FEATURE, args)
 
     if not 0.0 <= args.fp_threshold <= 1.0:
-        # TODO(phase 2): i18n
-        output.message("  FEHLER: --fp-schwelle muss zwischen 0.0 und 1.0 liegen.")
+        output.message(i18n.t("export.error.threshold"))
         return 2
 
     # The GUI does not go through cli.main, so the tool check lives here too.
@@ -56,8 +55,7 @@ def cmd_export(args: CmdArgs) -> int:
     use_ffprobe = external.available(external.FFPROBE)
     recs = reader.scan(root, args.threads, use_ffprobe=use_ffprobe)
     if not recs:
-        # TODO(phase 2): i18n
-        output.message("  FEHLER: Keine Audiodateien gefunden.")
+        output.message(i18n.t("export.error.no_files"))
         return 1
 
     summary = report.build_summary(recs, root, args.examples, args.check_case)
@@ -84,8 +82,7 @@ def cmd_export(args: CmdArgs) -> int:
                 handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     errors = sum(1 for rec in recs if rec["error"])
-    # TODO(phase 2): i18n
-    output.message(f"  Fertig: {len(recs)} Dateien -> {outdir.resolve()}")
+    output.message(i18n.t("export.done", files=len(recs), outdir=str(outdir.resolve())))
     output.report_stats("export", files=len(recs), errors=errors, parts=len(parts),
                         outdir=str(outdir.resolve()), duplicate_groups=duplicate_groups,
                         applied=False)
