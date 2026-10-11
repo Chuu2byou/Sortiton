@@ -87,6 +87,7 @@ run "imports" python3 -c "import sortiton, sortiton.cli, sortiton.gui.app"
 run "smoke test (tests/smoke.py)" python3 tests/smoke.py
 run "cli: --help" python3 sortiton.py --help
 run "cli: rules --builtin" python3 sortiton.py rules --builtin
+run "cli: export --help" python3 sortiton.py export --help
 
 if have pylint; then
     # Two runs: astroid mixes sortiton.py and sortiton/ up when both are in one

@@ -12,7 +12,9 @@
 #   Sortiton-<version>-<arch>.AppImage (only with --appimage)
 #
 # tkinter and mutagen go inside, ffmpeg does not - the app calls ffprobe/ffmpeg
-# on the target machine. Needs PyInstaller (requirements-dev.txt) and, for the
+# on the target machine. The export feature needs no extra flag: it is imported
+# statically by features/__init__.py, so PyInstaller finds it (there is no
+# plugin loader). Needs PyInstaller (requirements-dev.txt) and, for the
 # AppImage, appimagetool in $PATH or in $APPIMAGETOOL. The version is read from
 # sortiton/__init__.py.
 set -euo pipefail

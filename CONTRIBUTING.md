@@ -147,7 +147,9 @@ git push origin v1.0.0
 ```
 
 `tools/build_app.sh --appimage` builds the same files on this machine - the way
-to see a broken build before pushing the tag. The workflow runs on
+to see a broken build before pushing the tag. `dist/sortiton export --help`
+after a build proves that the frozen CLI carries the export feature (imported
+statically, so no plugin loader is needed). The workflow runs on
 ubuntu-22.04: a binary linked against a newer glibc refuses to start on an
 older distribution. A manual run (`workflow_dispatch`) only stores the files as
 workflow artifacts, without a release.
