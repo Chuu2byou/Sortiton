@@ -11,9 +11,11 @@ import os
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable
 
 from . import i18n, journal
 from .cancel import NO_CANCEL, Cancelled
@@ -315,9 +317,38 @@ def cmd_sort(args: CmdArgs) -> int:
     return 0
 
 
+@dataclass(frozen=True)
+class Step:
+    """One stage of the all-in-one pipeline: an i18n title key and its action."""
+
+    title_key: str
+    run: Callable[[], int]
+
+
+def _pipeline_steps(args: CmdArgs) -> list[Step]:
+    """The stages ``cmd_all`` runs, in order.
+
+    Built per run, not kept as a module constant, so a stage can read the
+    parsed arguments (see the optional fetch stage in step 4.5).
+    """
+    cancel = getattr(args, "cancel", NO_CANCEL)
+    return [
+        Step("task.step.tags",
+             lambda: cmd_tags(SimpleNamespace(folder=args.source, apply=args.apply,
+                                              backup=getattr(args, "backup", False),
+                                              cancel=cancel))),
+        Step("task.step.rename",
+             lambda: cmd_rename(SimpleNamespace(folder=args.source, pattern=args.pattern,
+                                                apply=args.apply, cancel=cancel))),
+        Step("task.step.sort",
+             lambda: cmd_sort(SimpleNamespace(source=args.source, target=args.target,
+                                              pattern=args.pattern, move=args.move,
+                                              apply=args.apply, cancel=cancel))),
+    ]
+
+
 def cmd_all(args: CmdArgs) -> int:
     """All-in-one: clean tags -> rename -> sort."""
-    cancel = getattr(args, "cancel", NO_CANCEL)
     banner(i18n.t("task.title.all"), not args.apply)
     message(i18n.t("task.label.source", value=args.source))
     message(i18n.t("task.label.target", value=args.target))
@@ -325,26 +356,14 @@ def cmd_all(args: CmdArgs) -> int:
     mode = i18n.t("task.action.move") if args.move else i18n.t("task.action.copy")
     message(i18n.t("task.label.mode", value=mode))
 
-    steps = [
-        (i18n.t("task.step.tags"),
-         lambda: cmd_tags(SimpleNamespace(folder=args.source, apply=args.apply,
-                                          backup=getattr(args, "backup", False),
-                                          cancel=cancel))),
-        (i18n.t("task.step.rename"),
-         lambda: cmd_rename(SimpleNamespace(folder=args.source, pattern=args.pattern,
-                                            apply=args.apply, cancel=cancel))),
-        (i18n.t("task.step.sort"),
-         lambda: cmd_sort(SimpleNamespace(source=args.source, target=args.target,
-                                          pattern=args.pattern, move=args.move,
-                                          apply=args.apply, cancel=cancel))),
-    ]
-
-    for title, step in steps:
+    steps = _pipeline_steps(args)
+    for step in steps:
+        title = i18n.t(step.title_key)
         message()
         message(_STEP_LINE)
         message(i18n.t("task.step", title=title))
         message(_STEP_LINE)
-        rc = step()
+        rc = step.run()
         if rc != 0:
             message(i18n.t("task.aborted", title=title, rc=rc))
             return rc
