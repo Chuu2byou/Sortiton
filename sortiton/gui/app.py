@@ -107,6 +107,10 @@ class SortitonGUI:
         self._rules_text: tk.Text | None = None
         self._rules_status: tk.StringVar | None = None
         self._rules_status_label: tk.Label | None = None
+        self._llm_window: tk.Toplevel | None = None
+        self._llm_text: tk.Text | None = None
+        self._llm_status: tk.StringVar | None = None
+        self._llm_status_label: tk.Label | None = None
         self._log_history: list[str] = []
         self.pages: dict[str, tk.Frame] = {}
 
@@ -196,6 +200,7 @@ class SortitonGUI:
         self._stats_labels = {}
         self._tool_widgets = {}
         self._prefs_window = None
+        self._llm_window = None
         # Keep the current size and position: only the very first build places
         # the window, otherwise a rebuild would recentre it (on two monitors
         # that is exactly the gap between the screens).
@@ -1378,13 +1383,21 @@ class SortitonGUI:
             Pill(pills, i18n.t("gui.pill.warnings", count=warnings),
                  YELLOW).pack(side="left")
 
-    def _rules_editor(self) -> None:
-        """Small editor window for my_rules.ini."""
+    def _rules_editor(self, prefill: str | None = None) -> None:
+        """Small editor window for my_rules.ini.
+
+        ``prefill`` (the INI block of a pasted LLM answer) wins over the file
+        content; the editor still only writes when the user presses Save, so
+        my_rules.ini is never overwritten on its own.
+        """
         if self._rules_window is not None:
             try:
                 if self._rules_window.winfo_exists():
                     self._rules_window.lift()
                     self._rules_window.focus_set()
+                    if prefill is not None:
+                        self._set_editor_text(prefill)
+                        self._set_rules_status(i18n.t("gui.rules.status.prefilled"), YELLOW)
                     return
             except tk.TclError:
                 pass
@@ -1431,7 +1444,9 @@ class SortitonGUI:
         x_scroll.grid(row=1, column=0, sticky="ew")
 
         content = ""
-        if config.RULES_FILE.is_file():
+        if prefill is not None:
+            content = prefill
+        elif config.RULES_FILE.is_file():
             try:
                 content = config.RULES_FILE.read_text(encoding="utf-8-sig")
             except (OSError, UnicodeDecodeError):
@@ -1448,6 +1463,8 @@ class SortitonGUI:
                                             bg=BACKGROUND, fg=TEXT_MUTED,
                                             font=design.FONT_SMALL)
         self._rules_status_label.grid(row=0, column=0, sticky="w")
+        if prefill is not None:
+            self._set_rules_status(i18n.t("gui.rules.status.prefilled"), YELLOW)
 
         buttons = tk.Frame(footer, bg=BACKGROUND)
         buttons.grid(row=1, column=0, sticky="e", pady=(10, 0))
@@ -1473,6 +1490,112 @@ class SortitonGUI:
                 self._rules_status_label.configure(fg=colour)
             except tk.TclError:
                 pass
+
+    def _set_editor_text(self, text: str) -> None:
+        """Replace the whole rules editor content with ``text``."""
+        if self._rules_text is None:
+            return
+        self._rules_text.delete("1.0", "end")
+        self._rules_text.insert("1.0", text)
+
+    def _llm_rules_import(self) -> None:
+        """Paste dialog: an LLM answer -> its INI block -> the rules editor.
+
+        Nothing is written here: the editor opens pre-filled and only its Save
+        button touches my_rules.ini.
+        """
+        if self._llm_window is not None:
+            try:
+                if self._llm_window.winfo_exists():
+                    self._llm_window.lift()
+                    self._llm_window.focus_set()
+                    return
+            except tk.TclError:
+                pass
+            self._llm_window = None
+
+        window = tk.Toplevel(self.root)
+        self._llm_window = window
+        window.title(i18n.t("gui.llm.title"))
+        window.configure(bg=BACKGROUND)
+        window.transient(self.root)
+        width, height = 760, 500
+        x = max(self.root.winfo_rootx() + (self.root.winfo_width() - width) // 2, 0)
+        y = max(self.root.winfo_rooty() + (self.root.winfo_height() - height) // 2, 0)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+        window.minsize(560, 340)
+        window.columnconfigure(0, weight=1)
+        window.rowconfigure(1, weight=1)
+
+        header = tk.Frame(window, bg=BACKGROUND)
+        header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
+        tk.Label(header, text=i18n.t("gui.llm.hint"), font=design.FONT_SMALL,
+                 bg=BACKGROUND, fg=TEXT_MUTED, wraplength=700, justify="left").grid(
+                     row=0, column=0, sticky="w")
+
+        frame = tk.Frame(window, bg=LOG_BG, highlightthickness=1,
+                         highlightbackground=BORDER, bd=0)
+        frame.grid(row=1, column=0, sticky="nsew", padx=20)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        self._llm_text = tk.Text(frame, wrap="none", undo=True, bg=LOG_BG, fg=LOG_TEXT,
+                                 insertbackground=TEXT, selectbackground=ACCENT,
+                                 relief="flat", bd=0, highlightthickness=0,
+                                 font=(design.FONT_MONO[0], 10), padx=12, pady=10)
+        y_scroll = ttk.Scrollbar(frame, orient="vertical", command=self._llm_text.yview,
+                                 style="Dark.Vertical.TScrollbar")
+        x_scroll = ttk.Scrollbar(frame, orient="horizontal", command=self._llm_text.xview,
+                                 style="Dark.Horizontal.TScrollbar")
+        self._llm_text.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+        self._llm_text.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        footer = tk.Frame(window, bg=BACKGROUND)
+        footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 16))
+        footer.columnconfigure(0, weight=1)
+        self._llm_status = tk.StringVar(value="")
+        self._llm_status_label = tk.Label(footer, textvariable=self._llm_status,
+                                          bg=BACKGROUND, fg=TEXT_MUTED,
+                                          font=design.FONT_SMALL, wraplength=700,
+                                          justify="left")
+        self._llm_status_label.grid(row=0, column=0, sticky="w")
+
+        buttons = tk.Frame(footer, bg=BACKGROUND)
+        buttons.grid(row=1, column=0, sticky="e", pady=(10, 0))
+        RoundButton(buttons, i18n.t("gui.button.cancel"), window.destroy,
+                    style="normal", height=32).pack(side="left")
+        RoundButton(buttons, i18n.t("gui.button.apply_rules"), self._llm_rules_apply,
+                    style="primary", height=32).pack(side="left", padx=(8, 0))
+
+        window.bind("<Escape>", lambda _e: window.destroy())
+        window.bind("<Control-Return>", lambda _e: self._llm_rules_apply())
+
+    def _set_llm_status(self, text: str, colour: str = TEXT_MUTED) -> None:
+        if self._llm_status is not None:
+            self._llm_status.set(text)
+        if self._llm_status_label is not None:
+            try:
+                self._llm_status_label.configure(fg=colour)
+            except tk.TclError:
+                pass
+
+    def _llm_rules_apply(self) -> None:
+        """Take the pasted answer, check its INI block and open the editor."""
+        text = self._llm_text.get("1.0", "end-1c") if self._llm_text is not None else ""
+        block = rules.extract_ini_block(text)
+        if not block.strip():
+            self._set_llm_status(i18n.t("gui.llm.status.empty"), YELLOW)
+            return
+        _parsed, warnings = rules.parse_custom_rules(block)
+        for warning in warnings:
+            self._log_line(i18n.t("gui.log.rule_warning", text=warning))
+        if warnings:
+            self._set_llm_status(i18n.t("gui.llm.status.warnings", count=len(warnings)),
+                                 YELLOW)
+        else:
+            self._set_llm_status(i18n.t("gui.llm.status.ok"), GREEN)
+        self._rules_editor(block)
 
     def _insert_template(self) -> None:
         text = self._rules_text

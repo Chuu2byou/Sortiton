@@ -18,7 +18,7 @@ from ..features.base import Feature, Option
 from . import design
 from .design import (ACCENT, BACKGROUND, BORDER, CARD, FIELD, FIELD_ACTIVE, TEXT,
                      TEXT_MUTED)
-from .widgets import Segments
+from .widgets import RoundButton, Segments
 
 # Up to this many features are shown as segments; more need a combobox.
 SEGMENT_LIMIT = 3
@@ -90,7 +90,19 @@ class ToolsTab(tk.Frame):
         for feature in FEATURES:
             self._forms[feature.key] = self._feature_card(feature, row)
             row += 1
+        self._llm_row(row)
         self._show(self.app.var_tool_choice.get())
+
+    def _llm_row(self, row: int) -> None:
+        """Button that hands a pasted LLM answer to the rules editor.
+
+        Kept on the tools tab (not in the action bar): it belongs to the
+        export cycle, not to a running job.
+        """
+        frame = tk.Frame(self, bg=BACKGROUND)
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 4))
+        RoundButton(frame, i18n.t("gui.button.paste_llm"), self.app._llm_rules_import,
+                    style="normal", height=34).pack(side="left")
 
     def _selection(self, row: int) -> None:
         """The feature picker: segments for a few features, else a combobox."""

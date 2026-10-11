@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import configparser
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import i18n
@@ -128,38 +129,57 @@ def _count(number: int, singular: str, plural: str) -> str:
     return i18n.t(key, count=number)
 
 
-def load_custom_rules(path: Path | None = None) -> list[str]:
-    """Read the custom rules file and refill the CUSTOM_* lists.
+@dataclass
+class CustomRules:
+    """The custom rules of one my_rules.ini - the same data the globals hold."""
+    artists: list[tuple[re.Pattern, str]]
+    regex: list[tuple[re.Pattern, str]]
+    genres: dict[str, str]
+    protected: list[tuple[re.Pattern, str]]
 
-    Returns the warnings (empty = all good); bad entries are skipped.
+
+# First ```ini fenced block of an LLM answer; without a closing fence the rest
+# of the answer counts (models sometimes truncate).
+_INI_BLOCK = re.compile(r"```[ \t]*ini[ \t]*\r?\n(.*?)(?:```|\Z)",
+                        re.DOTALL | re.IGNORECASE)
+
+
+def extract_ini_block(text: str) -> str:
+    """The INI part of an LLM answer: the first ```ini block, else the whole text.
+
+    The GUI uses this before :func:`parse_custom_rules`, so a chatty answer
+    ("Sure, here are the rules: …") is reduced to what can be parsed.
     """
-    global CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
-    CUSTOM_ARTISTS = []
-    CUSTOM_ARTIST_REGEX = []
-    CUSTOM_GENRES = {}
-    CUSTOM_PROTECTED = []
+    match = _INI_BLOCK.search(text or "")
+    if match:
+        return match.group(1).strip("\r\n")
+    return (text or "").strip("\r\n")
 
+
+def parse_custom_rules(text: str,
+                       file_name: str = RULES_FILE.name) -> tuple[CustomRules, list[str]]:
+    """Parse the content of a my_rules.ini - without touching the file system.
+
+    This is the working half of :func:`load_custom_rules`; the GUI uses it to
+    check a pasted LLM answer before it reaches the rules editor. Returns the
+    parsed rules and the warnings (empty = all good); bad entries are skipped.
+    """
+    artists: list[tuple[re.Pattern, str]] = []
+    artist_regex: list[tuple[re.Pattern, str]] = []
+    genres: dict[str, str] = {}
+    protected_rules: list[tuple[re.Pattern, str]] = []
     warnings: list[str] = []
-    file = Path(path) if path is not None else RULES_FILE
-    if not file.is_file():
-        return warnings
-
-    try:
-        content = file.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError) as error:
-        warnings.append(i18n.t("rules.warn.read", file=file.name, error=error))
-        return warnings
 
     # An indented line would count as a continuation of the line above (INI quirk).
-    content = "\n".join(line.lstrip() for line in content.splitlines())
+    content = "\n".join(line.lstrip() for line in text.splitlines())
 
     parser = configparser.ConfigParser(allow_no_value=True, interpolation=None, strict=False)
     parser.optionxform = lambda optionstr: optionstr  # keep key spelling
     try:
         parser.read_string(content)
     except configparser.Error as error:
-        warnings.append(i18n.t("rules.warn.invalid", file=file.name, error=error))
-        return warnings
+        warnings.append(i18n.t("rules.warn.invalid", file=file_name, error=error))
+        return CustomRules(artists, artist_regex, genres, protected_rules), warnings
 
     # Section names are accepted in English and German: the shipped
     # my_rules.ini uses German headings, the generated template English ones.
@@ -179,7 +199,7 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             if new is None:
                 warnings.append(i18n.t("rules.warn.artist_no_equals", rule=old))
                 continue
-            CUSTOM_ARTISTS.append((re.compile(re.escape(old), re.IGNORECASE), new))
+            artists.append((re.compile(re.escape(old), re.IGNORECASE), new))
 
     # [Artist Regex] / [Künstler Regex] - replacements using a regular expression
     regex = section("artist regex", "artist-regex", "regex", "künstler regex",
@@ -198,7 +218,7 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             except re.error as error:
                 warnings.append(i18n.t("rules.warn.regex_invalid", rule=pattern, error=error))
                 continue
-            CUSTOM_ARTIST_REGEX.append((checker, new))
+            artist_regex.append((checker, new))
 
     # [Genre] - spellings; an empty value deletes the genre
     genre = section("genre", "genres")
@@ -210,7 +230,7 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             if new is None:
                 warnings.append(i18n.t("rules.warn.genre_no_equals", rule=old))
                 continue
-            CUSTOM_GENRES[old] = new
+            genres[old] = new
 
     # [Protected] / [Geschützt] - names that stay as they are (optional spelling)
     protected = section("protected", "geschützt", "geschuetzt")
@@ -219,10 +239,38 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             word = word.strip()
             if not word:
                 continue
-            CUSTOM_PROTECTED.append(
+            protected_rules.append(
                 (re.compile(re.escape(word), re.IGNORECASE),
                  str(wanted).strip() if wanted else ""))
 
+    return CustomRules(artists, artist_regex, genres, protected_rules), warnings
+
+
+def load_custom_rules(path: Path | None = None) -> list[str]:
+    """Read the custom rules file and refill the CUSTOM_* lists.
+
+    Returns the warnings (empty = all good); bad entries are skipped.
+    """
+    global CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
+    CUSTOM_ARTISTS = []
+    CUSTOM_ARTIST_REGEX = []
+    CUSTOM_GENRES = {}
+    CUSTOM_PROTECTED = []
+
+    file = Path(path) if path is not None else RULES_FILE
+    if not file.is_file():
+        return []
+
+    try:
+        content = file.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as error:
+        return [i18n.t("rules.warn.read", file=file.name, error=error)]
+
+    parsed, warnings = parse_custom_rules(content, file.name)
+    CUSTOM_ARTISTS = parsed.artists
+    CUSTOM_ARTIST_REGEX = parsed.regex
+    CUSTOM_GENRES = parsed.genres
+    CUSTOM_PROTECTED = parsed.protected
     return warnings
 
 

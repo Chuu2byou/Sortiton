@@ -156,6 +156,28 @@ def test_custom_rules() -> None:
         check("protected spelling", rules.clean_artist("Foo/Bar") == "Foo / Bar")
         check("empty genre deletes", rules.clean_genre("junkgenre") == "")
 
+    # parse_custom_rules does the same work without the file system - the GUI
+    # uses it to check a pasted LLM answer before it reaches the editor.
+    parsed, warnings = rules.parse_custom_rules("[Artist]\nDJ Example = Example DJ\n")
+    check("parse_custom_rules is warning-free", not warnings, str(warnings))
+    check("parse_custom_rules reads a rule", len(parsed.artists) == 1, str(parsed.artists))
+    _parsed, warnings = rules.parse_custom_rules("[Genre]\njunkgenre\n")
+    check("parse_custom_rules reports a missing '='", len(warnings) == 1, str(warnings))
+    _parsed, warnings = rules.parse_custom_rules("this is = not an ini\n")
+    check("parse_custom_rules reports broken INI", len(warnings) == 1, str(warnings))
+
+    # extract_ini_block: the first ```ini block wins, otherwise the whole text.
+    answer = ("Sure, here are the rules:\n\n"
+              "```ini\n[Artist]\nDJ Example = Example DJ\n```\n\n"
+              "Tell me if you need more.")
+    check("extract_ini_block takes the fenced block",
+          rules.extract_ini_block(answer) == "[Artist]\nDJ Example = Example DJ",
+          repr(rules.extract_ini_block(answer)))
+    check("extract_ini_block falls back to the whole text",
+          rules.extract_ini_block("[Genre]\njunkgenre = ") == "[Genre]\njunkgenre = ")
+    check("extract_ini_block tolerates an unterminated fence",
+          rules.extract_ini_block("```ini\n[Artist]\na = b") == "[Artist]\na = b")
+
     rules.load_custom_rules()   # back to the real state (no file in the test env)
 
 
@@ -1526,6 +1548,37 @@ def test_gui() -> None:
                 check("tools export points Open folder at the report",
                       gui.last_path == outdir.resolve(), str(gui.last_path))
                 check("tools export wrote a report", (outdir / "00_prompt.md").is_file())
+
+        # Step 3.3: a pasted LLM answer is checked and handed to the rules
+        # editor; my_rules.ini is only written when the user presses Save there.
+        rules_file = config.RULES_FILE
+        existed = rules_file.exists()
+        gui._llm_rules_import()
+        root.update()
+        check("llm paste dialog builds",
+              gui._llm_window is not None and bool(gui._llm_window.winfo_exists()))
+        gui._llm_text.delete("1.0", "end")
+        gui._llm_text.insert(
+            "1.0", "Sure:\n\n```ini\n[Artist]\nDJ Example = Example DJ\n```\n")
+        gui._llm_rules_apply()
+        root.update()
+        check("llm apply opens the pre-filled rules editor",
+              gui._rules_text is not None
+              and "DJ Example = Example DJ" in gui._rules_text.get("1.0", "end-1c"))
+        check("llm apply never saves on its own", rules_file.exists() == existed)
+
+        gui._llm_text.delete("1.0", "end")
+        gui._llm_text.insert("1.0", "```ini\n[Genre]\nbroken\n```\n")
+        gui._llm_rules_apply()
+        root.update()
+        check("llm apply reports warnings in the log",
+              any("broken" in line for line in gui._log_history))
+
+        if gui._llm_window is not None and gui._llm_window.winfo_exists():
+            gui._llm_window.destroy()
+        if gui._rules_window is not None and gui._rules_window.winfo_exists():
+            gui._rules_window.destroy()
+        root.update()
     finally:
         root.destroy()
 

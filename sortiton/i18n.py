@@ -422,6 +422,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     # GUI
     "gui.window.title": "Sortiton",
     "gui.button.custom_rules": "Custom Rules …",
+    "gui.button.paste_llm": "Paste LLM answer",
     "gui.chip.ffprobe_checking": "ffprobe …",
     "gui.chip.mutagen_checking": "mutagen …",
     "gui.chip.ffprobe_ok": "ffprobe ✓",
@@ -450,6 +451,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.button.system_editor": "System editor",
     "gui.button.cancel": "Cancel",
     "gui.button.save": "Save",
+    "gui.button.apply_rules": "Apply",
     "gui.label.music_folder": "Music folder",
     "gui.label.source_folder": "Source folder",
     "gui.label.target_folder": "Target folder",
@@ -529,9 +531,17 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.rules.status.saved_warnings": "Saved, {count} warnings - see the log",
     "gui.rules.status.saved": "Saved ✓  ({summary})",
     "gui.rules.status.none": "no entries",
+    "gui.rules.status.prefilled": "Prefilled from the LLM answer - not saved yet",
     "gui.rules.confirm_template.title": "Insert template?",
     "gui.rules.confirm_template.text": ("The text in the field will be replaced by the template - "
                                         "the file itself stays unchanged until you save."),
+    "gui.llm.title": "Paste LLM answer",
+    "gui.llm.hint": ("Paste the LLM's answer here. Its first ```ini block is used - "
+                     "without one the whole text. Nothing is saved automatically; the "
+                     "rules editor opens pre-filled so you can review it."),
+    "gui.llm.status.empty": "Nothing pasted yet",
+    "gui.llm.status.ok": "No warnings - opening the rules editor",
+    "gui.llm.status.warnings": "{count} warning(s) - see the log; opening the rules editor",
     "gui.language.de": "DE",
     "gui.language.en": "EN",
     "gui.dialog.busy.title": "Please wait",
@@ -1074,6 +1084,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     # GUI
     "gui.window.title": "Sortiton",
     "gui.button.custom_rules": "Eigene Regeln …",
+    "gui.button.paste_llm": "LLM-Antwort einfügen",
     "gui.chip.ffprobe_checking": "ffprobe …",
     "gui.chip.mutagen_checking": "mutagen …",
     "gui.chip.ffprobe_ok": "ffprobe ✓",
@@ -1102,6 +1113,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.button.system_editor": "System-Editor",
     "gui.button.cancel": "Abbrechen",
     "gui.button.save": "Speichern",
+    "gui.button.apply_rules": "Übernehmen",
     "gui.label.music_folder": "Musikordner",
     "gui.label.source_folder": "Quellordner",
     "gui.label.target_folder": "Zielordner",
@@ -1182,9 +1194,17 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.rules.status.saved_warnings": "Gespeichert, {count} Warnungen – siehe Protokoll",
     "gui.rules.status.saved": "Gespeichert ✓  ({summary})",
     "gui.rules.status.none": "keine Einträge",
+    "gui.rules.status.prefilled": "Aus der LLM-Antwort vorbelegt – noch nicht gespeichert",
     "gui.rules.confirm_template.title": "Vorlage einfügen?",
     "gui.rules.confirm_template.text": ("Der Text im Feld wird durch die Vorlage ersetzt – die Datei "
                                         "selbst bleibt unverändert, bis du speicherst."),
+    "gui.llm.title": "LLM-Antwort einfügen",
+    "gui.llm.hint": ("Hier die Antwort des LLM einfügen. Es wird der erste ```ini-Block "
+                     "verwendet – ohne einen der ganze Text. Nichts wird automatisch "
+                     "gespeichert; der Regeleditor öffnet vorbelegt zur Prüfung."),
+    "gui.llm.status.empty": "Noch nichts eingefügt",
+    "gui.llm.status.ok": "Keine Warnungen – Regeleditor wird geöffnet",
+    "gui.llm.status.warnings": "{count} Warnung(en) – siehe Protokoll; Regeleditor wird geöffnet",
     "gui.language.de": "DE",
     "gui.language.en": "EN",
     "gui.dialog.busy.title": "Bitte warten",
