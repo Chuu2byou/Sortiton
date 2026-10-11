@@ -5,25 +5,23 @@ late (the project treats it as an optional dependency, see
 :mod:`sortiton.tags`); ``ffprobe`` is the fallback when mutagen is missing or
 when a file cannot be read with it.
 
-The extension list is deliberately wider than
-:data:`sortiton.config.AUDIO_EXTENSIONS`: it also covers MP4/Ogg-Audio and AIFF,
-formats the tag/rename/sort paths must leave alone.
+The extension list is :data:`sortiton.config.READ_EXTENSIONS`, deliberately
+wider than :data:`sortiton.config.AUDIO_EXTENSIONS`: it also covers
+MP4/Ogg-Audio and AIFF, formats the tag/rename/sort paths must leave alone. The
+scan reuses :func:`sortiton.files.iter_audio`, so hidden files and folders are
+skipped just like in every other Sortiton command.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 from ... import config, output
-
-# MP4 containers are searched for readable audio tags and streams too.
-EXPORT_EXTENSIONS = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4", ".aac",
-                     ".wav", ".wma", ".ape", ".wv", ".aiff", ".aif", ".mpc"}
+from ...files import iter_audio
 
 CORE = ["artist", "albumartist", "album", "title", "track", "disc", "year", "genre"]
 ALIASES = {
@@ -197,14 +195,15 @@ def read_file(root, path, *, use_ffprobe):
 
 
 def scan(root, workers, *, use_ffprobe):
-    """Walk ``root`` and read every audio file; report progress per file."""
-    files = []
-    for dp, _dn, fn in os.walk(root):
-        for n in fn:
-            p = Path(dp) / n
-            if p.suffix.lower() in EXPORT_EXTENSIONS:
-                files.append(p)
-    files.sort(key=lambda p: p.relative_to(root).as_posix().casefold())
+    """Walk ``root`` and read every audio file; report progress per file.
+
+    :func:`sortiton.files.iter_audio` with :data:`sortiton.config.READ_EXTENSIONS`
+    skips hidden files and folders (like every other Sortiton command) and
+    accepts the read-only formats; the records are sorted by the casefolded
+    relative path, the sort key the export has always used.
+    """
+    files = sorted(iter_audio(root, config.READ_EXTENSIONS),
+                   key=lambda p: p.relative_to(root).as_posix().casefold())
     total = len(files)
 
     def _read(pair):

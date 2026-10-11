@@ -50,4 +50,4 @@ My sorting software (Sortiton) works with rules in a `my_rules.ini`.
 - Work through the parts in order; output only the *changes* per part.
 - At the end: one merged, deduplicated `my_rules.ini`.
 
-There are 42 file(s) in 3 part(s). Start with the summary.
+There are 41 file(s) in 3 part(s). Start with the summary.

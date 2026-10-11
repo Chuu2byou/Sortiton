@@ -385,6 +385,14 @@ def test_packages_complete() -> None:
           ", ".join(missing))
 
 
+def test_read_extensions() -> None:
+    """Step 2.2: reading accepts more formats than writing touches (P2)."""
+    print("read extensions")
+    check("AUDIO_EXTENSIONS keeps the read-only formats out",
+          not {".mp4", ".oga", ".aif"} & config.AUDIO_EXTENSIONS,
+          str(sorted(config.AUDIO_EXTENSIONS)))
+
+
 def test_export_public_api() -> None:
     """Step 1.9: the export entry point and progress are part of the public API."""
     print("export public interface")
@@ -1317,7 +1325,8 @@ def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
-                 test_features_isolation, test_packages_complete, test_scan,
+                 test_features_isolation, test_packages_complete, test_read_extensions,
+                 test_scan,
                  test_export_fixture, test_export_golden, test_export_golden_en,
                  test_export_ffprobe_loose,
                  test_export_fingerprint, test_export_source_untouched, test_export_errors,

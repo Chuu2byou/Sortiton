@@ -19,16 +19,16 @@ _Hints only, no proven errors. The comparison ignores case, accents, spaces and 
 
 - (none)
 
-## Top folder does not match the album artist/artist tag (9 pairs)
+## Top folder does not match the album artist/artist tag (8 pairs)
 
 _Already factored out: truncated folder names (from 25 characters accepted as the start of the tag) and folders that match one of several artists in the tag (0 files affected, folder and album check together)._
 
 - Folder "Fp" <-> tag "Fp Artist" (3x)
-- Folder ".hidden" <-> tag "Hidden Artist" (1x)
 - Folder "Sampler" <-> tag "Alpha" (1x)
 - Folder "Sampler" <-> tag "Beta" (1x)
 - Folder "Sampler" <-> tag "Gamma" (1x)
-- ... (4 more)
+- Folder "Sampler" <-> tag "Delta" (1x)
+- ... (3 more)
 
 ## Album folder does not match the album tag (1 pairs)
 

@@ -50,4 +50,4 @@ Meine Sortier-Software (Sortiton) arbeitet mit Regeln in einer `my_rules.ini`.
 - Arbeite die Teile der Reihe nach ab; gib pro Teil nur die *Änderungen* aus.
 - Am Ende: eine zusammengeführte, deduplizierte `my_rules.ini`.
 
-Es gibt 42 Datei(en) in 3 Teil(en). Fang mit der Zusammenfassung an.
+Es gibt 41 Datei(en) in 3 Teil(en). Fang mit der Zusammenfassung an.

@@ -127,13 +127,18 @@ def same_content(a: Path, b: Path) -> bool:
         return False
 
 
-def iter_audio(root: Path):
-    """Yield every audio file below ``root`` (hidden entries are ignored)."""
+def iter_audio(root: Path, extensions: set[str] = AUDIO_EXTENSIONS):
+    """Yield every audio file below ``root`` (hidden entries are ignored).
+
+    ``extensions`` is the set of file name suffixes to accept; the default is
+    :data:`sortiton.config.AUDIO_EXTENSIONS`. Read-only features pass the wider
+    :data:`sortiton.config.READ_EXTENSIONS`.
+    """
     for folder, subfolders, files in os.walk(root):
         subfolders[:] = [d for d in subfolders if not d.startswith(".")]
         for name in sorted(files):
             if name.startswith("."):
                 continue
             path = Path(folder) / name
-            if path.suffix.lower() in AUDIO_EXTENSIONS:
+            if path.suffix.lower() in extensions:
                 yield path

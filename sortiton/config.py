@@ -31,6 +31,12 @@ AUDIO_EXTENSIONS = {
     ".opus", ".ape", ".mpc", ".wv",
 }
 
+# A few more formats a read-only feature may look at (MP4/Ogg-Audio and AIFF)
+# but that the tag/rename/sort paths must leave alone - they would otherwise
+# touch video files. Only read-only features use READ_EXTENSIONS; every writing
+# command keeps using AUDIO_EXTENSIONS.
+READ_EXTENSIONS = AUDIO_EXTENSIONS | {".oga", ".mp4", ".aiff", ".aif"}
+
 FALLBACK_ARTIST = "_Unknown"
 MAX_NAME_LENGTH = 120
 

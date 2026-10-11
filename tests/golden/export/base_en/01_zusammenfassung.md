@@ -2,14 +2,14 @@
 
 - Folder: <ROOT>
 - Created: <DATE>
-- Files: **42** (read errors: 1)
+- Files: **41** (read errors: 1)
 - Total size: 0.00 GB
 - Total duration: 0.0 hours
 - Loose files directly in the root folder (unsorted): 2
 
 ## Formats
 
-- flac: 28
+- flac: 27
 - mp3: 8
 - opus: 3
 - m4a: 2
@@ -18,18 +18,18 @@
 - Bitrate MP4: median 69 kbps, below 96 kbps: 2 of 2
 - Bitrate OggOpus: median 50 kbps, below 80 kbps: 3 of 3
 - Bitrate OggVorbis: median 40 kbps, below 96 kbps: 1 of 1
-- Without cover: 40
+- Without cover: 39
 
 ## Missing tags (number of files; `disc` is usually missing for single CDs)
 
 - artist: 0 (0.0 %)
-- albumartist: 7 (17.1 %)
-- album: 2 (4.9 %)
+- albumartist: 7 (17.5 %)
+- album: 2 (5.0 %)
 - title: 0 (0.0 %)
-- track: 6 (14.6 %)
-- year: 35 (85.4 %)
+- track: 6 (15.0 %)
+- year: 34 (85.0 %)
 - genre: 0 (0.0 %)
-- disc: 35 (85.4 %; usually fine for single CDs)
+- disc: 34 (85.0 %; usually fine for single CDs)
 
 ## Top folders (files)
 
@@ -38,11 +38,11 @@
 - Sampler: 5
 - Artist B: 4
 - Artist D: 4
-- ... (9 more)
+- ... (8 more)
 
 ## Genres (all, with count)
 
-- Rock: 24
+- Rock: 23
 - Pop: 9
 - J-Pop: 6
 - Electronic: 3

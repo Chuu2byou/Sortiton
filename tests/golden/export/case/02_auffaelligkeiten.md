@@ -19,16 +19,16 @@ _Nur Hinweise, keine bewiesenen Fehler. Verglichen wird ohne Groß/Klein, Akzent
 
 - (keine)
 
-## Oberster Ordner passt nicht zu Album-Künstler/Künstler-Tag (9 Paare)
+## Oberster Ordner passt nicht zu Album-Künstler/Künstler-Tag (8 Paare)
 
 _Schon herausgerechnet: gekappte Ordnernamen (ab 25 Zeichen als Anfang des Tags akzeptiert) und Ordner, die einem von mehreren Künstlern im Tag entsprechen (0 Dateien betroffen, Ordner- und Album-Prüfung zusammen)._
 
 - Ordner "Fp" <-> Tag "Fp Artist" (3x)
-- Ordner ".hidden" <-> Tag "Hidden Artist" (1x)
 - Ordner "Sampler" <-> Tag "Alpha" (1x)
 - Ordner "Sampler" <-> Tag "Beta" (1x)
 - Ordner "Sampler" <-> Tag "Gamma" (1x)
-- ... (4 weitere)
+- Ordner "Sampler" <-> Tag "Delta" (1x)
+- ... (3 weitere)
 
 ## Album-Ordner passt nicht zum Album-Tag (1 Paare)
 

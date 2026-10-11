@@ -1,6 +1,4 @@
 path	artist	albumartist	album	title	track	disc	year	genre	sek	kbps	codec	cover
-Artist D/Album Four/CD2/01 - Disc Two A.flac	Artist D	Artist D	Album Four	Disc Two A	1	2/2		Rock	0	60	FLAC	n
-Artist D/Album Four/CD2/02 - Disc Two B.flac	Artist D	Artist D	Album Four	Disc Two B	2	2/2		Rock	0	60	FLAC	n
 Artist E/Album Five/01 - Cherry.flac	Artist E	Artist E	Album Five	Cherry	1		2001-05-04	J-Pop | Rock	0	60	FLAC	n
 Artist E/Album Five/02 - Sakura.flac	Artist E	Artist E	Album Five	Sakura	2		04.05.2001	J-Pop	0	60	FLAC	n
 Artist E/Album Five/03 - Hana.flac	Artist E	Artist E	Album Five	Hana	3		Spring 2001	Rock	0	60	FLAC	n

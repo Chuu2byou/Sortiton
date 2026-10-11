@@ -1,7 +1,6 @@
 path	artist	albumartist	album	title	track	disc	year	genre	sek	kbps	codec	cover
 broken.mp3									0	0	?	n
 loose.mp3	Loose Artist			Loose Track				Rock	1	128	MP3	n
-.hidden/secret.flac	Hidden Artist	Hidden Artist	Hidden Album	Secret	1			Rock	0	60	FLAC	n
 ALLCAPS ARTIST/ALLCAPS ALBUM/LOUD SONG.flac	ALLCAPS ARTIST	ALLCAPS ARTIST	ALLCAPS ALBUM	LOUD SONG	1			Rock	0	60	FLAC	n
 Artist A/Album One/01 - Song One.flac	Artist A	Artist A	Album One	Song One	1/3	1	2001	Rock	0	60	FLAC	n
 Artist A/Album One/02 - Song Two.flac	Artist A	Artist A	Album One	Song Two	2/3	1	2001	Rock	0	60	FLAC	n
@@ -12,3 +11,5 @@ Artist B/Album Two/03 - Same Song (2).m4a	Artist B	Artist B	Album Two	Same Song	
 Artist B/Singles/Same Song.m4a	Artist B			Same Song				Pop	1	69	MP4	n
 Artist D/Album Four/CD1/01 - Disc One A.flac	Artist D	Artist D	Album Four	Disc One A	1	1/2		Rock	0	60	FLAC	n
 Artist D/Album Four/CD1/02 - Disc One B.flac	Artist D	Artist D	Album Four	Disc One B	2	1/2		Rock	0	60	FLAC	n
+Artist D/Album Four/CD2/01 - Disc Two A.flac	Artist D	Artist D	Album Four	Disc Two A	1	2/2		Rock	0	60	FLAC	n
+Artist D/Album Four/CD2/02 - Disc Two B.flac	Artist D	Artist D	Album Four	Disc Two B	2	2/2		Rock	0	60	FLAC	n
