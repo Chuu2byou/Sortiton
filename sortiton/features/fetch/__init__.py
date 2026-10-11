@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ... import external, i18n, journal, output
+from ... import config, external, i18n, journal, output
 from ...cancel import NO_CANCEL, Cancelled
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import download
@@ -93,9 +93,12 @@ def cmd_fetch(args: CmdArgs) -> int:
             return 2
 
         output.message(i18n.t("fetch.download.start", count=len(entries)))
-        paths, error = download.download(url, target, audio_format=args.audio_format,
+        # An explicit --no-archive turns yt-dlp's download archive off; by
+        # default it lives in the data folder (config.FETCH_ARCHIVE).
+        archive = None if args.no_archive else config.FETCH_ARCHIVE
+        saved, error = download.download(url, target, audio_format=args.audio_format,
                                          playlist=args.playlist,
-                                         no_archive=args.no_archive, cancel=cancel)
+                                         archive=archive, cancel=cancel)
         if error:
             output.message(i18n.t("fetch.error.download", detail=error))
             return 1
@@ -103,11 +106,11 @@ def cmd_fetch(args: CmdArgs) -> int:
         output.message(i18n.t("task.cancelled"))
         return 130
 
-    for path in paths:
-        journal.record("download", path=str(path), url=url)
-        output.message(i18n.t("fetch.download.file", path=path))
-    output.message(i18n.t("fetch.download.done", files=len(paths)))
-    output.report_stats("fetch", files=len(paths), applied=True)
+    for item in saved:
+        journal.record_download(item.path, url, item.archive_id)
+        output.message(i18n.t("fetch.download.file", path=item.path))
+    output.message(i18n.t("fetch.download.done", files=len(saved)))
+    output.report_stats("fetch", files=len(saved), applied=True)
     return 0
 
 

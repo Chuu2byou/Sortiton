@@ -11,8 +11,10 @@ Created and pruned together with the log file of the same run::
     logs/latest_journal.jsonl -> sortiton_…_19-03-19.jsonl
 
 Unknown operations and unknown fields are ignored while reading, so a restore
-from an older version keeps working. Written only while changes are applied; a
-preview leaves no file behind.
+from an older version keeps working. New operations are additive: they do not
+bump :data:`SCHEMA`, because a build that does not know an operation simply
+skips it. Written only while changes are applied; a preview leaves no file
+behind.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from .files import free_path
 SCHEMA = 1
 
 # Operations a restore can undo.
-UNDOABLE = ("tags", "rename", "sort", "copy")
+UNDOABLE = ("tags", "rename", "sort", "copy", "download")
 
 _file = None                 # open file handle while a run is in progress
 _path: Path | None = None    # its path
@@ -145,6 +147,15 @@ def record_move(op: str, source: Path, target: Path, mode: str = "") -> None:
     if mode:
         data["mode"] = mode
     record(op, **data)
+
+
+def record_download(path: Path, url: str, archive_id: str = "") -> None:
+    """Remember a finished download.
+
+    ``archive_id`` is yt-dlp's download-archive line for the file (empty when
+    no archive was used); a restore deletes the file and drops that line.
+    """
+    record("download", path=str(path), url=url, archive_id=archive_id)
 
 
 def record_failure(op: str, error: object, **data: object) -> None:

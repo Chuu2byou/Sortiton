@@ -32,6 +32,7 @@ os.environ["SORTITON_RULES"] = str(_TMP / "my_rules.ini")
 os.environ["SORTITON_LOG_DIR"] = str(_TMP / "logs")
 os.environ["SORTITON_EXPORT_DIR"] = str(_TMP / "exports")
 os.environ["SORTITON_CACHE_DIR"] = str(_TMP / "cache")
+os.environ["SORTITON_FETCH_ARCHIVE"] = str(_TMP / "fetch_archive.txt")
 os.environ.pop("SORTITON_LANG", None)
 
 sys.path.insert(0, str(BASE))
@@ -1427,6 +1428,32 @@ def test_journal() -> None:
         check("unknown operations are named",
               journal.summarize([{"op": "rmfile"}]) == {"rmfile": 1})
 
+        # Step 4.4: the download operation is undoable and carries the archive
+        # id, but it is additive and must not bump the schema version.
+        dl_log = work / "sortiton_2026-01-01_00-30-00.log"
+        dl_log.write_text("", encoding="utf-8")
+        dl_journal = journal.open_for(dl_log)
+        journal.record_download(work / "down.mp3", "https://example.org/watch?v=x",
+                                "youtube abc123")
+        journal.close()
+        dl_events = journal.plan_restore(dl_journal)
+        check("download is an undoable operation",
+              "download" in journal.UNDOABLE, str(journal.UNDOABLE))
+        check("a download record is planned for undo",
+              [event["op"] for event in dl_events] == ["download"],
+              str([event["op"] for event in dl_events]))
+        check("a download record keeps path, url and archive id",
+              bool(dl_events) and str(dl_events[0].get("path", "")).endswith("down.mp3")
+              and dl_events[0].get("url") == "https://example.org/watch?v=x"
+              and dl_events[0].get("archive_id") == "youtube abc123",
+              str(dl_events[0] if dl_events else dl_events))
+        check("summarize counts a download",
+              journal.summarize(dl_events) == {"download": 1},
+              str(journal.summarize(dl_events)))
+        check("a new operation does not bump the schema",
+              journal.schema_version(dl_journal) == journal.SCHEMA,
+              str(journal.schema_version(dl_journal)))
+
         # A run must never be offered its own journal as "the last one to undo".
         older = journal.open_for(config.LOG_DIR / "sortiton_2026-01-01_02-00-00.log")
         journal.record_move("rename", target, work / "c.mp3")
@@ -1582,6 +1609,74 @@ def test_restore() -> None:
         check("the only copy survives", last_copy.exists())
         check("that case is counted as skipped",
               output.last_stats("restore").get("skipped") == 1,
+              str(output.last_stats("restore")))
+
+        # Step 4.4: a download is undone by deleting the file and dropping its
+        # archive line, so the archive does not block a later re-download.
+        archive = config.FETCH_ARCHIVE
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        downloads = work / "downloads"
+        downloads.mkdir()
+
+        grabbed = downloads / "grabbed.mp3"
+        grabbed.write_bytes(b"\x00" * 32)
+        archive.write_text("youtube keepme\nyoutube abc123\nyoutube other\n",
+                           encoding="utf-8")
+        jrn_dl = _open_journal(work, 7)
+        journal.record_download(grabbed, "https://example.org/watch?v=abc",
+                                "youtube abc123")
+        journal.close()
+
+        check("download preview runs", cmd_restore(_restore_args(jrn_dl)) == 0)
+        check("download preview keeps the file", grabbed.exists())
+        check("download preview counts one change",
+              output.last_stats("restore").get("changed") == 1,
+              str(output.last_stats("restore")))
+        check("download undo runs", cmd_restore(_restore_args(jrn_dl, apply=True)) == 0)
+        check("the downloaded file is gone", not grabbed.exists())
+        remaining = archive.read_text(encoding="utf-8")
+        check("the archive line is dropped",
+              "youtube abc123" not in remaining and "youtube keepme" in remaining,
+              remaining)
+        check("download undo reports no errors",
+              output.last_stats("restore").get("errors") == 0,
+              str(output.last_stats("restore")))
+
+        # --keep-copies keeps the download (and its archive line) in place
+        kept_download = downloads / "kept.mp3"
+        kept_download.write_bytes(b"\x00" * 32)
+        archive.write_text("youtube keepme\nyoutube keep2\n", encoding="utf-8")
+        jrn_dl_keep = _open_journal(work, 8)
+        journal.record_download(kept_download, "https://example.org/watch?v=keep",
+                                "youtube keep2")
+        journal.close()
+        cmd_restore(_restore_args(jrn_dl_keep, apply=True, keep_copies=True))
+        check("--keep-copies keeps the download", kept_download.exists())
+        check("a kept download is counted as skipped",
+              output.last_stats("restore").get("skipped") == 1,
+              str(output.last_stats("restore")))
+        check("--keep-copies keeps the archive line",
+              "youtube keep2" in archive.read_text(encoding="utf-8"))
+
+        # a download whose file is already gone is skipped, not an error
+        jrn_dl_gone = _open_journal(work, 9)
+        journal.record_download(downloads / "gone.mp3", "https://example.org/g",
+                                "youtube gone")
+        journal.close()
+        check("a missing download is skipped",
+              cmd_restore(_restore_args(jrn_dl_gone, apply=True)) == 0
+              and output.last_stats("restore").get("skipped") == 1,
+              str(output.last_stats("restore")))
+
+        # no archive was used (--no-archive): the undo still deletes the file
+        no_arch = downloads / "noarch.mp3"
+        no_arch.write_bytes(b"\x00" * 32)
+        jrn_dl_noarch = _open_journal(work, 10)
+        journal.record_download(no_arch, "https://example.org/e", "")
+        journal.close()
+        check("a download without an archive id still undoes",
+              cmd_restore(_restore_args(jrn_dl_noarch, apply=True)) == 0
+              and not no_arch.exists(),
               str(output.last_stats("restore")))
 
         # the old name is taken again: nothing may be overwritten

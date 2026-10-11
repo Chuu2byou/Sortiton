@@ -60,6 +60,13 @@ class Entry(NamedTuple):
     duration: int | None
 
 
+class Saved(NamedTuple):
+    """One finished download: its file path and its download-archive id."""
+
+    path: Path
+    archive_id: str
+
+
 def _playlist_args(playlist: bool) -> list[str]:
     """``--yes-playlist`` when the whole playlist is wanted, else ``--no-playlist``."""
     return ["--yes-playlist"] if playlist else ["--no-playlist"]
@@ -74,6 +81,15 @@ def _number(text: str) -> int | None:
         return int(float(text))
     except ValueError:
         return None
+
+
+def _archive_lines(path: Path) -> list[str]:
+    """The non-empty lines of a download archive (empty when there is none)."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def _stream(argv: list[str], cancel, on_line) -> tuple[int | None, str]:
@@ -156,21 +172,30 @@ def preview(url: str, *, playlist: bool, cancel=None) -> tuple[list[Entry], str]
 
 
 def download(url: str, target: Path, *, audio_format: str, playlist: bool,
-             no_archive: bool, cancel=None) -> tuple[list[Path], str]:
-    """Download ``url`` as audio into ``target``; return the finished paths.
+             archive: Path | None = None,
+             cancel=None) -> tuple[list[Saved], str]:
+    """Download ``url`` as audio into ``target``; return the finished files.
 
-    ``no_archive`` is accepted for the option already defined in step 4.2; the
-    download archive itself (``--download-archive``) is step 4.4, so it is not
-    passed yet. ``--no-overwrites`` keeps yt-dlp from replacing an existing
-    file, matching the project rule that nothing is ever overwritten. Returns
-    ``(paths, "")`` on success and ``([], error)`` on failure.
+    ``archive`` is yt-dlp's download archive (``--download-archive``): when it
+    is given, an already recorded track is skipped and every finished file is
+    recorded there. Each returned :class:`Saved` carries the archive id of its
+    file (empty when no archive is used), so a restore can delete the file and
+    drop its archive line again (step 4.4).
+
+    ``--no-overwrites`` keeps yt-dlp from replacing an existing file, matching
+    the project rule that nothing is ever overwritten. Returns ``(files, "")``
+    on success and ``([], error)`` on failure.
     """
+    before = _archive_lines(archive) if archive is not None else []
+
     argv = ["yt-dlp", "--no-simulate", "--newline", "--no-warnings",
             "-x", "--audio-format", audio_format, "--audio-quality", "0",
             "--embed-metadata", "--embed-thumbnail", "--no-overwrites",
             "--progress", "--progress-template", PROGRESS_TEMPLATE,
             "--print", DOWNLOAD_PRINT,
             "-P", str(target), "-o", "%(title)s.%(ext)s"]
+    if archive is not None:
+        argv += ["--download-archive", str(archive)]
     argv += _playlist_args(playlist)
     argv.append(url)
 
@@ -190,7 +215,15 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
     if rc != 0:
         detail = error or "\n".join(log_tail)
         return [], detail or i18n.t("fetch.error.exit", rc=rc)
-    return paths, ""
+
+    if archive is None:
+        return [Saved(path, "") for path in paths], ""
+    # yt-dlp appends one archive line per finished file, in the order of the
+    # after_move prints; the new lines are exactly this run's archive ids.
+    new_ids = _archive_lines(archive)[len(before):]
+    saved = [Saved(path, new_ids[index] if index < len(new_ids) else "")
+             for index, path in enumerate(paths)]
+    return saved, ""
 
 
 def _report_progress(line: str) -> None:

@@ -29,6 +29,7 @@ export SORTITON_SETTINGS="$WORK/settings.ini"
 export SORTITON_RULES="$WORK/my_rules.ini"
 export SORTITON_LOG_DIR="$WORK/logs"
 export SORTITON_BACKUP_DIR="$WORK/backups"
+export SORTITON_FETCH_ARCHIVE="$WORK/fetch_archive.txt"
 unset SORTITON_LANG
 
 passed=0

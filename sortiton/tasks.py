@@ -17,8 +17,8 @@ from types import SimpleNamespace
 
 from . import i18n, journal
 from .cancel import NO_CANCEL, Cancelled
-from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, LOG_DIR,
-                     RULES_FILE, WRITE_WORKERS)
+from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST,
+                     FETCH_ARCHIVE, LOG_DIR, RULES_FILE, WRITE_WORKERS)
 from .files import build_name, free_target, iter_audio, safe_name, same_content
 from .output import _progress, banner, last_stats, message, report_plan, report_stats
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
@@ -463,9 +463,35 @@ def _step_files(steps: list[dict]) -> list[Path]:
             files.append(step["path"])
         elif step["op"] == "copy":
             files.append(step["target"])
+        elif step["op"] == "download":
+            files.append(step["path"])
         else:
             files.append(step["source"])
     return files
+
+
+def _drop_archive_id(archive_id: str) -> bool:
+    """Remove one line from the yt-dlp download archive (step 4.4).
+
+    Undoing a download has to take its archive line out again, otherwise the
+    archive would skip the track on the next run. Returns True when a line was
+    removed; an empty id or a missing archive is not an error.
+    """
+    if not archive_id:
+        return False
+    try:
+        lines = FETCH_ARCHIVE.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    remaining = [line for line in lines if line.strip() != archive_id]
+    if len(remaining) == len(lines):
+        return False
+    try:
+        FETCH_ARCHIVE.write_text("\n".join(remaining) + ("\n" if remaining else ""),
+                                 encoding="utf-8")
+    except OSError:
+        return False
+    return True
 
 
 def _common_root(paths: list[Path]) -> Path:
@@ -585,6 +611,22 @@ def cmd_restore(args: CmdArgs) -> int:
             message(i18n.t("restore.remove_copy", name=copy.name))
             continue
 
+        if op == "download":
+            target = Path(str(event.get("path", "")))
+            archive_id = str(event.get("archive_id") or "")
+            if keep_copies:
+                message(i18n.t("restore.skip.keep_download", name=target.name))
+                skipped += 1
+                continue
+            if not target.is_file():
+                message(i18n.t("restore.skip.missing", name=target.name))
+                skipped += 1
+                continue
+            steps.append({"op": "download", "path": target, "archive_id": archive_id})
+            report_plan("download", path=target, archive_id=archive_id)
+            message(i18n.t("restore.remove_download", name=target.name))
+            continue
+
         if op in ("rename", "sort"):
             source = Path(str(event.get("source", "")))
             target = Path(str(event.get("target", "")))
@@ -635,6 +677,15 @@ def cmd_restore(args: CmdArgs) -> int:
                     with lock:
                         done_count += 1
                         message(i18n.t("restore.ok.copy", name=step["target"].name))
+                elif step["op"] == "download":
+                    # Take the archive line out too, otherwise yt-dlp would skip
+                    # the track on the next run (step 4.4).
+                    step["path"].unlink()
+                    _drop_archive_id(step["archive_id"])
+                    journal.record("rmfile", path=str(step["path"]))
+                    with lock:
+                        done_count += 1
+                        message(i18n.t("restore.ok.download", name=step["path"].name))
                 else:
                     step["target"].parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(step["source"]), str(step["target"]))
