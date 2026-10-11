@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from ... import config, output
+from ... import config, i18n, output
 from .analysis import lst, norm
 
 _popcount = (lambda x: x.bit_count()) if hasattr(int, "bit_count") else (lambda x: bin(x).count("1"))
@@ -101,8 +101,7 @@ def compute_fingerprints(recs, root: Path, secs: int,
             fps[i] = c["fp"]
         else:
             todo.append((i, meta))
-    # TODO(phase 2): i18n
-    output.message(f"  Fingerprints: {len(fps)} aus Cache, {len(todo)} neu zu berechnen")
+    output.message(i18n.t("export.fp.cache", cached=len(fps), todo=len(todo)))
 
     def work(item):
         i, meta = item
@@ -121,7 +120,7 @@ def compute_fingerprints(recs, root: Path, secs: int,
             else:
                 failed += 1
                 failed_paths.append((recs[i]["path"], error or "unbekannter Fehler"))
-            output.progress(n, len(todo), "berechnen …")  # TODO(phase 2): i18n
+            output.progress(n, len(todo), i18n.t("export.fp.progress"))
     if todo or cache_changed:
         tmp_path = None
         try:
@@ -144,9 +143,7 @@ def compute_fingerprints(recs, root: Path, secs: int,
             "\n".join(f"{path}\t{error.replace(chr(9), ' ').replace(chr(10), ' ')}"
                       for path, error in failed_paths) + "\n",
             encoding="utf-8")
-        # TODO(phase 2): i18n
-        output.message(f"  Hinweis: {failed} Datei(en) ohne Fingerprint, "
-                       f"Details in fpcalc_fehler.log")
+        output.message(i18n.t("export.fp.failed", count=failed))
     return fps
 
 
@@ -250,7 +247,7 @@ def _dupe_class(sim, same_identity, duration_close, marker, same_album):
     return "aehnlich"
 
 
-def _quality_hint(rs):
+def _quality_hint(rs, lang):
     # No automatic deletion: merely a hint which file is technically the
     # larger/higher bitrate variant of the same recording.
     if len(rs) < 2:
@@ -262,11 +259,11 @@ def _quality_hint(rs):
     min_k = min(k for k, _ in bitrates)
     if max_k > min_k:
         winner = next(path for k, path in bitrates if k == max_k)
-        return f"; höhere Bitrate: `{winner}` ({max_k}k)"
+        return i18n.t_in(lang, "export.report.fp.quality_hint", path=winner, kbps=max_k)
     return ""
 
 
-def fp_section(recs, groups, n_fp, n_total, threshold, max_ex):
+def fp_section(recs, groups, n_fp, n_total, threshold, max_ex, lang):
     """Order fingerprint groups by several kinds of evidence, not just the percent."""
     rows = []
     for members, sim in groups:
@@ -278,39 +275,34 @@ def fp_section(recs, groups, n_fp, n_total, threshold, max_ex):
         marker = any(_duplicate_marker(r["path"]) for r in rs)
         classification = _dupe_class(sim, same_identity, duration_close, marker, same_album)
 
-        flags = []
-        flags.append("Künstler+Titel gleich" if same_identity else "Künstler/Titel verschieden")
-        flags.append("Länge ähnlich" if duration_close else "Länge verschieden")
+        flags = [
+            i18n.t_in(lang, "export.report.fp.flag.same_identity" if same_identity
+                      else "export.report.fp.flag.diff_identity"),
+            i18n.t_in(lang, "export.report.fp.flag.same_duration" if duration_close
+                      else "export.report.fp.flag.diff_duration"),
+        ]
         if same_album:
-            flags.append("Album gleich")
+            flags.append(i18n.t_in(lang, "export.report.fp.flag.same_album"))
         if marker:
-            flags.append("Duplikat-Marker im Dateinamen")
-        hint = _quality_hint(rs) if classification in {"sehr_wahrscheinlich", "wahrscheinlich"} else ""
+            flags.append(i18n.t_in(lang, "export.report.fp.flag.marker"))
+        hint = (_quality_hint(rs, lang)
+                if classification in {"sehr_wahrscheinlich", "wahrscheinlich"} else "")
         items = " ; ".join(
             f"`{r['path']}` ({r['kbps']}k, {round(r['dur'])}s, {r['size'] / 1e6:.1f}MB, "
             f'"{r["artist"]} - {r["title"]}")' for r in rs)
         rows.append((sim, classification, f"[{sim:.0%}, {', '.join(flags)}{hint}] {items}"))
 
     rows.sort(key=lambda x: (-x[0], x[1]))
-    buckets = [
-        ("sehr_wahrscheinlich", "Sehr wahrscheinlich echte Dublette"),
-        ("wahrscheinlich", "Wahrscheinliche Dublette"),
-        ("pruefen", "Prüfen – könnte andere Version sein"),
-        ("aehnlich", "Ähnliche Aufnahme / mögliche Variante"),
-    ]
+    buckets = ("sehr_wahrscheinlich", "wahrscheinlich", "pruefen", "aehnlich")
 
-    # TODO(phase 2): i18n
-    lines = [f"## Audio-Fingerprint-Duplikate ({len(groups)} Gruppen; {n_fp}/{n_total} Dateien "
-             f"hatten einen Fingerprint; Basisschwelle {threshold:.0%})", "",
-             "_Die Einstufung kombiniert Audio-Ähnlichkeit, Künstler+Titel, Album, Dauer und "
-             "Duplikat-Marker im Dateinamen. Ein hoher Fingerprint-Wert allein beweist keine "
-             "identische Aufnahme. Versionen, Cover, Instrumentals, Edits und verschiedene "
-             "Sprachfassungen können ebenfalls hohe Ähnlichkeit erreichen. Ein technischer "
-             "Qualitätshinweis nennt bei wahrscheinlichen Dubletten eine Variante mit höherer "
-             "Bitrate, löscht oder bevorzugt aber nichts automatisch._", ""]
+    lines = [i18n.t_in(lang, "export.report.fp.title", groups=len(groups),
+                       n_fp=n_fp, n_total=n_total, threshold=threshold), "",
+             i18n.t_in(lang, "export.report.fp.note"), ""]
 
-    for key, title in buckets:
+    for key in buckets:
         bucket = [row for row in rows if row[1] == key]
-        lines += [f"### {title} ({len(bucket)} Gruppen)", ""]
-        lines += lst([row[2] for row in bucket], max_ex) + [""]
+        lines += [i18n.t_in(lang, "export.report.fp.bucket.title",
+                            title=i18n.t_in(lang, f"export.report.fp.bucket.{key}"),
+                            count=len(bucket)), ""]
+        lines += lst([row[2] for row in bucket], max_ex, lang) + [""]
     return lines

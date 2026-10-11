@@ -12,6 +12,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from ... import i18n
 from .reader import SEP
 
 _DROP = re.compile(r"[\s\-\u2010-\u2015_'’‘`\"“”]+")
@@ -153,75 +154,73 @@ def track_analysis(recs):
                     # about which tracks actually are missing.
                     sparse_groups.add((d, _album))
 
-            label = f"`{d}`"
-            album_display = next((r["album"] for r in ars if r["album"]), "(ohne Album)")
+            album_raw = next((r["album"] for r in ars if r["album"]), "")
 
-            # TODO(phase 2): i18n
+            # Structured records (no text yet): the report renders them per
+            # language, so the analysis stays language independent.
             if missing:
                 if len(missing) == len(ars):
                     all_missing += 1
-                    incomplete_groups.append(
-                        f"{label} / `{album_display}`: ALLE {len(ars)} Track-Tags fehlen"
-                    )
-                else:
-                    incomplete_groups.append(
-                        f"{label} / `{album_display}`: {len(missing)} von {len(ars)} Track-Tags fehlen"
-                    )
+                incomplete_groups.append({
+                    "dir": d, "album": album_raw,
+                    "missing": len(missing), "total": len(ars),
+                    "all": len(missing) == len(ars),
+                })
 
             if gaps:
-                shown = ", ".join(f"CD{disc}#{num}" for disc, num in gaps[:12])
-                if len(gaps) > 12:
-                    shown += f", ... ({len(gaps)} Lücken)"
-                gap_groups.append(
-                    f"{label} / `{album_display}`: belastbare Lücken -> {shown}"
-                )
+                gap_groups.append({"dir": d, "album": album_raw, "gaps": list(gaps)})
 
     return {
         "checked": checked,
         "missing_multi": missing_multi,
         "albums_with_missing": albums_with_missing,
         "all_missing": all_missing,
-        "incomplete": sorted(incomplete_groups, key=str.casefold),
-        "gaps": sorted(gap_groups, key=str.casefold),
+        "incomplete": incomplete_groups,
+        "gaps": gap_groups,
         "sparse": len(sparse_groups),
     }
 
 
-def lst(items, limit):
+def lst(items, limit, lang):
     """Format a list of entries for Markdown, cut off after `limit` lines."""
     items = list(items)
     if not items:
-        return ["- (keine)"]  # TODO(phase 2): i18n
+        return [i18n.t_in(lang, "export.report.list.empty")]
     out = [x if x.startswith("- ") else f"- {x}" for x in items[:limit]]
     if len(items) > limit:
-        out.append(f"- ... ({len(items) - limit} weitere)")
+        out.append(i18n.t_in(lang, "export.report.list.more", count=len(items) - limit))
     return out
 
 
 def date_fmt(s):
-    """Detect the date/year format of a year tag."""
+    """Classify the date/year format of a year tag; returns a stable code.
+
+    The report translates the code, so the analysis says nothing language
+    specific. The order of the checks is significant (``YYYY-MM-DD`` before
+    ``YYYY-MM`` before the ISO timestamp).
+    """
     s = (s or "").strip()
     if not s:
-        return "(leer)"
+        return "empty"
     if re.fullmatch(r"\d{4}", s):
-        return "YYYY"
+        return "year"
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-        return "YYYY-MM-DD"
+        return "ymd"
     if re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", s):
-        return "YYYY.MM.DD"
+        return "ymd_dot"
     if re.fullmatch(r"\d{4}-\d{2}", s):
-        return "YYYY-MM"
+        return "ym"
     if re.fullmatch(r"\d{4}/\d{2}/\d{2}", s):
-        return "YYYY/MM/DD"
+        return "slash_ymd"
     if re.fullmatch(r"\d{4}/\d{2}", s):
-        return "YYYY/MM"
+        return "slash_ym"
     if re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", s):
-        return "DD.MM.YYYY"
+        return "dmy"
     if re.match(r"^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}", s):
-        return "ISO-Zeitstempel"
+        return "iso"
     if re.fullmatch(r"\d{4}\s*[-/]\s*\d{4}", s):
-        return "YYYY-YYYY (Bereich)"
-    return "Freitext / Sonstiges"
+        return "range"
+    return "other"
 
 
 def variants(recs, field, split=False, by_artist=False):
@@ -308,32 +307,35 @@ def folder_vs_tags(recs):
 
 
 def style_issues(r, check_case=False):
-    """Find style and formatting problems in the tags of one file."""
+    """Find style and formatting problems in the tags of one file.
+
+    Returns codes with parameters (e.g. ``("junk", "title", "Official Video")``);
+    the report renders them per language, so nothing here is language specific.
+    """
     issues = []
-    # TODO(phase 2): i18n
-    for field, name in (("title", "Titel"), ("artist", "Künstler"), ("album", "Album")):
+    for field in ("title", "artist", "album"):
         val = r.get(field) or ""
         m = JUNK_RE.search(val)
         if m:
-            issues.append(f"Junk im {name} ('{m.group(0)}')")
+            issues.append(("junk", field, m.group(0)))
         if "  " in val:
-            issues.append(f"Doppelte Leerzeichen im {name}")
+            issues.append(("double_space", field))
 
     title = r.get("title") or ""
     if re.match(r"^\d{1,3}\s*[-.]\s*\S", title):
-        issues.append("Tracknummer im Titel-Tag")
+        issues.append(("track_in_title",))
 
     if title and "_" in title and " " not in title and len(title) > 3:
-        issues.append("Unterstriche statt Leerzeichen im Titel")
+        issues.append(("underscores",))
 
     if check_case:
-        for field, name in (("artist", "Künstler"), ("album", "Album"), ("title", "Titel")):
+        for field in ("artist", "album", "title"):
             val = r.get(field) or ""
             chars = [c for c in val if c.isalpha()]
             if len(chars) >= 4:
                 if all(c.isupper() for c in chars):
-                    issues.append(f"{name} nur in GROSSBUCHSTABEN")
+                    issues.append(("all_caps", field))
                 elif all(c.islower() for c in chars):
-                    issues.append(f"{name} nur kleingeschrieben")
+                    issues.append(("all_lower", field))
 
     return issues

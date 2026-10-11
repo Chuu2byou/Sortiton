@@ -77,6 +77,200 @@ _EN: dict[str, str] = {
     "export.error.threshold": "  ERROR: --fp-threshold must be between 0.0 and 1.0.",
     "export.error.no_files": "  ERROR: no audio files found.",
     "export.error.tools": "  ERROR: neither mutagen nor ffprobe is available.",
+    "cli.export.report_lang": "report language: empty = UI language, en or de",
+    "export.fp.progress": "computing …",
+
+    # export report (structured Markdown; keys export.report.*)
+    "export.report.summary.title": "# Music folder summary",
+    "export.report.summary.folder": "- Folder: `{root}`",
+    "export.report.summary.created": "- Created: {date}",
+    "export.report.summary.files": "- Files: **{n}** (read errors: {errors})",
+    "export.report.summary.size": "- Total size: {gb:.2f} GB",
+    "export.report.summary.duration": "- Total duration: {hours:.1f} hours",
+    "export.report.summary.loose": ("- Loose files directly in the root folder "
+                                    "(unsorted): {count}"),
+    "export.report.summary.warning": ("> [!WARNING]\n"
+                                      "> No file could be read successfully."),
+    "export.report.formats.title": "## Formats",
+    "export.report.formats.bitrate": ("- Bitrate {codec}: median {median:.0f} kbps, "
+                                      "below {threshold} kbps: {below} of {total}"),
+    "export.report.formats.no_cover": "- Without cover: {count}",
+    "export.report.tags.title": ("## Missing tags (number of files; `disc` is usually "
+                                 "missing for single CDs)"),
+    "export.report.tags.entry": "- {field}: {count} ({percent:.1f} %)",
+    "export.report.tags.disc": ("- disc: {count} ({percent:.1f} %; usually fine for "
+                                "single CDs)"),
+    "export.report.folders.title": "## Top folders (files)",
+    "export.report.folders.root": "(root)",
+    "export.report.genres.title": "## Genres (all, with count)",
+    "export.report.dates.title": "## Date formats in the year tag",
+    "export.report.dates.entry": "- {format}: {count}{example}",
+    "export.report.dates.example": " (e.g. `{path}`)",
+    "export.report.decades.title": "## Decades",
+    "export.report.decades.entry": "- {prefix}0s: {count}",
+    "export.report.artists.title": "## Top artists",
+    "export.report.tracks.title": "## Track number quality per multi-track album",
+    "export.report.tracks.checked": "- Multi-track albums/folders checked: {count}",
+    "export.report.tracks.missing_multi": ("- Files with a missing track tag inside these "
+                                           "multi-track albums: {count}"),
+    "export.report.tracks.albums_missing": ("- Albums with at least one missing track tag: "
+                                            "{count}"),
+    "export.report.tracks.all_missing": ("- Albums where all track tags are missing: "
+                                         "{count}"),
+    "export.report.tracks.gap_albums": "- Albums with reliable track number gaps: {count}",
+    "export.report.tracks.sparse": ("- Other albums with very sparse/unclear number "
+                                    "sequences: {count}"),
+    "export.report.tracks.incomplete.title": "### Missing track tags ({count})",
+    "export.report.tracks.incomplete.note": ("_A missing track tag is not automatically "
+                                             "counted as a missing track._"),
+    "export.report.tracks.incomplete.all": ("{label} / `{album}`: ALL {total} track tags "
+                                            "are missing"),
+    "export.report.tracks.incomplete.some": ("{label} / `{album}`: {missing} of {total} "
+                                             "track tags are missing"),
+    "export.report.tracks.gaps.title": "### Reliable track number gaps ({count})",
+    "export.report.tracks.gaps.note": ("_Only dense sequences from 1 or explicit totals "
+                                       "(e.g. 03/12) count as a gap._"),
+    "export.report.tracks.gaps.entry": "{label} / `{album}`: reliable gaps -> {gaps}",
+    "export.report.tracks.gaps.more": ", ... ({count} gaps)",
+    "export.report.tracks.no_album": "(no album)",
+    "export.report.anomalies.title": "# Automatically found anomalies",
+    "export.report.anomalies.note": ("_Hints only, no proven errors. The comparison "
+                                     "ignores case, accents, spaces and hyphen kinds._"),
+    "export.report.variants.title": "## {title} ({count})",
+    "export.report.variants.artist": "Artist: spelling differs only",
+    "export.report.variants.albumartist": "Album artist: spelling differs only",
+    "export.report.variants.album": "Album (per artist): spelling differs only",
+    "export.report.variants.genre": "Genre: spelling differs only",
+    "export.report.folder_artist.title": ("## Top folder does not match the album "
+                                          "artist/artist tag ({count} pairs)"),
+    "export.report.folder_artist.note": ("_Already factored out: truncated folder names "
+                                         "(from {trunc} characters accepted as the start "
+                                         "of the tag) and folders that match one of "
+                                         "several artists in the tag ({skipped} files "
+                                         "affected, folder and album check together)._"),
+    "export.report.folder_album.title": ("## Album folder does not match the album tag "
+                                         "({count} pairs)"),
+    "export.report.folder_tag": 'Folder "{folder}" <-> tag "{tag}" ({count}x)',
+    "export.report.style.title": "## Style problems in tags ({count} files)",
+    "export.report.style.junk": "junk in {field} ('{match}')",
+    "export.report.style.double_space": "double spaces in {field}",
+    "export.report.style.track_in_title": "track number in the title tag",
+    "export.report.style.underscores": "underscores instead of spaces in the title",
+    "export.report.style.all_caps": "{field} all upper case",
+    "export.report.style.all_lower": "{field} all lower case",
+    "export.report.field.title": "title",
+    "export.report.field.artist": "artist",
+    "export.report.field.album": "album",
+    "export.report.field.albumartist": "album artist",
+    "export.report.field.genre": "genre",
+    "export.report.filename.title": ("## File name does not contain the title tag "
+                                     "({count}; `: / ? * |` -> `_` and truncated names are "
+                                     "already factored out)"),
+    "export.report.filename.entry": '`{path}` (title tag: "{title}")',
+    "export.report.duplicates.title": ("## Possible duplicates (same artist+title) "
+                                       "({count} groups)"),
+    "export.report.inconsistent.title": ("## Folders with inconsistent album/album "
+                                         "artist/genre ({count}; root excluded)"),
+    "export.report.dup_tracks.title": ("## Duplicate track numbers in the same folder+album "
+                                       "({count})"),
+    "export.report.samplers.title": ("## Suspected samplers without an explicit album "
+                                     "artist ({count})"),
+    "export.report.sampler.missing_albumartist": ("`{dir}` ({artists} artists, album "
+                                                  "artist missing for {missing}/{total})"),
+    "export.report.sampler.various": ("`{dir}` ({artists} artists, album artist always "
+                                      "\"Various Artists\")"),
+    "export.report.errors.title": "## Read errors ({count})",
+    "export.report.list.empty": "- (none)",
+    "export.report.list.more": "- ... ({count} more)",
+    "export.report.date.empty": "(empty)",
+    "export.report.date.year": "YYYY",
+    "export.report.date.ymd": "YYYY-MM-DD",
+    "export.report.date.ymd_dot": "YYYY.MM.DD",
+    "export.report.date.ym": "YYYY-MM",
+    "export.report.date.slash_ymd": "YYYY/MM/DD",
+    "export.report.date.slash_ym": "YYYY/MM",
+    "export.report.date.dmy": "DD.MM.YYYY",
+    "export.report.date.iso": "ISO timestamp",
+    "export.report.date.range": "YYYY-YYYY (range)",
+    "export.report.date.other": "free text / other",
+    "export.report.fp.title": ("## Audio fingerprint duplicates ({groups} groups; "
+                               "{n_fp}/{n_total} files had a fingerprint; base threshold "
+                               "{threshold:.0%})"),
+    "export.report.fp.note": ("_The rating combines audio similarity, artist+title, album, "
+                              "duration and a duplicate marker in the file name. A high "
+                              "fingerprint value alone does not prove an identical "
+                              "recording. Versions, covers, instrumentals, edits and "
+                              "different language versions can reach high similarity too. "
+                              "A technical quality hint names a variant with a higher "
+                              "bitrate for likely duplicates but never deletes or prefers "
+                              "anything automatically._"),
+    "export.report.fp.bucket.title": "### {title} ({count} groups)",
+    "export.report.fp.bucket.sehr_wahrscheinlich": "Very likely a real duplicate",
+    "export.report.fp.bucket.wahrscheinlich": "Likely duplicate",
+    "export.report.fp.bucket.pruefen": "Check - could be another version",
+    "export.report.fp.bucket.aehnlich": "Similar recording / possible variant",
+    "export.report.fp.flag.same_identity": "artist+title equal",
+    "export.report.fp.flag.diff_identity": "artist/title differ",
+    "export.report.fp.flag.same_duration": "duration similar",
+    "export.report.fp.flag.diff_duration": "duration differs",
+    "export.report.fp.flag.same_album": "album equal",
+    "export.report.fp.flag.marker": "duplicate marker in the file name",
+    "export.report.fp.quality_hint": "; higher bitrate: `{path}` ({kbps}k)",
+    "export.prompt": """\
+# Task: check a music library and suggest improvements
+
+You get the tag export of my music folder:
+- `01_zusammenfassung.md` - summary and statistics
+- `02_auffaelligkeiten.md` - automatically found anomalies
+- `03_duplikate.md` - audio fingerprint duplicates (if present)
+- `tracks_part*.tsv` - one line per file (tab separated): {cols}
+  (`path` is relative to the music folder, `sek` = duration in seconds, `cover` = j/n;
+  several values of one tag are separated by " | ")
+
+My sorting software (Sortiton) works with rules in a `my_rules.ini`.
+
+## What I want from you
+1. **Overview:** What is the state of the library? What are the biggest issues?
+2. **Rules for `my_rules.ini`** - for recurring things (spellings of artists,
+   unify genres), exactly in this format:
+   ```
+   [Artist]        ; Wrong = Right
+   [Artist Regex]  ; Regular expression = replacement
+   [Genre]         ; Wrong = Right   (empty right = delete genre)
+   [Protected]     ; Names that are never split/changed (e.g. "Simon & Garfunkel")
+   ```
+3. **Single corrections** for files a rule does not cover, as a semicolon CSV:
+   `path;feld;alt;neu` (feld = artist, albumartist, album, title, track, disc, year, genre)
+4. **Folder/file names:** Where does the folder structure not match the tags?
+   Suggest a consistent scheme.
+5. **Duplicates, samplers, missing covers/tags and track numbers** briefly prioritized.
+
+## Rules for you
+- Do not invent anything. Only suggest years, albums or the like when they clearly
+  follow from the data; otherwise mark them as a question.
+- Do NOT touch upper/lower case: UPPERCASE, lowercase-only and other stylizations
+  (e.g. "Ado - KIRA", "amnesia", "deadmau5") are usually the original spelling and correct.
+  Report only cases where the SAME album/artist appears in several spellings.
+- Special characters in file names were often replaced by the file system with `_` (`: / ? * |`) -
+  that is not an error. `(2)` in a file name hints at a duplicate file.
+- Genres can contain countries, languages, fandoms, platform categories (e.g. "Music",
+  "Film & Animation") or fun tags. Suggest a small, sensible list of real genres
+  and ask me about borderline cases (e.g. "Hololive", "Japanese") whether I want to
+  keep them. You may correct misspelled abbreviations (EDM, R&B, IDM, UK ...).
+- Audio fingerprint groups are graded by similarity. The same recording (copy) and a related
+  version (instrumental, cover, another language, edit, short version) are NOT the same.
+  Keep versions, merge real copies and name the better file (higher bitrate, full duration,
+  correct folder) when doing so.
+- If a folder name differs from the tags, tell me whether the folder or the tag
+  should be adjusted.
+- Tags that match the original are correct - "anomalies" of the summary are only
+  hints, not errors. Check yourself whether something is really wrong.
+- When unsure, ask rather than guess.
+- Work through the parts in order; output only the *changes* per part.
+- At the end: one merged, deduplicated `my_rules.ini`.
+
+There are {n} file(s) in {parts} part(s). Start with the summary.
+""",
 
     # output / log file
     "log.title": "# Sortiton - log",
@@ -518,6 +712,206 @@ _DE: dict[str, str] = {
     "export.error.threshold": "  FEHLER: --fp-schwelle muss zwischen 0.0 und 1.0 liegen.",
     "export.error.no_files": "  FEHLER: Keine Audiodateien gefunden.",
     "export.error.tools": "  FEHLER: weder mutagen noch ffprobe verfügbar.",
+    "cli.export.report_lang": "Berichtssprache: leer = UI-Sprache, en oder de",
+    "export.fp.progress": "berechnen …",
+
+    # Export-Bericht (strukturiertes Markdown; Schlüssel export.report.*)
+    "export.report.summary.title": "# Zusammenfassung Musikordner",
+    "export.report.summary.folder": "- Ordner: `{root}`",
+    "export.report.summary.created": "- Erstellt: {date}",
+    "export.report.summary.files": "- Dateien: **{n}** (Lesefehler: {errors})",
+    "export.report.summary.size": "- Gesamtgröße: {gb:.2f} GB",
+    "export.report.summary.duration": "- Gesamtdauer: {hours:.1f} Stunden",
+    "export.report.summary.loose": ("- Lose Dateien direkt im Wurzelordner "
+                                    "(unsortiert): {count}"),
+    "export.report.summary.warning": ("> [!WARNING]\n"
+                                      "> Es konnten keine Dateien erfolgreich gelesen "
+                                      "werden."),
+    "export.report.formats.title": "## Formate",
+    "export.report.formats.bitrate": ("- Bitrate {codec}: Median {median:.0f} kbps, "
+                                      "unter {threshold} kbps: {below} von {total}"),
+    "export.report.formats.no_cover": "- Ohne Cover: {count}",
+    "export.report.tags.title": ("## Fehlende Tags (Anzahl Dateien; `disc` fehlt bei "
+                                 "Einzel-CDs normal)"),
+    "export.report.tags.entry": "- {field}: {count} ({percent:.1f} %)",
+    "export.report.tags.disc": ("- disc: {count} ({percent:.1f} %; meist normal bei "
+                                "Einzel-CDs)"),
+    "export.report.folders.title": "## Oberste Ordner (Dateien)",
+    "export.report.folders.root": "(Wurzel)",
+    "export.report.genres.title": "## Genres (alle, mit Anzahl)",
+    "export.report.dates.title": "## Datumsformate im Jahr-Tag",
+    "export.report.dates.entry": "- {format}: {count}{example}",
+    "export.report.dates.example": " (z. B. `{path}`)",
+    "export.report.decades.title": "## Jahrzehnte",
+    "export.report.decades.entry": "- {prefix}0er: {count}",
+    "export.report.artists.title": "## Top-Künstler",
+    "export.report.tracks.title": "## Tracknummern-Qualität pro Mehrspur-Album",
+    "export.report.tracks.checked": "- Mehrspur-Alben/Ordner geprüft: {count}",
+    "export.report.tracks.missing_multi": ("- Dateien mit fehlendem Track-Tag innerhalb "
+                                           "dieser Mehrspur-Alben: {count}"),
+    "export.report.tracks.albums_missing": ("- Alben mit mindestens einem fehlenden "
+                                            "Track-Tag: {count}"),
+    "export.report.tracks.all_missing": ("- Alben, bei denen sämtliche Track-Tags fehlen: "
+                                         "{count}"),
+    "export.report.tracks.gap_albums": "- Alben mit belastbaren Tracknummern-Lücken: {count}",
+    "export.report.tracks.sparse": ("- Weitere Alben mit sehr sparsamen/unklaren "
+                                    "Nummernfolgen: {count}"),
+    "export.report.tracks.incomplete.title": "### Fehlende Track-Tags ({count})",
+    "export.report.tracks.incomplete.note": ("_Ein fehlender Track-Tag wird nicht "
+                                             "automatisch als fehlender Track gewertet._"),
+    "export.report.tracks.incomplete.all": ("{label} / `{album}`: ALLE {total} Track-Tags "
+                                            "fehlen"),
+    "export.report.tracks.incomplete.some": ("{label} / `{album}`: {missing} von {total} "
+                                             "Track-Tags fehlen"),
+    "export.report.tracks.gaps.title": "### Belastbare Tracknummern-Lücken ({count})",
+    "export.report.tracks.gaps.note": ("_Nur dichte Folgen ab 1 oder explizite "
+                                       "Gesamtzahlen (z. B. 03/12) werden als Lücke "
+                                       "gewertet._"),
+    "export.report.tracks.gaps.entry": "{label} / `{album}`: belastbare Lücken -> {gaps}",
+    "export.report.tracks.gaps.more": ", ... ({count} Lücken)",
+    "export.report.tracks.no_album": "(ohne Album)",
+    "export.report.anomalies.title": "# Automatisch gefundene Auffälligkeiten",
+    "export.report.anomalies.note": ("_Nur Hinweise, keine bewiesenen Fehler. Verglichen "
+                                     "wird ohne Groß/Klein, Akzente, Leerzeichen und "
+                                     "Bindestrich-Arten._"),
+    "export.report.variants.title": "## {title} ({count})",
+    "export.report.variants.artist": "Künstler: nur Schreibweise verschieden",
+    "export.report.variants.albumartist": "Album-Künstler: nur Schreibweise verschieden",
+    "export.report.variants.album": "Album (pro Künstler): nur Schreibweise verschieden",
+    "export.report.variants.genre": "Genre: nur Schreibweise verschieden",
+    "export.report.folder_artist.title": ("## Oberster Ordner passt nicht zu "
+                                          "Album-Künstler/Künstler-Tag ({count} Paare)"),
+    "export.report.folder_artist.note": ("_Schon herausgerechnet: gekappte Ordnernamen "
+                                         "(ab {trunc} Zeichen als Anfang des Tags "
+                                         "akzeptiert) und Ordner, die einem von mehreren "
+                                         "Künstlern im Tag entsprechen ({skipped} Dateien "
+                                         "betroffen, Ordner- und Album-Prüfung zusammen)._"),
+    "export.report.folder_album.title": ("## Album-Ordner passt nicht zum Album-Tag "
+                                         "({count} Paare)"),
+    "export.report.folder_tag": 'Ordner "{folder}" <-> Tag "{tag}" ({count}x)',
+    "export.report.style.title": "## Stil-Probleme in Tags ({count} Dateien)",
+    "export.report.style.junk": "Junk im {field} ('{match}')",
+    "export.report.style.double_space": "Doppelte Leerzeichen im {field}",
+    "export.report.style.track_in_title": "Tracknummer im Titel-Tag",
+    "export.report.style.underscores": "Unterstriche statt Leerzeichen im Titel",
+    "export.report.style.all_caps": "{field} nur in GROSSBUCHSTABEN",
+    "export.report.style.all_lower": "{field} nur kleingeschrieben",
+    "export.report.field.title": "Titel",
+    "export.report.field.artist": "Künstler",
+    "export.report.field.album": "Album",
+    "export.report.field.albumartist": "Album-Künstler",
+    "export.report.field.genre": "Genre",
+    "export.report.filename.title": ("## Dateiname enthält den Titel-Tag nicht ({count}; "
+                                     "`: / ? * |` -> `_` und gekürzte Namen sind schon "
+                                     "herausgerechnet)"),
+    "export.report.filename.entry": '`{path}` (Titel-Tag: "{title}")',
+    "export.report.duplicates.title": ("## Mögliche Duplikate (gleicher Künstler+Titel) "
+                                       "({count} Gruppen)"),
+    "export.report.inconsistent.title": ("## Ordner mit uneinheitlichem Album/"
+                                         "Album-Künstler/Genre ({count}; Wurzel "
+                                         "ausgenommen)"),
+    "export.report.dup_tracks.title": ("## Doppelte Tracknummern im selben Ordner+Album "
+                                       "({count})"),
+    "export.report.samplers.title": ("## Vermutliche Sampler ohne expliziten "
+                                     "Album-Künstler ({count})"),
+    "export.report.sampler.missing_albumartist": ("`{dir}` ({artists} Künstler, "
+                                                  "Album-Künstler fehlt bei "
+                                                  "{missing}/{total})"),
+    "export.report.sampler.various": ("`{dir}` ({artists} Künstler, Album-Künstler "
+                                      "überall \"Various Artists\")"),
+    "export.report.errors.title": "## Lesefehler ({count})",
+    "export.report.list.empty": "- (keine)",
+    "export.report.list.more": "- ... ({count} weitere)",
+    "export.report.date.empty": "(leer)",
+    "export.report.date.year": "YYYY",
+    "export.report.date.ymd": "YYYY-MM-DD",
+    "export.report.date.ymd_dot": "YYYY.MM.DD",
+    "export.report.date.ym": "YYYY-MM",
+    "export.report.date.slash_ymd": "YYYY/MM/DD",
+    "export.report.date.slash_ym": "YYYY/MM",
+    "export.report.date.dmy": "DD.MM.YYYY",
+    "export.report.date.iso": "ISO-Zeitstempel",
+    "export.report.date.range": "YYYY-YYYY (Bereich)",
+    "export.report.date.other": "Freitext / Sonstiges",
+    "export.report.fp.title": ("## Audio-Fingerprint-Duplikate ({groups} Gruppen; "
+                               "{n_fp}/{n_total} Dateien hatten einen Fingerprint; "
+                               "Basisschwelle {threshold:.0%})"),
+    "export.report.fp.note": ("_Die Einstufung kombiniert Audio-Ähnlichkeit, "
+                              "Künstler+Titel, Album, Dauer und Duplikat-Marker im "
+                              "Dateinamen. Ein hoher Fingerprint-Wert allein beweist keine "
+                              "identische Aufnahme. Versionen, Cover, Instrumentals, Edits "
+                              "und verschiedene Sprachfassungen können ebenfalls hohe "
+                              "Ähnlichkeit erreichen. Ein technischer Qualitätshinweis "
+                              "nennt bei wahrscheinlichen Dubletten eine Variante mit "
+                              "höherer Bitrate, löscht oder bevorzugt aber nichts "
+                              "automatisch._"),
+    "export.report.fp.bucket.title": "### {title} ({count} Gruppen)",
+    "export.report.fp.bucket.sehr_wahrscheinlich": "Sehr wahrscheinlich echte Dublette",
+    "export.report.fp.bucket.wahrscheinlich": "Wahrscheinliche Dublette",
+    "export.report.fp.bucket.pruefen": "Prüfen – könnte andere Version sein",
+    "export.report.fp.bucket.aehnlich": "Ähnliche Aufnahme / mögliche Variante",
+    "export.report.fp.flag.same_identity": "Künstler+Titel gleich",
+    "export.report.fp.flag.diff_identity": "Künstler/Titel verschieden",
+    "export.report.fp.flag.same_duration": "Länge ähnlich",
+    "export.report.fp.flag.diff_duration": "Länge verschieden",
+    "export.report.fp.flag.same_album": "Album gleich",
+    "export.report.fp.flag.marker": "Duplikat-Marker im Dateinamen",
+    "export.report.fp.quality_hint": "; höhere Bitrate: `{path}` ({kbps}k)",
+    "export.prompt": """\
+# Aufgabe: Musikbibliothek prüfen und Verbesserungen vorschlagen
+
+Du bekommst den Tag-Export meines Musikordners:
+- `01_zusammenfassung.md` - Zusammenfassung und Statistik
+- `02_auffaelligkeiten.md` - automatisch gefundene Auffälligkeiten
+- `03_duplikate.md` - Audio-Fingerprint-Duplikate (falls vorhanden)
+- `tracks_part*.tsv` - eine Zeile pro Datei (tab-getrennt): {cols}
+  (`path` ist relativ zum Musikordner, `sek` = Dauer in Sekunden, `cover` = j/n;
+  mehrere Werte in einem Tag sind mit " | " getrennt)
+
+Meine Sortier-Software (Sortiton) arbeitet mit Regeln in einer `my_rules.ini`.
+
+## Was ich von dir möchte
+1. **Überblick:** Was ist der Zustand der Bibliothek? Was sind die größten Baustellen?
+2. **Regeln für `my_rules.ini`** - für Wiederkehrendes (Schreibweisen von Künstlern,
+   Genres vereinheitlichen), exakt in diesem Format:
+   ```
+   [Artist]        ; Falsch = Richtig
+   [Artist Regex]  ; Regulärer Ausdruck = Ersatz
+   [Genre]         ; Falsch = Richtig   (leer rechts = Genre löschen)
+   [Protected]     ; Namen, die nie getrennt/geändert werden (z. B. "Simon & Garfunkel")
+   ```
+3. **Einzelkorrekturen** für Dateien, die eine Regel nicht abdeckt, als CSV mit Semikolon:
+   `path;feld;alt;neu` (feld = artist, albumartist, album, title, track, disc, year, genre)
+4. **Ordner-/Dateinamen:** Wo passt die Ordnerstruktur nicht zu den Tags?
+   Vorschläge für ein einheitliches Schema.
+5. **Duplikate, Sampler, fehlende Cover/Tags und Tracknummern** kurz priorisiert auflisten.
+
+## Regeln für dich
+- Erfinde nichts. Jahre, Alben o. Ä. nur vorschlagen, wenn sie aus den Daten
+  eindeutig hervorgehen; sonst als Rückfrage markieren.
+- Groß-/Kleinschreibung NICHT anfassen: GROSSBUCHSTABEN, nur-klein und andere Stilisierungen
+  (z. B. "Ado - KIRA", "amnesia", "deadmau5") sind meist die Originalschreibweise und korrekt.
+  Melde nur Fälle, in denen DASSELBE Album/derselbe Künstler in mehreren Schreibweisen vorkommt.
+- Sonderzeichen in Dateinamen wurden vom Dateisystem oft durch `_` ersetzt (`: / ? * |`) -
+  das ist kein Fehler. `(2)` am Dateinamen deutet auf eine doppelte Datei hin.
+- Genres können Länder, Sprachen, Fandoms, Plattform-Kategorien (z. B. "Music",
+  "Film & Animation") oder Spaß-Tags enthalten. Schlage eine kleine, sinnvolle Liste echter
+  Genres vor und frage mich bei Grenzfällen (z. B. "Hololive", "Japanese"), ob ich sie
+  behalten will. Falsch geschriebene Kürzel (EDM, R&B, IDM, UK ...) darfst du korrigieren.
+- Audio-Fingerprint-Gruppen sind nach Ähnlichkeit gestuft. Gleiche Aufnahme (Kopie) und verwandte Version (Instrumental,
+  Cover, andere Sprache, Edit, Kurzfassung) sind NICHT dasselbe. Versionen behalten, echte
+  Kopien zusammenfassen und dabei die bessere Datei (höhere Bitrate, vollständige Dauer,
+  richtiger Ordner) nennen.
+- Weicht ein Ordnername von den Tags ab, sag mir, ob eher der Ordner oder der Tag
+  angepasst werden sollte.
+- Tags, die zum Original passen, sind korrekt - "Auffälligkeiten" der Zusammenfassung sind nur
+  Hinweise, keine Fehler. Prüfe selbst, ob wirklich etwas falsch ist.
+- Bei Unsicherheit lieber fragen als raten.
+- Arbeite die Teile der Reihe nach ab; gib pro Teil nur die *Änderungen* aus.
+- Am Ende: eine zusammengeführte, deduplizierte `my_rules.ini`.
+
+Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
+""",
 
     # Ausgabe / Protokolldatei
     "log.title": "# Sortiton - Protokoll",
@@ -918,9 +1312,14 @@ def set_language(code: str) -> str:
     return _language
 
 
-def t(key: str, **fmt: object) -> str:
-    """Translate ``key``; falls back to English, then to the key itself."""
-    text = _CATALOGS.get(_language, {}).get(key)
+def t_in(lang: str, key: str, **fmt: object) -> str:
+    """Translate ``key`` in ``lang`` without touching the active language.
+
+    Same as :func:`t`, but reads the language from the argument instead of the
+    global state. The export report uses it so one run can render a report in a
+    language other than the UI language (the ``--report-language`` option).
+    """
+    text = _CATALOGS.get(lang, {}).get(key)
     if text is None:
         text = _EN.get(key)
     if text is None:
@@ -931,6 +1330,11 @@ def t(key: str, **fmt: object) -> str:
         except (KeyError, IndexError, ValueError):
             return text
     return text
+
+
+def t(key: str, **fmt: object) -> str:
+    """Translate ``key`` in the active language; fall back to English, then key."""
+    return t_in(_language, key, **fmt)
 
 
 def catalog(code: str) -> dict[str, str]:

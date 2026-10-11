@@ -58,7 +58,9 @@ def cmd_export(args: CmdArgs) -> int:
         output.message(i18n.t("export.error.no_files"))
         return 1
 
-    summary = report.build_summary(recs, root, args.examples, args.check_case)
+    lang = args.report_lang or i18n.get_language()
+    opts = report.ReportOptions(max_examples=args.examples, check_case=args.check_case)
+    sections = report.build_report(recs, root, opts, lang)
 
     duplicate_groups: int | None = None
     if args.fingerprint:
@@ -66,16 +68,15 @@ def cmd_export(args: CmdArgs) -> int:
                                                args.threads, outdir)
         groups, _pairs = fingerprint.fingerprint_groups(recs, fps, args.fp_threshold)
         duplicate_groups = len(groups)
-        summary += "\n" + "\n".join(
+        sections.append(report.Section(
+            "duplicates",
             fingerprint.fp_section(recs, groups, len(fps), len(recs),
-                                   args.fp_threshold, args.examples))
+                                   args.fp_threshold, args.examples, lang)))
 
-    report.write_summary_split(summary, outdir)
+    report.write_report(sections, outdir)
     parts = report.write_chunks(recs, outdir, args.chunk_chars)
     (outdir / "00_prompt.md").write_text(
-        report.PROMPT.format(cols=", ".join(f"`{c}`" for c in report.TSV_HEAD),
-                             n=len(recs), parts=len(parts)),
-        encoding="utf-8")
+        report.prompt_text(lang, len(recs), len(parts)), encoding="utf-8")
     if args.jsonl:
         with open(outdir / "alle_tags.jsonl", "w", encoding="utf-8") as handle:
             for rec in recs:
@@ -114,6 +115,8 @@ FEATURE = Feature(
                flags=("--fp-threshold", "--fp-schwelle"), minimum=0.0, maximum=1.0),
         Option("threads", "int", READ_WORKERS, "cli.export.threads",
                flags=("--threads",), minimum=1),
+        Option("report_lang", "choice", "", "cli.export.report_lang",
+               flags=("--report-language",), choices=("", "en", "de")),
     ),
     requires=(
         Requirement(any_of=(external.MUTAGEN, external.FFPROBE)),

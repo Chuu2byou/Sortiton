@@ -535,11 +535,13 @@ def _export_args(fixture: Path, outdir: Path, **overrides) -> SimpleNamespace:
 
 
 def test_export_golden() -> None:
-    """Step 1.9: ``cmd_export`` reproduces the golden files of the old script.
+    """Steps 1.9 and 2.1: the German report reproduces the phase-1 golden.
 
     Variant A is the plain run whose whole output was stored in
     ``tests/golden/export/base``; variant B adds ``check_case`` and only
-    ``01_*``/``02_*`` were stored.  Both are compared after
+    ``01_*``/``02_*`` were stored.  Both run with ``report_lang="de"`` so the
+    (unchanged) German golden still matches after the report was localized; the
+    English counterpart is ``test_export_golden_en``.  Compared after
     ``normalize_export_text`` (folder and timestamp).
     """
     print("export golden")
@@ -562,7 +564,7 @@ def test_export_golden() -> None:
         out = work / "base"
         with mock.patch.object(output, "message"):
             rc = cmd_export(_export_args(fixture, out, chunk_chars=1500,
-                                         examples=5, jsonl=True))
+                                         examples=5, jsonl=True, report_lang="de"))
         check("golden base run works", rc == 0, "" if rc == 0 else str(rc))
         produced = _export_texts(out, helper)
         golden = _export_texts(helper.GOLDEN_DIR / "base", helper)
@@ -578,12 +580,55 @@ def test_export_golden() -> None:
         case_out = work / "case"
         with mock.patch.object(output, "message"):
             rc_case = cmd_export(_export_args(fixture, case_out, chunk_chars=1500,
-                                              examples=5, jsonl=True, check_case=True))
+                                              examples=5, jsonl=True, check_case=True,
+                                              report_lang="de"))
         check("golden case run works", rc_case == 0, "" if rc_case == 0 else str(rc_case))
         case_produced = _export_texts(case_out, helper, ("01_", "02_"))
         case_golden = _export_texts(helper.GOLDEN_DIR / "case", helper)
         for name in sorted(case_golden):
             check(f"golden case/{name}", case_produced.get(name) == case_golden.get(name))
+
+
+def test_export_golden_en() -> None:
+    """Step 2.1: the English report is pinned to ``tests/golden/export/base_en``.
+
+    Same run as the German base golden, only with ``report_lang="en"``.  A
+    missing translation key would show up as the raw key name, so the golden
+    also proves that the English catalog is complete.
+    """
+    print("export golden (english)")
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+    golden_dir = helper.EN_GOLDEN_DIR
+    if not fixture.is_dir():
+        skip("export golden english", "fixture missing")
+        return
+    if not golden_dir.is_dir():
+        skip("export golden english", "tests/golden/export/base_en is missing")
+        return
+    if importlib.util.find_spec("mutagen") is None:
+        skip("export golden english", "mutagen not installed")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "en"
+        with mock.patch.object(output, "message"):
+            rc = cmd_export(_export_args(fixture, out, chunk_chars=1500, examples=5,
+                                         jsonl=True, report_lang="en"))
+        check("golden english run works", rc == 0, "" if rc == 0 else str(rc))
+        produced = _export_texts(out, helper)
+        golden = _export_texts(golden_dir, helper)
+        same_names = sorted(produced) == sorted(golden)
+        check("golden english file list matches", same_names,
+              "" if same_names else f"{sorted(produced)} != {sorted(golden)}")
+        check("golden english output matches", produced == golden,
+              _first_difference(produced, golden))
+        for name in sorted(golden):
+            check(f"golden english/{name}", produced.get(name) == golden.get(name))
 
 
 def _export_columns(directory: Path, columns: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
@@ -1273,7 +1318,8 @@ def main() -> int:
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
                  test_features_isolation, test_packages_complete, test_scan,
-                 test_export_fixture, test_export_golden, test_export_ffprobe_loose,
+                 test_export_fixture, test_export_golden, test_export_golden_en,
+                 test_export_ffprobe_loose,
                  test_export_fingerprint, test_export_source_untouched, test_export_errors,
                  test_export_cli, test_export_cache_migration, test_export_public_api,
                  test_console_progress, test_journal, test_logs, test_screenshot_guard,
