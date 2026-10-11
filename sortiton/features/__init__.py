@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from .base import Feature
 from .export import FEATURE as _EXPORT
+from .fetch import FEATURE as _FETCH
 from .fixes import FEATURE as _FIXES
 
 __all__ = ["Feature", "FEATURES", "get"]
 
-FEATURES: tuple[Feature, ...] = (_EXPORT, _FIXES)
+#: Order matters: the GUI shows the features in this order, and the first
+#: writing feature drives the "write button" test in tests/smoke.py::test_gui.
+FEATURES: tuple[Feature, ...] = (_EXPORT, _FIXES, _FETCH)
 
 
 def get(key: str) -> Feature | None:

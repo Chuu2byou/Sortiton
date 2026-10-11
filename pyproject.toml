@@ -50,4 +50,4 @@ sortiton-gui = "sortiton.gui.launch:main"
 # TODO: assets/icon.png lies outside the package, so a wheel install shows the
 # default Tk icon. The release builds do not care, they bundle the folder.
 packages = ["sortiton", "sortiton.gui", "sortiton.features", "sortiton.features.export",
-            "sortiton.features.fixes"]
+            "sortiton.features.fixes", "sortiton.features.fetch"]

@@ -112,6 +112,20 @@ _EN: dict[str, str] = {
     "cli.fixes.apply": "write the corrections",
     "cli.fixes.backup": "copy the files into a backup folder before writing",
 
+    # fetch feature (download audio with yt-dlp, step 4.2; network part: 4.3)
+    "fetch.title": "FETCH - download audio with yt-dlp",
+    "fetch.error.url": "  ERROR: no URL given.",
+    "fetch.error.pending": ("  ERROR: the yt-dlp download is not wired yet "
+                            "(step 4.3); nothing was downloaded."),
+    "cli.fetch.help": "Download a track or playlist as audio with yt-dlp (needs --confirm)",
+    "cli.fetch.url": "URL of the video or playlist to download",
+    "cli.fetch.target": "folder the downloaded audio is written to",
+    "cli.fetch.audio_format": "audio format: mp3, m4a, opus or flac (default: mp3)",
+    "cli.fetch.playlist": "download the whole playlist if the URL is one",
+    "cli.fetch.no_archive": "do not use the download archive (re-download everything)",
+    "cli.fetch.apply": "download (needs --confirm as well)",
+    "cli.fetch.confirm": "confirm the download (never downloads without this)",
+
     # export report (structured Markdown; keys export.report.*)
     "export.report.summary.title": "# Music folder summary",
     "export.report.summary.folder": "- Folder: `{root}`",
@@ -804,6 +818,21 @@ _DE: dict[str, str] = {
     "cli.fixes.root": "Wurzelordner, auf den sich die CSV-Pfade beziehen",
     "cli.fixes.apply": "die Korrekturen schreiben",
     "cli.fixes.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
+
+    # Fetch-Feature (Audio mit yt-dlp herunterladen, Schritt 4.2; Netzwerk: 4.3)
+    "fetch.title": "FETCH - Audio mit yt-dlp herunterladen",
+    "fetch.error.url": "  FEHLER: keine URL angegeben.",
+    "fetch.error.pending": ("  FEHLER: der yt-dlp-Download ist noch nicht verdrahtet "
+                            "(Schritt 4.3); es wurde nichts geladen."),
+    "cli.fetch.help": ("Einen Titel oder eine Playlist als Audio mit yt-dlp laden "
+                       "(braucht --confirm)"),
+    "cli.fetch.url": "URL des Videos oder der Playlist",
+    "cli.fetch.target": "Ordner, in den das geladene Audio geschrieben wird",
+    "cli.fetch.audio_format": "Audioformat: mp3, m4a, opus oder flac (Standard: mp3)",
+    "cli.fetch.playlist": "die ganze Playlist laden, wenn die URL eine ist",
+    "cli.fetch.no_archive": "das Download-Archiv nicht verwenden (alles erneut laden)",
+    "cli.fetch.apply": "herunterladen (zusätzlich --confirm nötig)",
+    "cli.fetch.confirm": "den Download bestätigen (lädt nie ohne diese Bestätigung)",
 
     # Export-Bericht (strukturiertes Markdown; Schlüssel export.report.*)
     "export.report.summary.title": "# Zusammenfassung Musikordner",

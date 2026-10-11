@@ -10,7 +10,9 @@ Run:  python3 tests/smoke.py
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
+import io
 import os
 import re
 import shutil
@@ -408,6 +410,67 @@ def test_features_registry() -> None:
     check("option names and flags are unique", not problems, "; ".join(problems))
     check("every feature/option/tool key exists in en+de", not missing_keys,
           ", ".join(sorted(set(missing_keys))))
+
+
+def test_fetch() -> None:
+    """Step 4.2: the fetch feature is registered and its options parse.
+
+    The network part (preview, confirmation, download) is step 4.3; here only
+    the description is checked, never yt-dlp itself.
+    """
+    print("fetch feature")
+    from sortiton import external
+    from sortiton.features import base, get
+    from sortiton.features.fetch import AUDIO_FORMATS, FEATURE
+
+    check("fetch is registered", get("fetch") is FEATURE)
+    check("fetch is a writing feature", FEATURE.writes is True)
+    check("fetch requires yt-dlp",
+          any(external.YT_DLP in requirement.any_of for requirement in FEATURE.requires))
+
+    names = [option.name for option in FEATURE.options]
+    check("fetch has url and target as positionals",
+          all(option.positional for option in FEATURE.options
+              if option.name in ("url", "target")) and "url" in names and "target" in names)
+    check("fetch audio formats are the yt-dlp subset",
+          AUDIO_FORMATS == ("mp3", "m4a", "opus", "flac"), ", ".join(AUDIO_FORMATS))
+    audio = next(option for option in FEATURE.options if option.name == "audio_format")
+    check("audio format is a choice with those formats",
+          audio.kind == "choice" and audio.choices == AUDIO_FORMATS)
+
+    # The CLI builds the sub-command from the Option list, exactly like the
+    # other features; parse a full call and the defaults.
+    parser = argparse.ArgumentParser(prog="fetch-test")
+    sub = parser.add_subparsers(dest="command", required=True)
+    base.add_feature_parser(sub, FEATURE)
+
+    given = parser.parse_args(["fetch", "https://example.org/watch?v=x", "/music",
+                               "--audio-format", "opus", "--playlist", "--no-archive",
+                               "--apply", "--confirm"])
+    check("url (positional) parsed", given.url == "https://example.org/watch?v=x")
+    check("target (positional) parsed", given.target == "/music")
+    check("audio format choice parsed", given.audio_format == "opus")
+    check("playlist flag parsed", given.playlist is True)
+    check("no_archive flag parsed", given.no_archive is True)
+    check("apply flag parsed", given.apply is True)
+    check("confirm flag parsed", given.confirm is True)
+
+    defaults = parser.parse_args(["fetch", "URL", "/music"])
+    check("audio format default is mp3", defaults.audio_format == "mp3")
+    check("playlist default is False", defaults.playlist is False)
+    check("no_archive default is False", defaults.no_archive is False)
+    check("apply default is False", defaults.apply is False)
+    check("confirm default is False", defaults.confirm is False)
+
+    # An audio format outside the choice list is refused by argparse (step 4.2
+    # fixes the choices; yt-dlp also supports aac/alac/vorbis/wav/best).
+    refused = False
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            parser.parse_args(["fetch", "URL", "/music", "--audio-format", "ogg"])
+        except SystemExit:
+            refused = True
+    check("an unknown audio format is refused", refused)
 
 
 def test_features_isolation() -> None:
@@ -1777,7 +1840,7 @@ def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
-                 test_features_isolation, test_packages_complete, test_read_extensions,
+                 test_fetch, test_features_isolation, test_packages_complete, test_read_extensions,
                  test_tag_reader, test_probe_tags_unchanged,
                  test_scan,
                  test_export_fixture, test_export_golden, test_export_golden_en,
