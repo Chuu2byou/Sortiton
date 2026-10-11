@@ -207,6 +207,19 @@ def _mp4_number(value) -> list[str]:
     return numbers
 
 
+def _mp4_pairs(value: str) -> list[tuple[int, int]]:
+    """MP4 ``trkn``/``disk`` value: "3/12" -> ``[(3, 12)]``, "3" -> ``[(3, 0)]``.
+
+    An empty value returns an empty list (the caller then removes the atom).
+    The two tags are stored as ``(number, total)`` tuples, not as text.
+    """
+    text = value.strip()
+    if not text:
+        return []
+    number, _, total = text.partition("/")
+    return [(int(number), int(total or 0))]
+
+
 def _read_asf(info: TrackInfo, tag) -> None:
     """WMA/ASF: the WM/* attributes."""
     def attribute(key: str) -> list[str]:
@@ -363,7 +376,7 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
     import mutagen
 
     from mutagen.asf import ASF, ASFTags
-    from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1, TPE2
+    from mutagen.id3 import ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
     from mutagen.mp4 import MP4
 
     def as_list(value: str) -> list[str]:
@@ -383,7 +396,8 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
                 pass
         id3 = handle.tags
         frames = {"title": TIT2, "artist": TPE1, "album_artist": TPE2,
-                  "album": TALB, "genre": TCON}
+                  "album": TALB, "genre": TCON,
+                  "track": TRCK, "disc": TPOS, "year": TDRC}
         for key, value in updates.items():
             frame = frames[key]
             values = as_list(value)
@@ -396,15 +410,24 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
 
     # M4A / MP4
     if isinstance(handle, MP4):
-        mp4_keys = {"title": "\xa9nam", "artist": "\xa9ART", "album_artist": "aART",
-                    "album": "\xa9alb", "genre": "\xa9gen"}
+        text_keys = {"title": "\xa9nam", "artist": "\xa9ART", "album_artist": "aART",
+                     "album": "\xa9alb", "genre": "\xa9gen", "year": "\xa9day"}
+        pair_keys = {"track": "trkn", "disc": "disk"}
         for key, value in updates.items():
+            if key in pair_keys:
+                # trkn/disk are (number, total) tuples, not text.
+                pairs = _mp4_pairs(value)
+                if pairs:
+                    handle[pair_keys[key]] = pairs
+                else:
+                    handle.pop(pair_keys[key], None)
+                continue
             values = as_list(value)
             if values:
-                handle[mp4_keys[key]] = values
+                handle[text_keys[key]] = values
             else:
                 try:
-                    del handle[mp4_keys[key]]
+                    del handle[text_keys[key]]
                 except KeyError:
                     pass
         handle.save()
@@ -430,7 +453,8 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
 
     # FLAC / OGG / OPUS (Vorbis comments)
     vorbis_keys = {"title": "title", "artist": "artist", "album_artist": "albumartist",
-                   "album": "album", "genre": "genre"}
+                   "album": "album", "genre": "genre", "track": "tracknumber",
+                   "disc": "discnumber", "year": "date"}
     for key, value in updates.items():
         values = as_list(value)
         if not values:
@@ -453,7 +477,8 @@ def _write_ffmpeg(path: Path, updates: dict) -> bool:
     command = ["ffmpeg", "-v", "error", "-y", "-i", str(path),
                "-map", "0", "-c", "copy", "-map_metadata", "0"]
     for key, value in updates.items():
-        command += ["-metadata", f"{key}={value}"]
+        # ffmpeg calls the year field "date"; the other names match.
+        command += ["-metadata", f"{'date' if key == 'year' else key}={value}"]
     command.append(str(temp))
     try:
         subprocess.run(command, check=True, capture_output=True)

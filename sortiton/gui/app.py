@@ -54,7 +54,8 @@ RESULT_HEIGHT = 176      # result area in counter mode
 LOG_HEIGHT = 320         # … and with the full log open
 
 # Tag fields shown in the preview, in that order.
-PLAN_FIELDS = ("artist", "album_artist", "title", "album", "genre")
+PLAN_FIELDS = ("artist", "album_artist", "title", "album", "genre",
+               "track", "disc", "year")
 
 # Keywords for colouring log lines (both languages).
 _ERROR_MARKERS = ("ERROR", "FEHLER")
@@ -100,6 +101,7 @@ class SortitonGUI:
         self.running = False
         self.last_path: Path | None = None
         self.action_buttons: list[RoundButton] = []
+        self._tools_buttons: list[RoundButton] = []
         self._cancel: CancelToken | None = None
         self._cancel_button: RoundButton | None = None
         self._icon_large: tk.PhotoImage | None = None
@@ -193,6 +195,7 @@ class SortitonGUI:
         for child in self.root.winfo_children():
             child.destroy()
         self.action_buttons = []
+        self._tools_buttons = []
         self._execute_buttons = {}
         self._action_frames = {}
         self._preview_notes = {}
@@ -463,16 +466,56 @@ class SortitonGUI:
         return page
 
     def _page_tools(self, parent: tk.Frame) -> tk.Frame:
-        """Tools tab: read-only features (the export) with a generated form.
+        """Tools tab: one form per registered feature, with a matching action bar.
 
-        Unlike the other pages this one has no preview/write pair - the export
-        changes nothing - so it gets a single run button.
+        A read-only feature (the export) keeps a single run button; a writing
+        feature gets the normal preview/write pair with the write confirmation.
+        The preview card is hidden while a read-only feature is selected.
         """
         page = self._new_page(parent)
+        self._preview_card(page, 1, "tools")
         tools_view = ToolsTab(self, page)
         tools_view.grid(row=0, column=0, sticky="nsew")
-        self._actions_single("tools", self._run_tools, i18n.t("gui.button.run_tool"))
+        self._tools_actions()
         return page
+
+    def _tools_actions(self) -> None:
+        """Rebuild the tools action bar for the selected feature.
+
+        Called while building the page and again whenever the feature picker
+        changes, so the buttons always match the form on screen.
+        """
+        old = self._action_frames.pop("tools", None)
+        if old is not None:
+            for button in self._tools_buttons:
+                if button in self.action_buttons:
+                    self.action_buttons.remove(button)
+            old.destroy()
+        self._tools_buttons = []
+        self._execute_buttons.pop("tools", None)
+        self._preview_notes.pop("tools", None)
+
+        feature = feature_by_key(self.var_tool_choice.get())
+        before = len(self.action_buttons)
+        if feature is not None and feature.writes:
+            self._actions("tools", preview=lambda: self._run_tools(False),
+                          execute=lambda: self._run_tools(True),
+                          execute_text=i18n.t("gui.button.write_fixes"))
+        else:
+            self._actions_single("tools", lambda: self._run_tools(False),
+                                 i18n.t("gui.button.run_tool"))
+        self._tools_buttons = self.action_buttons[before:]
+
+        card = self._previews.get("tools")
+        if card is not None:
+            if feature is not None and feature.writes:
+                card.grid()
+            else:
+                card.grid_remove()
+        if self.var_page.get() == "tools":
+            self._action_frames["tools"].grid()
+        # Keep the write button gated: a feature switch invalidates the preview.
+        self._render_preview("tools")
 
     def _card(self, parent: tk.Frame, row: int, title: str = "") -> tk.Frame:
         """Panel with a subtle border and an optional section title.
@@ -896,23 +939,55 @@ class SortitonGUI:
                                     backup=self._backup_for_run), source,
                     source=source, target_root=target)
 
-    def _tool_args(self, feature) -> SimpleNamespace:
-        """Read the tools form back into the namespace the feature expects."""
+    def _tool_args(self, feature, execute: bool = False) -> SimpleNamespace:
+        """Read the tools form back into the namespace the feature expects.
+
+        ``apply`` and ``backup`` come from the action bar and the confirm
+        dialog, not from the form (the form does not draw those two).
+        """
         values = {option.name: tool_value(option, self.var_tool[feature.key][option.name])
                   for option in feature.options}
+        if any(option.name == "apply" for option in feature.options):
+            values["apply"] = execute
+        if any(option.name == "backup" for option in feature.options):
+            values["backup"] = self.var_backup.get()
         return SimpleNamespace(**values)
 
-    def _run_tools(self) -> None:
-        """Start the selected tool (the export): read-only, no confirmation."""
+    def _run_tools(self, execute: bool = False) -> None:
+        """Start the selected tool: read-only runs directly, writing runs ask."""
         feature = feature_by_key(self.var_tool_choice.get())
         if feature is None:
             return
-        args = self._tool_args(feature)
+        args = self._tool_args(feature, execute)
+
         folder = str(getattr(args, "folder", "") or "").strip()
-        if not self._path_ok(folder):
+        root = str(getattr(args, "root", "") or "").strip()
+        csv_path = str(getattr(args, "file", "") or "").strip()
+        if folder:
+            if not self._path_ok(folder):
+                return
+            location = folder
+        elif root:
+            if not self._path_ok(root):
+                return
+            location = root
+        elif csv_path:
+            csv_file = Path(csv_path).expanduser()
+            if not csv_file.is_file():
+                _show_error(i18n.t("gui.dialog.file_not_found.title"),
+                            i18n.t("gui.dialog.file_not_found.text", path=csv_file))
+                return
+            location = str(csv_file.parent)
+        else:
+            _show_warning(i18n.t("gui.dialog.folder_missing.title"),
+                          i18n.t("gui.dialog.folder_missing.text"))
             return
-        self._start("tools", self._job_name("gui.job.export", False), feature.run, args,
-                    config.EXPORT_DIR, source=folder)
+
+        if feature.writes and execute and not self._confirm_write("tools"):
+            return
+        last = config.EXPORT_DIR if folder else location
+        self._start("tools", self._job_name(f"gui.job.{feature.key}", execute),
+                    feature.run, args, last, source=location)
 
     def _job_name(self, key: str, execute: bool) -> str:
         name = i18n.t(key)
@@ -955,6 +1030,8 @@ class SortitonGUI:
             return i18n.t("gui.confirm.sort.text", files=files,
                           mode=self._mode_text("sort"),
                           target=_pretty_path(fields.get("target", "")))
+        if page == "tools":
+            return i18n.t("gui.confirm.tools.text", changes=changes, files=files)
         return i18n.t("gui.confirm.all.text", files=files, mode=self._mode_text("all"),
                       target=_pretty_path(fields.get("target", "")))
 
@@ -975,6 +1052,9 @@ class SortitonGUI:
             return
 
         if kind == "tags":
+            # The fixes feature (tools tab) also reports tag changes; render them
+            # like the tags page instead of the generic file summary.
+            plan["kind"] = "tags"
             changes = data.get("changes") or {}
             plan["files"] += 1
             plan["changes_total"] += len(changes)
@@ -1009,6 +1089,11 @@ class SortitonGUI:
                          self.var_all_pattern, self.var_all_mode):
             self._traces.append((variable,
                                  variable.trace_add("write", self._inputs_changed)))
+        # The tools form is generated per feature; watch every option field too.
+        for option_vars in self.var_tool.values():
+            for variable in option_vars.values():
+                self._traces.append((variable,
+                                     variable.trace_add("write", self._inputs_changed)))
 
     def _rules_fingerprint(self) -> str:
         """Cheap check whether my_rules.ini changed since the preview."""

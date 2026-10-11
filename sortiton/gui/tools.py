@@ -23,6 +23,10 @@ from .widgets import RoundButton, Segments
 # Up to this many features are shown as segments; more need a combobox.
 SEGMENT_LIMIT = 3
 
+# Bool options driven by the action bar / the confirm dialog, not the form: a
+# writing feature gets a preview/write pair and the shared backup switch.
+_ACTION_FLAGS = {"apply", "backup"}
+
 # Fallback bounds for the spin boxes when a feature leaves minimum/maximum open.
 _INT_MAX = 1_000_000
 _FLOAT_STEP = 0.05
@@ -136,6 +140,8 @@ class ToolsTab(tk.Frame):
             self.app._hint(body, inner, i18n.t(hint_key))
             inner += 2
         for option in feature.options:
+            if option.kind == "bool" and option.name in _ACTION_FLAGS:
+                continue        # shown as the action bar / the confirm switch
             inner = self._option_row(body, inner, feature, option)
         return holder
 
@@ -191,3 +197,6 @@ class ToolsTab(tk.Frame):
                 holder.grid()
             else:
                 holder.grid_remove()
+        # A writing feature gets preview/write buttons, a read-only one a single
+        # run button - the action bar follows the selection.
+        self.app._tools_actions()

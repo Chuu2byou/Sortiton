@@ -23,6 +23,7 @@ from .tags import probe_many, probe_tags, write_tags
 from .tasks import (CmdArgs, cmd_all, cmd_rename, cmd_restore, cmd_rules, cmd_scan,
                     cmd_sort, cmd_tags)
 from .features.export import cmd_export
+from .features.fixes import cmd_fixes
 
 __all__ = [
     "__version__",
@@ -44,6 +45,7 @@ __all__ = [
     "close_log_file",
     "cmd_all",
     "cmd_export",
+    "cmd_fixes",
     "cmd_rename",
     "cmd_restore",
     "cmd_rules",

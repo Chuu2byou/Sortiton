@@ -1382,6 +1382,121 @@ def test_restore() -> None:
         check("--list runs", cmd_restore(_restore_args(None, list_journals=True)) == 0)
 
 
+def test_fixes() -> None:
+    """Step 3.4: the CSV fixes - preview, apply, skips, safety and undo."""
+    print("csv fixes")
+    from sortiton import external
+    from sortiton.features.fixes import cmd_fixes, parse
+    from sortiton.tags import read_info
+
+    # --- pure parsing / validation (no tools needed) ---
+    rows = parse.read_csv("\ufeffpath;field;old;new\r\nA.flac;Track;1;2\n")
+    check("BOM and header are handled",
+          len(rows) == 1 and rows[0].field == "track" and rows[0].line == 2,
+          str([(row.line, row.field) for row in rows]))
+    check("albumartist alias maps to album_artist",
+          parse.canonical_field("AlbumArtist") == "album_artist")
+    check("track values are checked",
+          parse.value_ok("track", "3/12") and not parse.value_ok("track", "x"))
+    check("year values are checked",
+          parse.value_ok("year", "2001-05") and not parse.value_ok("year", "01")
+          and parse.value_ok("year", ""))
+    wrong = parse.read_csv("a.flac;track;1\n")
+    check("a short row becomes a row error",
+          len(wrong) == 1 and wrong[0].error == "fixes.error.columns")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "music"
+        root.mkdir()
+        (root / "keep.flac").write_bytes(b"\x00" * 64)
+
+        # path safety: relative escape, symlink out of the tree, missing root
+        resolved, key = parse.resolve_path(root, "../escape.flac")
+        check("a relative escape is rejected",
+              resolved is None and key == "fixes.error.outside_root")
+        outside = Path(tmp) / "outside"
+        outside.mkdir()
+        (outside / "secret.flac").write_bytes(b"\x00" * 64)
+        try:
+            os.symlink(outside, root / "link")
+            resolved, key = parse.resolve_path(root, "link/secret.flac")
+            check("a symlink out of the tree is rejected",
+                  resolved is None and key == "fixes.error.outside_root")
+        except OSError:
+            skip("fixes/symlink", "cannot create a symlink here")
+        resolved, key = parse.resolve_path(None, "keep.flac")
+        check("a relative path without --root is rejected",
+              resolved is None and key == "fixes.error.root_required")
+
+        if not (external.available(external.MUTAGEN)
+                or external.available(external.FFPROBE)):
+            skip("fixes run", "no tag reader (mutagen/ffprobe)")
+            return
+        if shutil.which("ffmpeg") is None:
+            skip("fixes run", "ffmpeg is missing - cannot build a test file")
+            return
+
+        song = root / "01 - Song.flac"
+        if not _make_flac(song):
+            skip("fixes run", "ffmpeg could not build a test file")
+            return
+        write_tags(song, {"artist": "Demo", "track": "1"})
+
+        csv_file = Path(tmp) / "fixes.csv"
+        csv_file.write_text(
+            "path;field;old;new\n"
+            "01 - Song.flac;track;1;2\n"               # applies
+            "01 - Song.flac;artist;Other;Demo Two\n"   # old value does not match
+            "../escape.flac;track;1;2\n"               # rejected: outside --root
+            "01 - Song.flac;bogus;x;y\n",              # rejected: unknown field
+            encoding="utf-8")
+
+        # preview changes nothing
+        rc = cmd_fixes(SimpleNamespace(file=str(csv_file), root=str(root)))
+        stats = output.last_stats("fixes")
+        check("preview returns 0", rc == 0, str(rc))
+        check("preview reports one change", stats.get("changed") == 1, str(stats))
+        check("preview is not applied", not stats.get("applied"))
+        check("preview counts both row errors", stats.get("errors") == 2, str(stats))
+        check("preview left the tags alone",
+              read_info(song).joined("track", "; ") == "1",
+              read_info(song).joined("track", "; "))
+
+        # apply, and journal it so the undo can be checked
+        jrn = _open_journal(Path(tmp), 21)
+        rc = cmd_fixes(SimpleNamespace(file=str(csv_file), root=str(root),
+                                       apply=True, backup=False))
+        journal.close()
+        check("apply returns 0", rc == 0, str(rc))
+        check("the track was written", read_info(song).joined("track", "; ") == "2",
+              read_info(song).joined("track", "; "))
+        check("the mismatching value was skipped",
+              read_info(song).joined("artist", "; ") == "Demo",
+              read_info(song).joined("artist", "; "))
+
+        check("undo runs", cmd_restore(_restore_args(jrn, apply=True)) == 0)
+        check("the old track value is back",
+              read_info(song).joined("track", "; ") == "1",
+              read_info(song).joined("track", "; "))
+
+        # two rows for the same (path, field): both are errors, nothing changes
+        dup = Path(tmp) / "dup.csv"
+        dup.write_text("01 - Song.flac;track;1;5\n01 - Song.flac;track;1;6\n",
+                       encoding="utf-8")
+        cmd_fixes(SimpleNamespace(file=str(dup), root=str(root), apply=True,
+                                  backup=False))
+        check("a duplicate pair is reported as two errors",
+              output.last_stats("fixes").get("errors") == 2,
+              str(output.last_stats("fixes")))
+        check("the duplicate pair wrote nothing",
+              read_info(song).joined("track", "; ") == "1",
+              read_info(song).joined("track", "; "))
+
+        check("a missing CSV returns 2",
+              cmd_fixes(SimpleNamespace(file=str(Path(tmp) / "nope.csv"),
+                                        root=str(root))) == 2)
+
+
 def test_gui() -> None:
     print("gui")
     try:
@@ -1507,6 +1622,21 @@ def test_gui() -> None:
         check("tools tab has no write button", "tools" not in gui._execute_buttons)
         check("tools signature can be built", gui._signature("tools")[0] == "tools")
 
+        # Step 3.4: a writing feature (fixes) turns the tools bar into the
+        # normal preview/write pair; the export keeps its single button.
+        fixes_key = next(feature.key for feature in feature_list if feature.writes)
+        gui.var_tool_choice.set(fixes_key)
+        gui._tools_actions()
+        root.update()
+        check("a writing tool gets a write button", "tools" in gui._execute_buttons)
+        check("the write button waits for a preview",
+              not gui._execute_buttons["tools"].enabled)
+        gui.var_tool_choice.set(export.key)
+        gui._tools_actions()
+        root.update()
+        check("switching back to a read-only tool removes the write button",
+              "tools" not in gui._execute_buttons)
+
         gui.var_tool[export.key]["examples"].set("7")
         gui._language_changed("de")
         root.update()
@@ -1596,7 +1726,7 @@ def main() -> int:
                  test_export_cli, test_export_cache_migration, test_cancel,
                  test_export_public_api,
                  test_console_progress, test_journal, test_logs, test_screenshot_guard,
-                 test_restore, test_gui):
+                 test_restore, test_fixes, test_gui):
         test()
     print()
     if FAILURES:

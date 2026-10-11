@@ -81,6 +81,36 @@ _EN: dict[str, str] = {
     "cli.export.report_lang": "report language: empty = UI language, en or de",
     "export.fp.progress": "computing …",
 
+    # fixes feature (apply single tag corrections from a CSV, step 3.4)
+    "fixes.title": "FIXES - single tag corrections from a CSV",
+    "fixes.label.csv": "  CSV: {value}",
+    "fixes.label.rows": "  Rows: {value}",
+    "fixes.writing": "  Writing {count} correction(s) …",
+    "fixes.done": "  Done: {changed} changed, {skipped} skipped of {total} row(s)",
+    "fixes.hint.apply": "  Preview only - run again with --apply to write.",
+    "fixes.warn.empty": "    note: an empty value deletes the '{field}' field",
+    "fixes.skip.changed": ("  line {line}: {path} [{field}] - value changed "
+                           "(expected '{expected}', found '{current}'), skipped"),
+    "fixes.row_error": "  line {line}: rejected - {reason}",
+    "fixes.error.csv": "  ERROR: CSV file not found: {path}",
+    "fixes.error.read": "  ERROR: cannot read {path}: {error}",
+    "fixes.error.no_rows": "  ERROR: no usable rows in {path}.",
+    "fixes.error.columns": "expected 4 columns (path;field;old;new), found {count}",
+    "fixes.error.path": "missing path",
+    "fixes.error.root_required": "relative path needs --root",
+    "fixes.error.outside_root": "path is outside --root",
+    "fixes.error.extension": "not an audio file: '{path}'",
+    "fixes.error.missing_file": "file not found: '{path}'",
+    "fixes.error.field": "unknown field '{field}'",
+    "fixes.error.value": "invalid value '{value}' for field '{field}'",
+    "fixes.error.duplicate": "duplicate row for '{path}' field '{field}'",
+    "fixes.error.unreadable": "cannot read tags of '{path}'",
+    "cli.fixes.help": "Apply single tag corrections from a CSV (path;field;old;new)",
+    "cli.fixes.file": "CSV file with the corrections",
+    "cli.fixes.root": "root folder the CSV paths are relative to",
+    "cli.fixes.apply": "write the corrections",
+    "cli.fixes.backup": "copy the files into a backup folder before writing",
+
     # export report (structured Markdown; keys export.report.*)
     "export.report.summary.title": "# Music folder summary",
     "export.report.summary.folder": "- Folder: `{root}`",
@@ -441,6 +471,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.button.sort": "Sort",
     "gui.button.run_all": "Run all",
     "gui.button.run_tool": "Run",
+    "gui.button.write_fixes": "Write corrections",
     "gui.button.copy_prompt": "Copy prompt",
     "gui.button.open_export": "Open report",
     "gui.button.clear": "Clear",
@@ -468,6 +499,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.hint.all": "One run: clean tags → rename files → sort into the library.",
     "gui.hint.export": ("Read-only: reads the folder and writes the reports. "
                         "Nothing in the library is changed."),
+    "gui.hint.fixes": ("Applies single tag corrections from a CSV (the export "
+                       "prompt asks for exactly this shape). Only rows whose "
+                       "current value still matches are written."),
     "gui.confirm.tags.title": "Really write the tags?",
     "gui.confirm.tags.text": ("{changes} changes in {files} files:\n"
                               "artist, album artist, title, album and genre.\n\n"
@@ -485,6 +519,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
                              "  3. Sort into the library ({mode})\n\n"
                              "  Target: {target}"),
     "gui.confirm.note": "A preview changes nothing.",
+    "gui.confirm.tools.title": "Really write the corrections?",
+    "gui.confirm.tools.text": ("{changes} corrections from {files} CSV row(s) will "
+                               "be written to the audio files."),
     "gui.confirm.ok": "Write the changes",
     "gui.confirm.backup": "Create a backup of the original files",
     "gui.confirm.append": "\n\nRun now?",
@@ -495,6 +532,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.dialog.folder_missing.text": "Choose a folder first.",
     "gui.dialog.folder_not_found.title": "Folder not found",
     "gui.dialog.folder_not_found.text": "This folder does not exist:\n{path}",
+    "gui.dialog.file_not_found.title": "File not found",
+    "gui.dialog.file_not_found.text": "This file does not exist:\n{path}",
     "gui.dialog.ffmpeg_missing.title": "ffmpeg missing",
     "gui.dialog.ffmpeg_missing.text": ("ffprobe was not found.\n\nPlease install ffmpeg, e.g.:\n"
                                        "  Debian / Ubuntu:  sudo apt install ffmpeg\n"
@@ -512,6 +551,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.job.sort": "Sort",
     "gui.job.all": "Apply all",
     "gui.job.export": "Export reports",
+    "gui.job.fixes": "Apply CSV corrections",
     "gui.job.preview": "{name} (preview)",
     "gui.job.run": "{name} (run)",
     "gui.log.job": "▶ {description}",
@@ -586,6 +626,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.field.title": "Title",
     "gui.field.album": "Album",
     "gui.field.genre": "Genre",
+    "gui.field.track": "Track",
+    "gui.field.disc": "Disc",
+    "gui.field.year": "Year",
     "gui.field.file": "File",
     "gui.field.folder": "Folder",
     "gui.result.changed": "changed",
@@ -736,6 +779,37 @@ _DE: dict[str, str] = {
     "export.error.tools": "  FEHLER: weder mutagen noch ffprobe verfügbar.",
     "cli.export.report_lang": "Berichtssprache: leer = UI-Sprache, en oder de",
     "export.fp.progress": "berechnen …",
+
+    # Fixes-Feature (Einzelkorrekturen aus einer CSV anwenden, Schritt 3.4)
+    "fixes.title": "FIXES - Einzelkorrekturen aus einer CSV",
+    "fixes.label.csv": "  CSV: {value}",
+    "fixes.label.rows": "  Zeilen: {value}",
+    "fixes.writing": "  Schreibe {count} Korrektur(en) …",
+    "fixes.done": ("  Fertig: {changed} geändert, {skipped} übersprungen "
+                    "von {total} Zeile(n)"),
+    "fixes.hint.apply": "  Nur Vorschau - erneut mit --apply ausführen, um zu schreiben.",
+    "fixes.warn.empty": "    Hinweis: ein leerer Wert löscht das Feld '{field}'",
+    "fixes.skip.changed": ("  Zeile {line}: {path} [{field}] - Wert hat sich geändert "
+                           "(erwartet '{expected}', gefunden '{current}'), übersprungen"),
+    "fixes.row_error": "  Zeile {line}: abgelehnt - {reason}",
+    "fixes.error.csv": "  FEHLER: CSV-Datei nicht gefunden: {path}",
+    "fixes.error.read": "  FEHLER: {path} kann nicht gelesen werden: {error}",
+    "fixes.error.no_rows": "  FEHLER: keine verwendbaren Zeilen in {path}.",
+    "fixes.error.columns": "4 Spalten erwartet (path;field;old;new), {count} gefunden",
+    "fixes.error.path": "Pfad fehlt",
+    "fixes.error.root_required": "relativer Pfad braucht --root",
+    "fixes.error.outside_root": "Pfad liegt außerhalb von --root",
+    "fixes.error.extension": "keine Audiodatei: '{path}'",
+    "fixes.error.missing_file": "Datei nicht gefunden: '{path}'",
+    "fixes.error.field": "unbekanntes Feld '{field}'",
+    "fixes.error.value": "ungültiger Wert '{value}' für Feld '{field}'",
+    "fixes.error.duplicate": "doppelte Zeile für '{path}' Feld '{field}'",
+    "fixes.error.unreadable": "Tags von '{path}' können nicht gelesen werden",
+    "cli.fixes.help": "Einzelkorrekturen aus einer CSV anwenden (path;field;old;new)",
+    "cli.fixes.file": "CSV-Datei mit den Korrekturen",
+    "cli.fixes.root": "Wurzelordner, auf den sich die CSV-Pfade beziehen",
+    "cli.fixes.apply": "die Korrekturen schreiben",
+    "cli.fixes.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
 
     # Export-Bericht (strukturiertes Markdown; Schlüssel export.report.*)
     "export.report.summary.title": "# Zusammenfassung Musikordner",
@@ -1103,6 +1177,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.button.sort": "Sortieren",
     "gui.button.run_all": "Alles ausführen",
     "gui.button.run_tool": "Ausführen",
+    "gui.button.write_fixes": "Korrekturen schreiben",
     "gui.button.copy_prompt": "Prompt kopieren",
     "gui.button.open_export": "Report öffnen",
     "gui.button.clear": "Leeren",
@@ -1131,6 +1206,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                      "sortieren."),
     "gui.hint.export": ("Nur lesend: liest den Ordner und schreibt die Berichte. "
                         "In der Bibliothek ändert sich nichts."),
+    "gui.hint.fixes": ("Wendet Einzelkorrekturen aus einer CSV an (der Export-Prompt "
+                       "verlangt genau dieses Format). Nur Zeilen, deren aktueller "
+                       "Wert noch passt, werden geschrieben."),
     "gui.confirm.tags.title": "Tags wirklich schreiben?",
     "gui.confirm.tags.text": ("{changes} Änderungen in {files} Dateien:\n"
                               "Künstler, Album-Künstler, Titel, Album und Genre.\n\n"
@@ -1148,6 +1226,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                              "  3. In die Bibliothek sortieren ({mode})\n\n"
                              "  Ziel: {target}"),
     "gui.confirm.note": "Eine Vorschau ändert nichts.",
+    "gui.confirm.tools.title": "Korrekturen wirklich schreiben?",
+    "gui.confirm.tools.text": ("{changes} Korrekturen aus {files} CSV-Zeile(n) werden "
+                               "in die Audiodateien geschrieben."),
     "gui.confirm.ok": "Änderungen schreiben",
     "gui.confirm.backup": "Backup der Originaldateien erstellen",
     "gui.confirm.append": "\n\nJetzt ausführen?",
@@ -1158,6 +1239,8 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.dialog.folder_missing.text": "Erst einen Ordner wählen.",
     "gui.dialog.folder_not_found.title": "Ordner nicht gefunden",
     "gui.dialog.folder_not_found.text": "Dieser Ordner existiert nicht:\n{path}",
+    "gui.dialog.file_not_found.title": "Datei nicht gefunden",
+    "gui.dialog.file_not_found.text": "Diese Datei existiert nicht:\n{path}",
     "gui.dialog.ffmpeg_missing.title": "ffmpeg fehlt",
     "gui.dialog.ffmpeg_missing.text": ("ffprobe wurde nicht gefunden.\n\nBitte ffmpeg installieren, z. B.:\n"
                                        "  Debian / Ubuntu:  sudo apt install ffmpeg\n"
@@ -1175,6 +1258,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.job.sort": "Sortieren",
     "gui.job.all": "Alles anwenden",
     "gui.job.export": "Berichte exportieren",
+    "gui.job.fixes": "CSV-Korrekturen anwenden",
     "gui.job.preview": "{name} (Vorschau)",
     "gui.job.run": "{name} (ausführen)",
     "gui.log.job": "▶ {description}",
@@ -1249,6 +1333,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.field.title": "Titel",
     "gui.field.album": "Album",
     "gui.field.genre": "Genre",
+    "gui.field.track": "Track",
+    "gui.field.disc": "Disc",
+    "gui.field.year": "Jahr",
     "gui.field.file": "Datei",
     "gui.field.folder": "Ordner",
     "gui.result.changed": "geändert",

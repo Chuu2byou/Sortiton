@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from .base import Feature
 from .export import FEATURE as _EXPORT
+from .fixes import FEATURE as _FIXES
 
 __all__ = ["Feature", "FEATURES", "get"]
 
-FEATURES: tuple[Feature, ...] = (_EXPORT,)
+FEATURES: tuple[Feature, ...] = (_EXPORT, _FIXES)
 
 
 def get(key: str) -> Feature | None:
