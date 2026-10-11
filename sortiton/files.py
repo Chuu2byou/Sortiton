@@ -30,17 +30,30 @@ def safe_name(name: str) -> str:
 
 
 def build_name(tags: dict, file_base: str, pattern: str) -> str:
-    """Build the base name from a naming pattern (e.g. '%artist% - %title%')."""
+    """Build the base name from a naming pattern (e.g. '%artist% - %title%').
+
+    The pattern understands ``%artist%``, ``%albumartist%``, ``%album%``,
+    ``%title%``, ``%track%``, ``%disc%`` and ``%year%``. Every value is run
+    through :func:`safe_name`, so a missing tag renders like an empty album
+    (``_``); ``%title%`` falls back to the file name and ``%artist%`` /
+    ``%albumartist%`` to :data:`FALLBACK_ARTIST`.
+    """
     artist = tags.get("artist") or FALLBACK_ARTIST
     album_artist = tags.get("album_artist") or artist
     album = tags.get("album") or ""
     title = tags.get("title") or file_base
+    track = tags.get("track") or ""
+    disc = tags.get("disc") or ""
+    year = tags.get("year") or ""
 
     name = pattern
     name = name.replace("%artist%", safe_name(artist))
     name = name.replace("%albumartist%", safe_name(album_artist))
     name = name.replace("%album%", safe_name(album))
     name = name.replace("%title%", safe_name(title))
+    name = name.replace("%track%", safe_name(track))
+    name = name.replace("%disc%", safe_name(disc))
+    name = name.replace("%year%", safe_name(year))
 
     # Collapse repeated separators ("A -  - B" -> "A - B").
     name = re.sub(r"(\s*-\s*){2,}", " - ", name)
