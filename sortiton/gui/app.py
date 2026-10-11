@@ -21,6 +21,7 @@ from tkinter import ttk
 
 from .. import config, i18n, journal, output, rules, settings
 from ..cancel import CancelToken
+from ..features import FEATURES, get as feature_by_key
 from ..tasks import cmd_all, cmd_rename, cmd_restore, cmd_scan, cmd_sort, cmd_tags
 from . import design
 from .design import (ACCENT, BACKGROUND, BORDER, CARD, FIELD, GREEN, LOG_BG, LOG_TEXT,
@@ -31,6 +32,7 @@ from .dialogs import _ask_yes_no, _pick_folder, _show_error, _show_warning
 from .panels import PreviewCard, ResultPanel, section_label
 from .preferences import PreferencesWindow
 from .restore import RestoreWindow
+from .tools import ToolsTab, make_tool_vars, tool_value
 from .widgets import Pill, ProgressBar, RoundButton, Segments
 
 # Default folders: "Musik" next to the project folder (fallback ~/Musik) and the
@@ -115,6 +117,9 @@ class SortitonGUI:
         self._preview_notes: dict[str, tk.Label] = {}
         self._previews: dict[str, PreviewCard] = {}
         self._stats_labels: dict[str, tk.Label] = {}
+        # One widget per feature option, keyed (feature.key, option.name); only
+        # used to look the tools form up again (tests, future features).
+        self._tool_widgets: dict[tuple[str, str], tk.Widget] = {}
         self._traces: list[tuple[tk.Variable, str]] = []
         self._job_page = "tags"
         self._dirty = False
@@ -155,6 +160,11 @@ class SortitonGUI:
         self.var_page = tk.StringVar(value="tags")
         self.var_language = tk.StringVar(value=i18n.get_language())
         self.var_backup = tk.BooleanVar(value=settings.resolve_backup())
+        # Tools tab: the feature picker and one variable per feature option.
+        # Created here, not in the page builders, so a language switch keeps
+        # every value the user typed.
+        self.var_tool = make_tool_vars()
+        self.var_tool_choice = tk.StringVar(value=FEATURES[0].key if FEATURES else "")
         self.status_var = tk.StringVar(value="")
 
     def _install_output_hooks(self) -> None:
@@ -184,6 +194,7 @@ class SortitonGUI:
         self._preview_notes = {}
         self._previews = {}
         self._stats_labels = {}
+        self._tool_widgets = {}
         self._prefs_window = None
         # Keep the current size and position: only the very first build places
         # the window, otherwise a rebuild would recentre it (on two monitors
@@ -290,7 +301,8 @@ class SortitonGUI:
         bar.columnconfigure(0, weight=1)
         tabs = Segments(bar,
                         [("tags", i18n.t("gui.tab.tags")), ("rename", i18n.t("gui.tab.rename")),
-                         ("sort", i18n.t("gui.tab.sort")), ("all", i18n.t("gui.tab.all"))],
+                         ("sort", i18n.t("gui.tab.sort")), ("all", i18n.t("gui.tab.all")),
+                         ("tools", i18n.t("gui.tab.tools"))],
                         self.var_page, command=self._show_page, height=40, stretch=True)
         tabs.grid(row=0, column=0, sticky="ew")
         RoundButton(bar, "⚙  " + i18n.t("gui.button.settings"), self._open_preferences,
@@ -331,6 +343,7 @@ class SortitonGUI:
             "rename": self._page_rename(content),
             "sort":   self._page_sort(content),
             "all":    self._page_all(content),
+            "tools":  self._page_tools(content),
         }
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky="nsew")
@@ -444,6 +457,18 @@ class SortitonGUI:
                       execute_text=i18n.t("gui.button.run_all"))
         return page
 
+    def _page_tools(self, parent: tk.Frame) -> tk.Frame:
+        """Tools tab: read-only features (the export) with a generated form.
+
+        Unlike the other pages this one has no preview/write pair - the export
+        changes nothing - so it gets a single run button.
+        """
+        page = self._new_page(parent)
+        tools_view = ToolsTab(self, page)
+        tools_view.grid(row=0, column=0, sticky="nsew")
+        self._actions_single("tools", self._run_tools, i18n.t("gui.button.run_tool"))
+        return page
+
     def _card(self, parent: tk.Frame, row: int, title: str = "") -> tk.Frame:
         """Panel with a subtle border and an optional section title.
 
@@ -490,18 +515,20 @@ class SortitonGUI:
                         highlightcolor=ACCENT, font=design.FONT)
 
     def _folder_row(self, card: tk.Frame, row: int, label: str,
-                    variable: tk.StringVar) -> None:
-        """Label + path field + folder picker."""
+                    variable: tk.StringVar) -> tk.Entry:
+        """Label + path field + folder picker; returns the path field."""
         tk.Label(card, text=label, bg=CARD, fg=TEXT_MUTED, font=design.FONT_SMALL).grid(
             row=row, column=0, sticky="w", pady=(0 if row == 0 else 12, 5))
         line = tk.Frame(card, bg=CARD)
         line.grid(row=row + 1, column=0, sticky="ew")
         line.columnconfigure(0, weight=1)
 
-        self._path_entry(line, variable).grid(row=0, column=0, sticky="ew", ipady=7)
+        entry = self._path_entry(line, variable)
+        entry.grid(row=0, column=0, sticky="ew", ipady=7)
         RoundButton(line, i18n.t("gui.button.choose_folder"),
                     lambda: self._choose_folder(variable),
                     style="normal").grid(row=0, column=1, padx=(10, 0))
+        return entry
 
     def _rules_card(self, page: tk.Frame, row: int) -> None:
         """Which rules are active - read from the file, not written as prose."""
@@ -572,6 +599,21 @@ class SortitonGUI:
         self.action_buttons += [first, second]
         self._execute_buttons[key] = second
         self._preview_notes[key] = note
+
+    def _actions_single(self, key: str, run, text: str) -> None:
+        """Action bar with a single button - for a page without preview/write.
+
+        The button joins ``action_buttons`` so a running job disables it like
+        every other action; there is deliberately no entry in
+        ``_execute_buttons`` (nothing to gate on a preview).
+        """
+        frame = tk.Frame(self._actions_area, bg=BACKGROUND)
+        frame.grid(row=0, column=0, sticky="w")
+        self._action_frames[key] = frame
+
+        button = RoundButton(frame, text, run, style="primary")
+        button.pack(side="left")
+        self.action_buttons.append(button)
 
     def _build_result_area(self) -> None:
         """One area, two views: the result counters or the full log.
@@ -729,17 +771,40 @@ class SortitonGUI:
         except tk.TclError:
             pass
 
-    def _rebuild_result_header(self, backup: str = "") -> None:
-        """Buttons of the result card: log details and (if any) the backup."""
+    def _rebuild_result_header(self, backup: str = "", export_dir: str = "") -> None:
+        """Buttons of the result card: log details, the export, the backup."""
         for child in self.result_panel.header_right.winfo_children():
             child.destroy()
         RoundButton(self.result_panel.header_right, i18n.t("gui.button.details"),
                     self._show_log_view, style="quiet", height=28).pack(side="right")
+        if export_dir:
+            RoundButton(self.result_panel.header_right, i18n.t("gui.button.open_export"),
+                        self._open_last, style="quiet", height=28).pack(
+                            side="right", padx=(0, 8))
+            RoundButton(self.result_panel.header_right, i18n.t("gui.button.copy_prompt"),
+                        self._copy_prompt, style="quiet", height=28).pack(
+                            side="right", padx=(0, 8))
         if backup:
             self._last_backup = Path(backup)
             RoundButton(self.result_panel.header_right, i18n.t("gui.button.open_backup"),
                         self._open_backup, style="quiet", height=28).pack(
                             side="right", padx=(0, 8))
+
+    def _copy_prompt(self) -> None:
+        """Put ``00_prompt.md`` of the last export on the clipboard.
+
+        The button only exists after a successful export, so the file is there;
+        a read error is swallowed rather than interrupting the interface.
+        """
+        outdir = output.last_stats("export").get("outdir")
+        if not outdir:
+            return
+        try:
+            text = (Path(outdir) / "00_prompt.md").read_text(encoding="utf-8")
+        except OSError:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
 
     def _xdg_open(self, path: Path) -> None:
         """Hand a file or folder to the desktop - no output, no waiting."""
@@ -825,6 +890,24 @@ class SortitonGUI:
                                     move=move, apply=execute,
                                     backup=self._backup_for_run), source,
                     source=source, target_root=target)
+
+    def _tool_args(self, feature) -> SimpleNamespace:
+        """Read the tools form back into the namespace the feature expects."""
+        values = {option.name: tool_value(option, self.var_tool[feature.key][option.name])
+                  for option in feature.options}
+        return SimpleNamespace(**values)
+
+    def _run_tools(self) -> None:
+        """Start the selected tool (the export): read-only, no confirmation."""
+        feature = feature_by_key(self.var_tool_choice.get())
+        if feature is None:
+            return
+        args = self._tool_args(feature)
+        folder = str(getattr(args, "folder", "") or "").strip()
+        if not self._path_ok(folder):
+            return
+        self._start("tools", self._job_name("gui.job.export", False), feature.run, args,
+                    config.EXPORT_DIR, source=folder)
 
     def _job_name(self, key: str, execute: bool) -> str:
         name = i18n.t(key)
@@ -941,6 +1024,13 @@ class SortitonGUI:
         if page == "sort":
             return ("sort", self.var_source.get().strip(), self.var_target.get().strip(),
                     self.var_sort_pattern.get().strip(), self.var_sort_mode.get())
+        if page == "tools":
+            feature = feature_by_key(self.var_tool_choice.get())
+            if feature is None:
+                return ("tools",)
+            values = tuple((option.name, self.var_tool[feature.key][option.name].get())
+                           for option in feature.options)
+            return ("tools", feature.key, values)
         if page == "restore":
             # An undo has no inputs of its own: the journal is fixed when the run
             # starts, so the signature only has to stay stable while it runs.
@@ -1080,6 +1170,9 @@ class SortitonGUI:
                 self.status_var.set(i18n.t("gui.status.ready"))
                 self._set_state(GREEN if self.has_ffprobe else YELLOW)
             return
+        if kind == "export" and values.get("outdir"):
+            # "Open folder" should point at the reports, not at the music folder.
+            self.last_path = Path(values["outdir"])
         self._render_stats(kind, values)
 
     def _render_stats(self, kind: str, values: dict) -> None:
@@ -1093,6 +1186,18 @@ class SortitonGUI:
                  i18n.t("gui.result.sorted")),
                 (RED, "✕", number(values.get("errors", 0)), i18n.t("gui.result.errors")),
             ]
+        elif kind == "export":
+            # The export has no "changed/skipped": it only reads (see step 3.2).
+            rows = [
+                (GREEN, "✓", number(values.get("files", 0)),
+                 i18n.t("gui.result.analysed")),
+                (RED, "✕", number(values.get("errors", 0)), i18n.t("gui.result.errors")),
+                (TEXT_MUTED, "•", number(values.get("parts", 0)),
+                 i18n.t("gui.result.parts")),
+            ]
+            if values.get("duplicate_groups") is not None:
+                rows.append((YELLOW, "⚠", number(values.get("duplicate_groups", 0)),
+                             i18n.t("gui.result.duplicates")))
         else:
             changed_key = ("gui.result.changed" if values.get("applied")
                            else "gui.result.planned")
@@ -1105,7 +1210,7 @@ class SortitonGUI:
                 (RED, "✕", number(values.get("errors", 0)), i18n.t("gui.result.errors")),
             ]
         self.result_panel.set_counters(rows)
-        self._rebuild_result_header(values.get("backup", ""))
+        self._rebuild_result_header(values.get("backup", ""), values.get("outdir", ""))
         self._refresh_recent()
 
     def _start(self, page: str, description: str, function, args, last_path: str | Path,
@@ -1195,21 +1300,25 @@ class SortitonGUI:
         try:
             while True:
                 kind, value = self.queue.get_nowait()
-                if kind == "log":
-                    self._log_line(value)
-                elif kind == "prog":
-                    self._set_progress(*value)
-                elif kind == "plan":
-                    self._absorb_plan(*value)
-                elif kind == "stats":
-                    self._absorb_stats(*value)
-                elif kind == "scan_done":
-                    self._scan_finished()
-                elif kind == "done":
-                    self._finish(value)
+                self._dispatch(kind, value)
         except queue.Empty:
             pass
         self.root.after(80, self._queue_pump)
+
+    def _dispatch(self, kind: str, value) -> None:
+        """Handle one message from a worker thread (also used by the tests)."""
+        if kind == "log":
+            self._log_line(value)
+        elif kind == "prog":
+            self._set_progress(*value)
+        elif kind == "plan":
+            self._absorb_plan(*value)
+        elif kind == "stats":
+            self._absorb_stats(*value)
+        elif kind == "scan_done":
+            self._scan_finished()
+        elif kind == "done":
+            self._finish(value)
 
     def _scan_finished(self) -> None:
         """A folder scan is over (also when it failed and sent no counters)."""

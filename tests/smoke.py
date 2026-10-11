@@ -1404,13 +1404,13 @@ def test_gui() -> None:
         gui._content_canvas.yview_moveto(0)
         root.geometry(previous_geometry)
         root.update()
-        for page in ("tags", "rename", "sort", "all"):
+        for page in ("tags", "rename", "sort", "all", "tools"):
             gui._show_page(page)
             root.update()
             check(f"{page} action bar is visible",
                   gui._action_frames[page].winfo_ismapped())
         check("all pages exist",
-              set(gui.pages) == {"tags", "rename", "sort", "all"},
+              set(gui.pages) == {"tags", "rename", "sort", "all", "tools"},
               ", ".join(sorted(gui.pages)))
         check("content viewport exists", gui._content_canvas.winfo_exists())
         check("window icon loaded", gui._icon_large is not None)
@@ -1472,6 +1472,60 @@ def test_gui() -> None:
 
         check("home is shortened", gui_app._pretty_path(Path.home() / "Musik") == "~/Musik")
         check("numbers use separators", gui_app._fmt_number(1842) == "1.842")
+
+        # Step 3.2: the tools tab generates a form from the feature list, has no
+        # write button and runs the (read-only) export from a single button.
+        from sortiton import external
+        from sortiton.features import FEATURES as feature_list
+        export = feature_list[0]
+        check("tools form has a widget per option",
+              all((export.key, option.name) in gui._tool_widgets
+                  for option in export.options),
+              ", ".join(sorted(name for key, name in gui._tool_widgets if key == export.key)))
+        check("tools tab has no write button", "tools" not in gui._execute_buttons)
+        check("tools signature can be built", gui._signature("tools")[0] == "tools")
+
+        gui.var_tool[export.key]["examples"].set("7")
+        gui._language_changed("de")
+        root.update()
+        check("language switch keeps tool input",
+              gui.var_tool[export.key]["examples"].get() == "7",
+              gui.var_tool[export.key]["examples"].get())
+        gui._language_changed("en")
+        root.update()
+        check("tools form is rebuilt after a language switch",
+              (export.key, "folder") in gui._tool_widgets)
+        gui.var_tool[export.key]["examples"].set("40")
+
+        fixture = _load_export_helper().FIXTURE_DIR
+        if not fixture.is_dir():
+            skip("tools export run", "fixture missing")
+        elif not (external.available(external.MUTAGEN) or external.available(external.FFPROBE)):
+            skip("tools export run", "mutagen and ffprobe missing")
+        else:
+            import queue as queue_module
+            import time as time_module
+            with tempfile.TemporaryDirectory() as tmp:
+                outdir = Path(tmp) / "export"
+                gui.var_tool[export.key]["folder"].set(str(fixture))
+                gui.var_tool[export.key]["output"].set(str(outdir))
+                gui.var_tool[export.key]["chunk_chars"].set("1500")
+                gui._run_tools()
+                deadline = time_module.monotonic() + 120
+                while gui.running and time_module.monotonic() < deadline:
+                    try:
+                        kind, value = gui.queue.get(timeout=0.1)
+                    except queue_module.Empty:
+                        continue
+                    gui._dispatch(kind, value)
+                root.update()
+                stats = output.last_stats("export")
+                check("tools export run finishes", not gui.running)
+                check("tools export reports its folder",
+                      stats.get("outdir") == str(outdir.resolve()), str(stats))
+                check("tools export points Open folder at the report",
+                      gui.last_path == outdir.resolve(), str(gui.last_path))
+                check("tools export wrote a report", (outdir / "00_prompt.md").is_file())
     finally:
         root.destroy()
 

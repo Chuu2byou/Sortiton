@@ -432,12 +432,16 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.tab.rename": "Rename",
     "gui.tab.sort": "Sort",
     "gui.tab.all": "Apply all",
+    "gui.tab.tools": "Tools",
     "gui.button.preview": "Preview",
     "gui.button.change": "Change…",
     "gui.button.write_tags": "Write tags",
     "gui.button.rename": "Rename",
     "gui.button.sort": "Sort",
     "gui.button.run_all": "Run all",
+    "gui.button.run_tool": "Run",
+    "gui.button.copy_prompt": "Copy prompt",
+    "gui.button.open_export": "Open report",
     "gui.button.clear": "Clear",
     "gui.button.open_folder": "Open folder",
     "gui.button.open_logs": "Open logs",
@@ -460,6 +464,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.hint.sort": ("Target: artist/album/file – without an album tag only artist/file. "
                       "A taken name gets “ (2)”, “ (3)” …"),
     "gui.hint.all": "One run: clean tags → rename files → sort into the library.",
+    "gui.hint.export": ("Read-only: reads the folder and writes the reports. "
+                        "Nothing in the library is changed."),
     "gui.confirm.tags.title": "Really write the tags?",
     "gui.confirm.tags.text": ("{changes} changes in {files} files:\n"
                               "artist, album artist, title, album and genre.\n\n"
@@ -580,6 +586,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.result.tags_changed": "tags cleaned",
     "gui.result.renamed": "files renamed",
     "gui.result.sorted": "files sorted",
+    "gui.result.parts": "report files",
+    "gui.result.duplicates": "duplicate groups",
     "gui.status.scanning": "Analysing files …",
     "gui.status.percent": "{current} / {total} · {percent} %",
     "gui.log.ffprobe_missing": "  Note: ffprobe is missing - reading tags is slower (install ffmpeg).",
@@ -1076,12 +1084,16 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.tab.rename": "Umbenennen",
     "gui.tab.sort": "Sortieren",
     "gui.tab.all": "Alles anwenden",
+    "gui.tab.tools": "Werkzeuge",
     "gui.button.preview": "Vorschau",
     "gui.button.change": "Ändern…",
     "gui.button.write_tags": "Tags schreiben",
     "gui.button.rename": "Umbenennen",
     "gui.button.sort": "Sortieren",
     "gui.button.run_all": "Alles ausführen",
+    "gui.button.run_tool": "Ausführen",
+    "gui.button.copy_prompt": "Prompt kopieren",
+    "gui.button.open_export": "Report öffnen",
     "gui.button.clear": "Leeren",
     "gui.button.open_folder": "Ordner öffnen",
     "gui.button.open_logs": "Logs öffnen",
@@ -1105,6 +1117,8 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                       "Belegte Namen bekommen „ (2)“, „ (3)“ …"),
     "gui.hint.all": ("Ein Durchlauf: Tags bereinigen → Dateien umbenennen → in die Bibliothek "
                      "sortieren."),
+    "gui.hint.export": ("Nur lesend: liest den Ordner und schreibt die Berichte. "
+                        "In der Bibliothek ändert sich nichts."),
     "gui.confirm.tags.title": "Tags wirklich schreiben?",
     "gui.confirm.tags.text": ("{changes} Änderungen in {files} Dateien:\n"
                               "Künstler, Album-Künstler, Titel, Album und Genre.\n\n"
@@ -1225,6 +1239,8 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.result.tags_changed": "Tags bereinigt",
     "gui.result.renamed": "Dateien umbenannt",
     "gui.result.sorted": "Dateien sortiert",
+    "gui.result.parts": "Report-Dateien",
+    "gui.result.duplicates": "Duplikat-Gruppen",
     "gui.status.scanning": "Analysiere Dateien …",
     "gui.status.percent": "{current} / {total} · {percent} %",
     "gui.log.ffprobe_missing": "  Hinweis: ffprobe fehlt – Tags werden langsamer gelesen (ffmpeg installieren).",
