@@ -71,6 +71,7 @@ _EN: dict[str, str] = {
     # export feature (read-only reports for an LLM)
     "export.title": "EXPORT - reports for an LLM (read only)",
     "export.done": "  Done: {files} file(s) -> {outdir}",
+    "export.cancelled": "  Cancelled - partial output kept in {outdir}",
     "export.fp.cache": "  Fingerprints: {cached} from cache, {todo} to compute",
     "export.fp.failed": ("  Note: {count} file(s) without fingerprint, "
                          "details in fpcalc_fehler.log"),
@@ -322,6 +323,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "task.hint.apply_run": "  --> Append --apply to run it.",
     "task.step": "#  {title}",
     "task.aborted": "  ABORTED in '{title}' (rc={rc}).",
+    "task.cancelled": "  Cancelled.",
     "task.all.done": "  ALL-IN-ONE finished. ({mode})",
     "task.mode.applied": "applied",
     "task.mode.preview": "preview",
@@ -495,6 +497,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.status.ready": "ready",
     "gui.status.running": "running…",
     "gui.status.failed": "failed (rc={rc})",
+    "gui.status.cancelled": "cancelled",
     "gui.status.progress": "{current} / {total} · {text}",
     "gui.job.tags": "Tag cleanup",
     "gui.job.rename": "Rename",
@@ -706,6 +709,7 @@ _DE: dict[str, str] = {
     # Export-Feature (nur lesende Berichte für ein LLM)
     "export.title": "EXPORT - Berichte für ein LLM (nur lesend)",
     "export.done": "  Fertig: {files} Datei(en) -> {outdir}",
+    "export.cancelled": "  Abgebrochen - unvollständige Ausgabe bleibt in {outdir}",
     "export.fp.cache": "  Fingerprints: {cached} aus Cache, {todo} neu zu berechnen",
     "export.fp.failed": ("  Hinweis: {count} Datei(en) ohne Fingerprint, "
                          "Details in fpcalc_fehler.log"),
@@ -963,6 +967,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "task.hint.apply_run": "  --> Zum Ausführen: --apply anhängen.",
     "task.step": "#  {title}",
     "task.aborted": "  ABBRUCH in '{title}' (rc={rc}).",
+    "task.cancelled": "  Abgebrochen.",
     "task.all.done": "  ALL-IN-ONE fertig. ({mode})",
     "task.mode.applied": "ausgeführt",
     "task.mode.preview": "Vorschau",
@@ -1137,6 +1142,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.status.ready": "bereit",
     "gui.status.running": "läuft…",
     "gui.status.failed": "fehlgeschlagen (rc={rc})",
+    "gui.status.cancelled": "abgebrochen",
     "gui.status.progress": "{current} / {total} · {text}",
     "gui.job.tags": "Tag-Bereinigung",
     "gui.job.rename": "Umbenennen",

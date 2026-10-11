@@ -978,7 +978,7 @@ def test_export_cache_migration() -> None:
         new_dir = work / "cache"
         calls: list[str] = []
 
-        def fake_fpcalc(path, secs):
+        def fake_fpcalc(path, secs, cancel=None):
             calls.append(str(path))
             return [9, 9, 9], ""
 
@@ -996,6 +996,72 @@ def test_export_cache_migration() -> None:
         check("every file is served from the cache", len(fps) == len(recs), str(fps))
         check("the cached fingerprints are used",
               all(fps.get(i) == [1, 2, 3] for i in range(len(recs))), str(fps))
+
+
+def test_cancel() -> None:
+    """Step 3.1: a cancelled token stops ``cmd_export`` with code 130.
+
+    The reader is patched to cancel the token after three files. ``scan`` has to
+    notice it, drop the remaining reads and let ``cmd_export`` return 130
+    without hanging; the half-finished output folder must stay on disk.
+    """
+    print("cancellation")
+    import unittest.mock as mock
+
+    from sortiton import external
+    from sortiton.cancel import Cancelled, CancelToken, NO_CANCEL
+    from sortiton.features.export import cmd_export, reader
+
+    check("NO_CANCEL is never set", not NO_CANCEL.is_set())
+
+    token = CancelToken()
+    raised = False
+    try:
+        token.check()
+    except Cancelled:
+        raised = True
+    check("check() stays quiet before cancel()", not raised)
+
+    token.cancel()
+    raised = False
+    try:
+        token.check()
+    except Cancelled:
+        raised = True
+    check("check() raises after cancel()", raised and token.is_set())
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        music = work / "music"
+        music.mkdir()
+        for index in range(10):
+            (music / f"{index:02d}.mp3").write_bytes(b"\x00" * 64)
+
+        token = CancelToken()
+        calls = {"n": 0}
+
+        def fake_read_file(root, path):
+            calls["n"] += 1
+            if calls["n"] >= 3:
+                token.cancel()
+            return {"path": path.relative_to(root).as_posix(), "error": ""}
+
+        outdir = work / "out"
+        messages: list[str] = []
+        # No reader tool is needed: the reader itself is replaced below.
+        with mock.patch.object(external, "missing", return_value=[]), \
+                mock.patch.object(reader, "read_file", fake_read_file), \
+                mock.patch.object(output, "message", side_effect=messages.append):
+            rc = cmd_export(SimpleNamespace(folder=str(music), output=str(outdir),
+                                            threads=1, cancel=token))
+
+        check("a cancelled export returns 130", rc == 130, str(rc))
+        check("the cancellation is reported",
+              any("Cancell" in text or "Abgebroch" in text for text in messages),
+              str(messages[:3]))
+        check("the partial output is named in the message",
+              any(str(outdir.resolve()) in text for text in messages), str(messages[:3]))
+        check("the partial output folder is kept", outdir.is_dir())
 
 
 def _restore_args(path, *, apply: bool = False, keep_copies: bool = False,
@@ -1420,7 +1486,8 @@ def main() -> int:
                  test_export_fixture, test_export_golden, test_export_golden_en,
                  test_export_ffprobe_loose,
                  test_export_fingerprint, test_export_source_untouched, test_export_errors,
-                 test_export_cli, test_export_cache_migration, test_export_public_api,
+                 test_export_cli, test_export_cache_migration, test_cancel,
+                 test_export_public_api,
                  test_console_progress, test_journal, test_logs, test_screenshot_guard,
                  test_restore, test_gui):
         test()

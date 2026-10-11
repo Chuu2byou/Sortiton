@@ -14,12 +14,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 from ... import config, i18n, output
+from ...cancel import NO_CANCEL, Cancelled
 from .analysis import lst, norm
 
 _popcount = (lambda x: x.bit_count()) if hasattr(int, "bit_count") else (lambda x: bin(x).count("1"))
@@ -32,20 +34,57 @@ DURATION_TOLERANCE_RATIO = 0.02  # relative tolerance (2%) for play time
 # Bit packing in the inverted index: (fid << FP_POS_BITS) | pos
 FP_POS_BITS = 20          # bits for the position (max 2^20 = 1 048 576 sub-FPs per file)
 FP_POS_MASK = (1 << FP_POS_BITS) - 1  # 0xFFFFF
+FP_POLL_SECS = 0.2        # short wait, so a cancel is noticed quickly
+FP_TIMEOUT_SECS = 600.0   # overall limit per fpcalc call
 
 
-def run_fpcalc(path, secs) -> tuple[Any, str]:
+def run_fpcalc(path, secs, cancel=None) -> tuple[Any, str]:
+    """Run ``fpcalc`` and return ``(fingerprint, error)``.
+
+    The process is polled in short steps instead of one long ``timeout=600``
+    wait, so a :class:`~sortiton.cancel.CancelToken` can terminate it. On a
+    cancelled token :class:`~sortiton.cancel.Cancelled` is raised.
+    """
+    cancel = cancel or NO_CANCEL
     try:
-        r = subprocess.run(["fpcalc", "-raw", "-length", str(secs), str(path)],
-                           capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.SubprocessError) as e:
+        proc = subprocess.Popen(["fpcalc", "-raw", "-length", str(secs), str(path)],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except OSError as e:
         return None, str(e)
-    if r.returncode != 0:
-        return None, r.stderr.strip() or f"fpcalc exit code {r.returncode}"
-    for line in r.stdout.splitlines():
+    try:
+        stdout, stderr = _wait_fpcalc(proc, cancel)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+    if proc.returncode != 0:
+        return None, (stderr or "").strip() or f"fpcalc exit code {proc.returncode}"
+    for line in (stdout or "").splitlines():
         if line.startswith("FINGERPRINT="):
             return [int(x) & 0xFFFFFFFF for x in line[12:].split(",") if x.strip()], ""
-    return None, r.stderr.strip() or "keine FINGERPRINT-Ausgabe"
+    return None, (stderr or "").strip() or "keine FINGERPRINT-Ausgabe"
+
+
+def _wait_fpcalc(proc, cancel) -> tuple[str, str]:
+    """Wait for ``fpcalc`` in short steps; stop early on cancel or the timeout.
+
+    Returns ``(stdout, stderr)``. Raises :class:`Cancelled` when the token is
+    set; on the overall timeout it returns an explanatory ``stderr`` and lets
+    the caller terminate the still-running process.
+    """
+    deadline = time.monotonic() + FP_TIMEOUT_SECS
+    while True:
+        try:
+            return proc.communicate(timeout=FP_POLL_SECS)
+        except subprocess.TimeoutExpired:
+            if cancel.is_set():
+                raise Cancelled
+            if time.monotonic() >= deadline:
+                return "", "timeout after 600 s"
 
 
 def _legacy_fp_cache_path(key: str) -> Path:
@@ -77,8 +116,15 @@ def fp_cache_path(root: Path) -> Path:
 
 
 def compute_fingerprints(recs, root: Path, secs: int,
-                         workers: int, outdir: Path) -> dict[int, list[int]]:
-    """Fingerprints with a cache (path+size+mtime) so repeats stay fast."""
+                         workers: int, outdir: Path,
+                         cancel=None) -> dict[int, list[int]]:
+    """Fingerprints with a cache (path+size+mtime) so repeats stay fast.
+
+    ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`. On a
+    cancelled token the running ``fpcalc`` processes are terminated and
+    :class:`~sortiton.cancel.Cancelled` is raised; the cache is left untouched.
+    """
+    cancel = cancel or NO_CANCEL
     cache_file = fp_cache_path(root)
     try:
         cache = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -106,14 +152,21 @@ def compute_fingerprints(recs, root: Path, secs: int,
     def work(item):
         i, meta = item
         try:
-            return i, meta, *run_fpcalc(root / recs[i]["path"], secs)
+            fp, error = run_fpcalc(root / recs[i]["path"], secs, cancel)
+        except Cancelled:
+            raise
         except Exception as e:  # noqa: BLE001
             return i, meta, None, str(e)
+        return i, meta, fp, error
 
     failed = 0
     failed_paths = []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for n, (i, meta, fp, error) in enumerate(ex.map(work, todo), 1):
+    pool = ThreadPoolExecutor(max_workers=workers)
+    futures = [pool.submit(work, item) for item in todo]
+    try:
+        for n, future in enumerate(as_completed(futures), 1):
+            cancel.check()
+            i, meta, fp, error = future.result()
             if fp:
                 fps[i] = fp
                 cache[recs[i]["path"]] = {"meta": meta, "k": cache_key, "fp": fp}
@@ -121,6 +174,10 @@ def compute_fingerprints(recs, root: Path, secs: int,
                 failed += 1
                 failed_paths.append((recs[i]["path"], error or "unbekannter Fehler"))
             output.progress(n, len(todo), i18n.t("export.fp.progress"))
+    except Cancelled:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
     if todo or cache_changed:
         tmp_path = None
         try:

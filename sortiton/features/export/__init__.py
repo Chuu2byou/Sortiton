@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ... import external, i18n, output
+from ...cancel import NO_CANCEL, Cancelled
 from ...config import EXPORT_DIR, READ_WORKERS
 from ...files import free_path
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
@@ -27,9 +28,11 @@ def cmd_export(args: CmdArgs) -> int:
     """Read a music folder and write the LLM reports (nothing is changed).
 
     Returns 0 on success, 1 when no audio file was found, 2 on a bad input or a
-    missing tool. The old script always ended with 1; the split is deliberate.
+    missing tool, 130 when the run was cancelled. The old script always ended
+    with 1; the split is deliberate.
     """
     args = resolve_args(FEATURE, args)
+    cancel = getattr(args, "cancel", NO_CANCEL)
 
     if not 0.0 <= args.fp_threshold <= 1.0:
         output.message(i18n.t("export.error.threshold"))
@@ -52,37 +55,43 @@ def cmd_export(args: CmdArgs) -> int:
         outdir = free_path(EXPORT_DIR / f"export_{datetime.now():%Y%m%d_%H%M%S}")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    recs = reader.scan(root, args.threads)
-    if not recs:
-        output.message(i18n.t("export.error.no_files"))
-        return 1
+    try:
+        recs = reader.scan(root, args.threads, cancel)
+        if not recs:
+            output.message(i18n.t("export.error.no_files"))
+            return 1
 
-    lang = args.report_lang or i18n.get_language()
-    opts = report.ReportOptions(max_examples=args.examples, check_case=args.check_case)
-    sections = report.build_report(recs, root, opts, lang)
+        lang = args.report_lang or i18n.get_language()
+        opts = report.ReportOptions(max_examples=args.examples, check_case=args.check_case)
+        sections = report.build_report(recs, root, opts, lang)
 
-    duplicate_groups: int | None = None
-    if args.fingerprint:
-        fps = fingerprint.compute_fingerprints(recs, root, args.fp_seconds,
-                                               args.threads, outdir)
-        groups, _pairs = fingerprint.fingerprint_groups(recs, fps, args.fp_threshold)
-        duplicate_groups = len(groups)
-        sections.append(report.Section(
-            "duplicates",
-            fingerprint.fp_section(recs, groups, len(fps), len(recs),
-                                   args.fp_threshold, args.examples, lang)))
+        duplicate_groups: int | None = None
+        if args.fingerprint:
+            fps = fingerprint.compute_fingerprints(recs, root, args.fp_seconds,
+                                                   args.threads, outdir, cancel)
+            groups, _pairs = fingerprint.fingerprint_groups(recs, fps, args.fp_threshold)
+            duplicate_groups = len(groups)
+            sections.append(report.Section(
+                "duplicates",
+                fingerprint.fp_section(recs, groups, len(fps), len(recs),
+                                       args.fp_threshold, args.examples, lang)))
 
-    report.write_report(sections, outdir)
-    parts = report.write_chunks(recs, outdir, args.chunk_chars)
-    (outdir / "00_prompt.md").write_text(
-        report.prompt_text(lang, len(recs), len(parts)), encoding="utf-8")
-    if args.jsonl:
-        # Own non-core tags are only needed for the JSONL dump (owner decision O4).
-        for rec in recs:
-            rec["extra"] = reader.read_extra(root / rec["path"])
-        with open(outdir / "alle_tags.jsonl", "w", encoding="utf-8") as handle:
+        report.write_report(sections, outdir)
+        parts = report.write_chunks(recs, outdir, args.chunk_chars)
+        (outdir / "00_prompt.md").write_text(
+            report.prompt_text(lang, len(recs), len(parts)), encoding="utf-8")
+        if args.jsonl:
+            # Own non-core tags are only needed for the JSONL dump (owner decision O4).
             for rec in recs:
-                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                rec["extra"] = reader.read_extra(root / rec["path"])
+            with open(outdir / "alle_tags.jsonl", "w", encoding="utf-8") as handle:
+                for rec in recs:
+                    handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Cancelled:
+        # A half-finished export is kept, never deleted; the message names it.
+        output.message(i18n.t("task.cancelled"))
+        output.message(i18n.t("export.cancelled", outdir=str(outdir.resolve())))
+        return 130
 
     errors = sum(1 for rec in recs if rec["error"])
     output.message(i18n.t("export.done", files=len(recs), outdir=str(outdir.resolve())))

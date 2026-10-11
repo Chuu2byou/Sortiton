@@ -20,6 +20,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .. import config, i18n, journal, output, rules, settings
+from ..cancel import CancelToken
 from ..tasks import cmd_all, cmd_rename, cmd_restore, cmd_scan, cmd_sort, cmd_tags
 from . import design
 from .design import (ACCENT, BACKGROUND, BORDER, CARD, FIELD, GREEN, LOG_BG, LOG_TEXT,
@@ -97,6 +98,8 @@ class SortitonGUI:
         self.running = False
         self.last_path: Path | None = None
         self.action_buttons: list[RoundButton] = []
+        self._cancel: CancelToken | None = None
+        self._cancel_button: RoundButton | None = None
         self._icon_large: tk.PhotoImage | None = None
         self._rules_window: tk.Toplevel | None = None
         self._rules_text: tk.Text | None = None
@@ -706,12 +709,17 @@ class SortitonGUI:
                                        font=design.FONT_SMALL)
         self.progress_label.grid(row=0, column=3, sticky="w")
 
+        self._cancel_button = RoundButton(footer, i18n.t("gui.button.cancel"),
+                                          self._cancel_run, style="normal", height=30)
+        self._cancel_button.grid(row=0, column=4, sticky="e", padx=(0, 6))
+        self._cancel_button.grid_remove()
+
         RoundButton(footer, i18n.t("gui.button.undo"), self._open_restore,
-                    style="normal", height=30).grid(row=0, column=4, sticky="e")
+                    style="normal", height=30).grid(row=0, column=5, sticky="e")
         RoundButton(footer, i18n.t("gui.button.open_logs"), self._open_logs,
-                    style="quiet", height=30).grid(row=0, column=5, sticky="e", padx=(6, 0))
-        RoundButton(footer, i18n.t("gui.button.open_folder"), self._open_last,
                     style="quiet", height=30).grid(row=0, column=6, sticky="e", padx=(6, 0))
+        RoundButton(footer, i18n.t("gui.button.open_folder"), self._open_last,
+                    style="quiet", height=30).grid(row=0, column=7, sticky="e", padx=(6, 0))
 
     def _set_state(self, colour: str) -> None:
         """Colour the small dot in the status bar (idle / busy / problem)."""
@@ -1106,6 +1114,11 @@ class SortitonGUI:
             return
         self.running = True
         self._job_page = page
+        self._cancel = CancelToken()
+        args.cancel = self._cancel
+        if self._cancel_button is not None:
+            self._cancel_button.set_enabled(True)
+            self._cancel_button.grid()
         self.last_path = Path(last_path).expanduser()
         self._begin_plan(page, source=source, target_root=target_root)
         self._set_buttons(False)
@@ -1146,6 +1159,9 @@ class SortitonGUI:
         self.progress.stop()
         self.progress_label.configure(text="")
         self.running = False
+        self._cancel = None
+        if self._cancel_button is not None:
+            self._cancel_button.grid_remove()
         plan = self._plans.get(self._job_page)
         if plan is not None:
             plan["signature"] = self._signature(self._job_page)
@@ -1158,9 +1174,22 @@ class SortitonGUI:
                     other["signature"] = None
         self._set_buttons(True)
         self._refresh_preview_states()
-        self._set_state(GREEN if rc == 0 else RED)
-        self.status_var.set(i18n.t("gui.status.ready") if rc == 0
-                            else i18n.t("gui.status.failed", rc=rc))
+        if rc == 0:
+            self._set_state(GREEN)
+            self.status_var.set(i18n.t("gui.status.ready"))
+        elif rc == 130:
+            self._set_state(YELLOW)
+            self.status_var.set(i18n.t("gui.status.cancelled"))
+        else:
+            self._set_state(RED)
+            self.status_var.set(i18n.t("gui.status.failed", rc=rc))
+
+    def _cancel_run(self) -> None:
+        """Ask the running command to stop at its next check point."""
+        if self._cancel is not None:
+            self._cancel.cancel()
+            if self._cancel_button is not None:
+                self._cancel_button.set_enabled(False)
 
     def _queue_pump(self) -> None:
         try:

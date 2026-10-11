@@ -16,10 +16,11 @@ skipped just like in every other Sortiton command.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ... import config, output
+from ...cancel import NO_CANCEL, Cancelled
 from ...files import iter_audio
 from ...tags import UNREADABLE, TrackInfo, read_info
 
@@ -109,21 +110,36 @@ def read_file(root, path):
     return rec
 
 
-def scan(root, workers):
+def scan(root, workers, cancel=None):
     """Walk ``root`` and read every audio file; report progress per file.
 
     :func:`sortiton.files.iter_audio` with :data:`sortiton.config.READ_EXTENSIONS`
     skips hidden files and folders (like every other Sortiton command) and
     accepts the read-only formats; the records are sorted by the casefolded
     relative path, the sort key the export has always used.
+
+    ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`, checked
+    after every file. When it is set, the reads that have not started yet are
+    dropped and :class:`~sortiton.cancel.Cancelled` is raised.
     """
+    cancel = cancel or NO_CANCEL
+    cancel.check()
     files = sorted(iter_audio(root, config.READ_EXTENSIONS),
                    key=lambda p: p.relative_to(root).as_posix().casefold())
     total = len(files)
 
-    out = []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for i, rec in enumerate(ex.map(lambda p: read_file(root, p), files), 1):
-            out.append(rec)
-            output.progress(i, total, files[i - 1].name)
-    return out
+    results: list = [None] * total
+    pool = ThreadPoolExecutor(max_workers=workers)
+    futures = {pool.submit(read_file, root, path): index
+               for index, path in enumerate(files)}
+    try:
+        for done, future in enumerate(as_completed(futures), start=1):
+            cancel.check()
+            index = futures[future]
+            results[index] = future.result()
+            output.progress(done, total, files[index].name)
+    except Cancelled:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
+    return results

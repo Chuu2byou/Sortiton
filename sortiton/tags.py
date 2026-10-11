@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .cancel import NO_CANCEL, Cancelled
 from .config import MUTAGEN_AVAILABLE, READ_WORKERS
 
 #: The five tag fields the tag/rename/sort/scan commands read and write.
@@ -312,17 +313,27 @@ def _ffprobe_info(path: Path) -> TrackInfo:
     return info
 
 
-def probe_many(files: list[Path], report=None) -> list[dict]:
-    """Read tags of many files in parallel."""
+def probe_many(files: list[Path], report=None, cancel=None) -> list[dict]:
+    """Read tags of many files in parallel.
+
+    ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`, checked
+    after every finished file. When it is set, the reads that have not started
+    yet are dropped and :class:`~sortiton.cancel.Cancelled` is raised; the
+    running ones are left to finish on their own.
+    """
+    cancel = cancel or NO_CANCEL
     if not files:
+        cancel.check()
         return []
 
     results: list[dict] = [dict(EMPTY_TAGS) for _ in files]
     workers = min(READ_WORKERS, len(files))
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(probe_tags, path): i for i, path in enumerate(files)}
+    pool = ThreadPoolExecutor(max_workers=workers)
+    futures = {pool.submit(probe_tags, path): i for i, path in enumerate(files)}
+    try:
         for done, future in enumerate(as_completed(futures), start=1):
+            cancel.check()
             i = futures[future]
             try:
                 results[i] = future.result()
@@ -330,7 +341,10 @@ def probe_many(files: list[Path], report=None) -> list[dict]:
                 results[i] = dict(EMPTY_TAGS)
             if report is not None:
                 report(done, files[i].name)
-
+    except Cancelled:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
     return results
 
 

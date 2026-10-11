@@ -16,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from . import i18n, journal
+from .cancel import NO_CANCEL, Cancelled
 from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, LOG_DIR,
                      RULES_FILE, WRITE_WORKERS)
 from .files import build_name, free_target, iter_audio, safe_name, same_content
@@ -50,6 +51,7 @@ def _finish(key: str, fields: dict, *, changed: int, errors: int, applied: bool,
 
 def cmd_tags(args: CmdArgs) -> int:
     """Clean the tags of every audio file below ``args.folder``."""
+    cancel = getattr(args, "cancel", NO_CANCEL)
     root = Path(args.folder).expanduser()
     if not root.is_dir():
         message(i18n.t("task.error.folder", path=root))
@@ -62,7 +64,12 @@ def cmd_tags(args: CmdArgs) -> int:
     message(i18n.t("task.label.files", value=total))
     message()
 
-    tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name))
+    try:
+        tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name),
+                               cancel=cancel)
+    except Cancelled:
+        message(i18n.t("task.cancelled"))
+        return 130
 
     plan: list[tuple[Path, dict, dict]] = []
     for path, tags in zip(files, tags_list):
@@ -117,12 +124,21 @@ def cmd_tags(args: CmdArgs) -> int:
                     errors += 1
                     message(i18n.t("task.error.file", name=path.name, error=error))
 
-        with ThreadPoolExecutor(max_workers=WRITE_WORKERS) as pool:
-            futures = [pool.submit(store, path, before, diff)
-                       for path, before, diff in plan]
+        pool = ThreadPoolExecutor(max_workers=WRITE_WORKERS)
+        futures = [pool.submit(store, path, before, diff)
+                   for path, before, diff in plan]
+        try:
             for done, future in enumerate(as_completed(futures), start=1):
+                cancel.check()
                 future.result()
                 _progress(done, changed, i18n.t("task.progress.writing"))
+        except Cancelled:
+            for future in futures:
+                future.cancel()          # drop the writes that have not started
+            pool.shutdown(wait=True)     # let the running writes finish
+            message(i18n.t("task.cancelled"))
+            return 130
+        pool.shutdown()
 
     _finish("task.tags.done", {"changed": changed, "total": total},
             changed=changed, errors=errors, applied=args.apply,
@@ -135,6 +151,7 @@ def cmd_tags(args: CmdArgs) -> int:
 
 def cmd_rename(args: CmdArgs) -> int:
     """Rename the files below ``args.folder`` from their tags."""
+    cancel = getattr(args, "cancel", NO_CANCEL)
     root = Path(args.folder).expanduser()
     if not root.is_dir():
         message(i18n.t("task.error.folder", path=root))
@@ -147,7 +164,12 @@ def cmd_rename(args: CmdArgs) -> int:
 
     files = list(iter_audio(root))
     total = len(files)
-    tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name))
+    try:
+        tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name),
+                               cancel=cancel)
+    except Cancelled:
+        message(i18n.t("task.cancelled"))
+        return 130
 
     used: set[str] = set()
     renamed = skipped = errors = 0
@@ -193,6 +215,7 @@ def cmd_rename(args: CmdArgs) -> int:
 
 def cmd_sort(args: CmdArgs) -> int:
     """Sort the files below ``args.source`` into ``args.target``."""
+    cancel = getattr(args, "cancel", NO_CANCEL)
     source = Path(args.source).expanduser()
     target = Path(args.target).expanduser()
     if not source.is_dir():
@@ -209,7 +232,12 @@ def cmd_sort(args: CmdArgs) -> int:
     files = list(iter_audio(source))
     total = len(files)
     message()
-    tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name))
+    try:
+        tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name),
+                               cancel=cancel)
+    except Cancelled:
+        message(i18n.t("task.cancelled"))
+        return 130
 
     used: set[str] = set()
     plan: list[tuple[Path, Path]] = []
@@ -264,11 +292,20 @@ def cmd_sort(args: CmdArgs) -> int:
                     errors += 1
                     message(i18n.t("task.error.file", name=path.name, error=error))
 
-        with ThreadPoolExecutor(max_workers=COPY_WORKERS) as pool:
-            futures = {pool.submit(place, p, t): (p, t) for p, t in plan}
+        pool = ThreadPoolExecutor(max_workers=COPY_WORKERS)
+        futures = [pool.submit(place, p, t) for p, t in plan]
+        try:
             for done, future in enumerate(as_completed(futures), start=1):
+                cancel.check()
                 future.result()
                 _progress(done, processed, i18n.t("task.progress.sorting"))
+        except Cancelled:
+            for future in futures:
+                future.cancel()          # drop the copies that have not started
+            pool.shutdown(wait=True)     # let the running copies finish
+            message(i18n.t("task.cancelled"))
+            return 130
+        pool.shutdown()
 
     _finish("task.sort.done",
             {"done": processed, "total": total, "skipped": skipped},
@@ -280,6 +317,7 @@ def cmd_sort(args: CmdArgs) -> int:
 
 def cmd_all(args: CmdArgs) -> int:
     """All-in-one: clean tags -> rename -> sort."""
+    cancel = getattr(args, "cancel", NO_CANCEL)
     banner(i18n.t("task.title.all"), not args.apply)
     message(i18n.t("task.label.source", value=args.source))
     message(i18n.t("task.label.target", value=args.target))
@@ -290,14 +328,15 @@ def cmd_all(args: CmdArgs) -> int:
     steps = [
         (i18n.t("task.step.tags"),
          lambda: cmd_tags(SimpleNamespace(folder=args.source, apply=args.apply,
-                                          backup=getattr(args, "backup", False)))),
+                                          backup=getattr(args, "backup", False),
+                                          cancel=cancel))),
         (i18n.t("task.step.rename"),
          lambda: cmd_rename(SimpleNamespace(folder=args.source, pattern=args.pattern,
-                                            apply=args.apply))),
+                                            apply=args.apply, cancel=cancel))),
         (i18n.t("task.step.sort"),
          lambda: cmd_sort(SimpleNamespace(source=args.source, target=args.target,
                                           pattern=args.pattern, move=args.move,
-                                          apply=args.apply))),
+                                          apply=args.apply, cancel=cancel))),
     ]
 
     for title, step in steps:
