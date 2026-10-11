@@ -114,6 +114,31 @@ project folder), the fingerprint cache to `SORTITON_CACHE_DIR` (default
 reports what it would find. Downloading needs both `--apply` and `--confirm`;
 `yt-dlp` must be on the `PATH`. Only download content you have the rights to.
 
+Downloads often carry junk tags such as "Official Video" or the uploader name.
+Sortiton does not clean them during the download, so fetch first and run the
+usual cleanup on the target folder afterwards:
+
+```bash
+sortiton fetch  URL ~/Downloads/Music --apply --confirm
+sortiton tags   ~/Downloads/Music --apply   # built-in cleanups, my_rules.ini
+sortiton rename ~/Downloads/Music --apply   # %artist% - %title%
+sortiton sort   ~/Downloads/Music ~/Music --move --apply
+```
+
+Every step previews first and only writes with `--apply` (`fetch` also needs
+`--confirm`). `sortiton tags` applies the built-in cleanups and your
+`my_rules.ini` rules; the read-only `sortiton export ~/Downloads/Music` lists
+what still looks like junk in `02_auffaelligkeiten.md`.
+
+The "Apply all" pipeline can run the same sequence in one pass: add
+`--fetch-url URL` and `--fetch-confirmed` (and `--apply` for the run) and the
+download happens before clean tags, rename and sort on the same source folder:
+
+```bash
+sortiton all ~/Downloads/Music ~/Music --move --apply \
+    --fetch-url URL --fetch-confirmed
+```
+
 ## Custom rules (`my_rules.ini`)
 
 Artist names and other collection-specific corrections belong in `my_rules.ini`
