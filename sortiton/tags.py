@@ -2,6 +2,11 @@
 
 mutagen is preferred, ffprobe/ffmpeg is the fallback. mutagen is optional, so
 its imports live inside the functions that need it.
+
+:class:`TrackInfo` is the lossless result of :func:`read_info`: every tag field
+keeps its values as a list and the stream properties (codec, bitrate …) come
+along. The export feature joins the list values with its own separator;
+:func:`probe_tags` is the thin wrapper the tag/rename/sort/scan commands use.
 """
 
 from __future__ import annotations
@@ -10,142 +15,301 @@ import json
 import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import MUTAGEN_AVAILABLE, READ_WORKERS
 
-# TODO: these five fields are all that is read and written. Track, disc and
-# year are missing on both sides.
+#: The five tag fields the tag/rename/sort/scan commands read and write.
 EMPTY_TAGS = {"artist": "", "album_artist": "", "album": "", "title": "", "genre": ""}
+
+#: The eight tag fields :class:`TrackInfo` keeps, each a list of raw values.
+TAG_FIELDS = ("artist", "album_artist", "album", "title", "genre",
+              "track", "disc", "year")
+
+#: :attr:`TrackInfo.error` value when no reader could read the file.
+UNREADABLE = "unreadable"
+
+
+@dataclass
+class TrackInfo:
+    """All tags and stream properties of one file, without losing values.
+
+    Every tag field keeps its raw values as a list (nothing is joined here);
+    :meth:`joined` renders one field with a separator. The stream fields mirror
+    what the readers expose. ``error`` is empty for a readable file and
+    :data:`UNREADABLE` when neither mutagen nor ffprobe could read it.
+    """
+
+    artist: list[str] = field(default_factory=list)
+    album_artist: list[str] = field(default_factory=list)
+    album: list[str] = field(default_factory=list)
+    title: list[str] = field(default_factory=list)
+    genre: list[str] = field(default_factory=list)
+    track: list[str] = field(default_factory=list)
+    disc: list[str] = field(default_factory=list)
+    year: list[str] = field(default_factory=list)
+    codec: str = "?"
+    duration: float = 0.0
+    bitrate_kbps: int = 0
+    sample_rate: int = 0
+    channels: int = 0
+    bits: int = 0
+    has_cover: bool = False
+    error: str = ""
+
+    def joined(self, tag_field: str, sep: str) -> str:
+        """The values of one tag field joined by ``sep`` ("" when empty)."""
+        return sep.join(getattr(self, tag_field))
 
 
 def probe_tags(path: Path) -> dict:
-    """Read tags: mutagen preferred, otherwise ffprobe."""
-    tags = _mutagen_tags(path)
-    if tags is not None:
-        return tags
-    return _ffprobe_tags(path)
+    """Read the five tag fields of one file (mutagen preferred, else ffprobe).
+
+    Thin wrapper over :func:`read_info`: the tag/rename/sort/scan commands keep
+    their five-field dict with ``"; "`` as the separator.
+    """
+    info = read_info(path)
+    return {
+        "artist": info.joined("artist", "; "),
+        "album_artist": info.joined("album_artist", "; "),
+        "album": info.joined("album", "; "),
+        "title": info.joined("title", "; "),
+        "genre": info.joined("genre", "; "),
+    }
 
 
-def _mutagen_tags(path: Path) -> dict | None:
-    """Read tags via mutagen. None = unsupported format or error."""
+def read_info(path: Path) -> TrackInfo:
+    """Read tags and stream info of one file: mutagen preferred, else ffprobe.
+
+    Returns a :class:`TrackInfo`; when no reader could read the file its
+    ``error`` field is :data:`UNREADABLE` and every tag stays empty.
+    """
+    info = _mutagen_info(path)
+    if info is not None:
+        return info
+    return _ffprobe_info(path)
+
+
+def _mutagen_info(path: Path) -> TrackInfo | None:
+    """Read one file with mutagen's raw frames. None = unusable or error.
+
+    Raw frames are used on purpose (not the easy interface): they carry track,
+    disc and year without the easy layer's reformatting. ID3, MP4, ASF and the
+    Vorbis comment formats (FLAC, Ogg Vorbis, Opus) each have their own reader.
+    """
     if not MUTAGEN_AVAILABLE:
         return None
     try:
         # mutagen is optional (late import).
         # pylint: disable=import-error,import-outside-toplevel
         import mutagen
-
-        handle = mutagen.File(path)
-        if handle is None:
-            return None
-
         from mutagen.asf import ASF
         from mutagen.id3 import ID3
         from mutagen.mp4 import MP4
 
-        def as_text(value) -> str:
-            if value is None:
-                return ""
-            if isinstance(value, (list, tuple)):
-                return "; ".join(str(x).strip() for x in value if str(x).strip())
-            return str(value).strip()
+        handle = mutagen.File(path, easy=False)
+        if handle is None:
+            return None
 
-        if isinstance(getattr(handle, "tags", None), ID3):
-            tag = handle.tags
-
-            def id3_text(frame_name: str) -> str:
-                parts: list[str] = []
-                # getall() is required: get() returns the frame object itself.
-                for frame in tag.getall(frame_name):
-                    values = getattr(frame, "text", [])
-                    if isinstance(values, str):
-                        values = [values]
-                    for value in values:
-                        value = str(value).strip()
-                        if value:
-                            parts.append(value)
-                return "; ".join(parts)
-
-            return {
-                "artist":       id3_text("TPE1"),
-                "album_artist": id3_text("TPE2"),
-                "album":        id3_text("TALB"),
-                "title":        id3_text("TIT2"),
-                "genre":        id3_text("TCON"),
-            }
-
-        if isinstance(handle, MP4):
-            return {
-                "artist":       as_text(handle.get("\xa9ART")),
-                "album_artist": as_text(handle.get("aART")),
-                "album":        as_text(handle.get("\xa9alb")),
-                "title":        as_text(handle.get("\xa9nam")),
-                "genre":        as_text(handle.get("\xa9gen")),
-            }
-
-        if isinstance(handle, ASF):
-            asf_tags = handle.tags
-
-            def asf_text(key: str) -> str:
-                if asf_tags is None:
-                    return ""
-                values = asf_tags.get(key) or []
-                return as_text([str(x) for x in values])
-
-            return {
-                "artist":       asf_text("Author"),
-                "album_artist": asf_text("WM/AlbumArtist"),
-                "album":        asf_text("WM/AlbumTitle"),
-                "title":        asf_text("Title"),
-                "genre":        asf_text("WM/Genre"),
-            }
-
-        # Vorbis comments (FLAC, OGG, OPUS …)
-        def vorbis_text(*keys: str) -> str:
-            for key in keys:
-                value = as_text(handle.get(key))
-                if value:
-                    return value
-            return ""
-
-        return {
-            "artist":       vorbis_text("artist", "artists"),
-            "album_artist": vorbis_text("albumartist", "album_artist", "album artist"),
-            "album":        vorbis_text("album"),
-            "title":        vorbis_text("title"),
-            "genre":        vorbis_text("genre", "genres"),
-        }
-    except Exception:
+        info = TrackInfo()
+        _stream_info(info, handle)
+        info.has_cover = _mutagen_cover(handle)
+        tags = getattr(handle, "tags", None)
+        if isinstance(tags, ID3):
+            _read_id3(info, tags)
+        elif isinstance(handle, MP4):
+            _read_mp4(info, handle)
+        elif isinstance(handle, ASF):
+            _read_asf(info, tags)
+        else:
+            _read_vorbis(info, handle)
+        return info
+    except Exception:  # noqa: BLE001 - unsupported format or a broken file
         return None
 
 
-def _ffprobe_tags(path: Path) -> dict:
-    """Fallback: read tags with ffprobe (for formats mutagen cannot handle)."""
+def _stream_info(info: TrackInfo, handle) -> None:
+    """Fill codec, duration and the stream numbers from a mutagen handle."""
+    stream = getattr(handle, "info", None)
+    info.codec = type(handle).__name__.replace("Easy", "")
+    info.duration = float(getattr(stream, "length", 0) or 0)
+    info.bitrate_kbps = round((getattr(stream, "bitrate", 0) or 0) / 1000)
+    info.sample_rate = int(getattr(stream, "sample_rate", 0) or 0)
+    info.channels = int(getattr(stream, "channels", 0) or 0)
+    info.bits = int(getattr(stream, "bits_per_sample", 0) or 0)
+
+
+def _mutagen_cover(handle) -> bool:
+    """True when the mutagen handle carries an embedded cover."""
+    try:
+        if getattr(handle, "pictures", None):
+            return True
+        tags = getattr(handle, "tags", None)
+        if tags is None:
+            return False
+        if hasattr(tags, "getall") and tags.getall("APIC"):
+            return True
+        return any(str(key).lower() in {"covr", "metadata_block_picture"} for key in tags)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _texts(value) -> list[str]:
+    """Every value of a tag frame as a stripped, non-empty string."""
+    if value is None:
+        return []
+    items = value if isinstance(value, (list, tuple)) else [value]
+    return [text for text in (str(item).strip() for item in items) if text]
+
+
+def _read_id3(info: TrackInfo, tag) -> None:
+    """ID3 (MP3, WAV): the raw frames, TDRC as text instead of a timestamp."""
+    def frame(name: str) -> list[str]:
+        found: list[str] = []
+        # getall() is required: get() returns the frame object itself.
+        for item in tag.getall(name):
+            found.extend(_texts(getattr(item, "text", [])))
+        return found
+
+    info.artist = frame("TPE1")
+    info.album_artist = frame("TPE2")
+    info.album = frame("TALB")
+    info.title = frame("TIT2")
+    info.genre = frame("TCON")
+    info.track = frame("TRCK")
+    info.disc = frame("TPOS")
+    info.year = frame("TDRC")
+
+
+def _read_mp4(info: TrackInfo, handle) -> None:
+    """MP4/M4A: the raw atoms; ``trkn``/``disk`` are ``(number, total)``."""
+    info.artist = _texts(handle.get("\xa9ART"))
+    info.album_artist = _texts(handle.get("aART"))
+    info.album = _texts(handle.get("\xa9alb"))
+    info.title = _texts(handle.get("\xa9nam"))
+    info.genre = _texts(handle.get("\xa9gen"))
+    info.track = _mp4_number(handle.get("trkn"))
+    info.disc = _mp4_number(handle.get("disk"))
+    info.year = _texts(handle.get("\xa9day"))
+
+
+def _mp4_number(value) -> list[str]:
+    """``trkn``/``disk`` values as "number" or "number/total" (total 0 = none)."""
+    numbers: list[str] = []
+    for item in value or []:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            number, total = item
+            numbers.append(f"{number}/{total}" if total else str(number))
+        elif item:
+            numbers.append(str(item).strip())
+    return numbers
+
+
+def _read_asf(info: TrackInfo, tag) -> None:
+    """WMA/ASF: the WM/* attributes."""
+    def attribute(key: str) -> list[str]:
+        if tag is None:
+            return []
+        return _texts([str(item) for item in (tag.get(key) or [])])
+
+    info.artist = attribute("Author")
+    info.album_artist = attribute("WM/AlbumArtist")
+    info.album = attribute("WM/AlbumTitle")
+    info.title = attribute("Title")
+    info.genre = attribute("WM/Genre")
+    info.track = attribute("WM/TrackNumber")
+    info.disc = attribute("WM/PartOfSet")
+    info.year = attribute("WM/Year")
+
+
+def _read_vorbis(info: TrackInfo, handle) -> None:
+    """FLAC/Ogg/Opus: the Vorbis comments (tracknumber/discnumber/date)."""
+    def comment(*keys: str) -> list[str]:
+        found: list[str] = []
+        for key in keys:
+            found.extend(_texts(handle.get(key)))
+        return found
+
+    info.artist = comment("artist")
+    info.album_artist = comment("albumartist")
+    info.album = comment("album")
+    info.title = comment("title")
+    info.genre = comment("genre")
+    info.track = comment("tracknumber")
+    info.disc = comment("discnumber")
+    info.year = comment("date")
+
+
+def _num(value, *, cast=float, default=0):
+    """Best-effort number from an ffprobe string ("" / "N/A" -> default)."""
+    if value is None:
+        return default
+    text = str(value).strip()
+    if not text or text.upper() in {"N/A", "NA", "NULL", "NONE"}:
+        return default
+    try:
+        return cast(text)
+    except (TypeError, ValueError):
+        return default
+
+
+def _ffprobe_info(path: Path) -> TrackInfo:
+    """Fallback: read tags and streams with ffprobe."""
+    info = TrackInfo()
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(path)],
-            capture_output=True, text=True, timeout=120, check=False,
-        )
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", "-show_streams", str(path)],
+            capture_output=True, text=True, timeout=120, check=False)
         data = json.loads(result.stdout or "{}")
-    except Exception:
-        return dict(EMPTY_TAGS)
+    except Exception:  # noqa: BLE001
+        data = {}
+    if not data:
+        info.error = UNREADABLE
+        return info
 
-    raw = {k.lower(): v for k, v in (data.get("format", {}).get("tags") or {}).items()}
+    streams = data.get("streams", [])
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), {})
 
-    def pick(*names: str) -> str:
-        for name in names:
-            if name in raw and raw[name]:
-                return str(raw[name]).replace("\x00", "; ").strip()
-        return ""
+    # Tags of the container and of every stream; the first key wins.
+    raw: dict[str, list[str]] = {}
+    sources = [data.get("format", {}).get("tags", {})] + \
+        [stream.get("tags", {}) for stream in streams]
+    for source in sources:
+        for key, value in (source or {}).items():
+            lowered = str(key).strip().lower()
+            if lowered not in raw:
+                raw[lowered] = _texts(value)
 
-    return {
-        "artist":       pick("artist", "artists", "performer"),
-        "album_artist": pick("album_artist", "albumartist", "album artist"),
-        "album":        pick("album"),
-        "title":        pick("title"),
-        "genre":        pick("genre", "genres"),
-    }
+    def pick(*keys: str) -> list[str]:
+        found: list[str] = []
+        for key in keys:
+            found.extend(raw.get(key, []))
+        return found
+
+    info.artist = pick("artist", "artists", "performer")
+    info.album_artist = pick("album_artist", "albumartist", "album artist")
+    info.album = pick("album")
+    info.title = pick("title")
+    info.genre = pick("genre", "genres")
+    info.track = pick("tracknumber", "track")
+    info.disc = pick("discnumber", "disc")
+    info.year = pick("date", "year")
+
+    fmt = data.get("format", {})
+    bitrate = _num(audio.get("bit_rate") or fmt.get("bit_rate") or 0, cast=int, default=0)
+    info.codec = audio.get("codec_name", "?")
+    info.duration = _num(fmt.get("duration"), cast=float, default=0.0)
+    info.bitrate_kbps = round(bitrate / 1000)
+    info.sample_rate = _num(audio.get("sample_rate") or 0, cast=int, default=0)
+    info.channels = _num(audio.get("channels") or 0, cast=int, default=0)
+    info.bits = _num(audio.get("bits_per_raw_sample") or audio.get("bits_per_sample") or 0,
+                     cast=int, default=0)
+    info.has_cover = any(stream.get("codec_type") == "video"
+                         and stream.get("disposition", {}).get("attached_pic")
+                         for stream in streams)
+    return info
 
 
 def probe_many(files: list[Path], report=None) -> list[dict]:

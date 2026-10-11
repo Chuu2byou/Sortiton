@@ -393,6 +393,95 @@ def test_read_extensions() -> None:
           str(sorted(config.AUDIO_EXTENSIONS)))
 
 
+# TrackInfo field name -> export record field name (reader.CORE).
+_INFO_TO_RECORD = {"artist": "artist", "album_artist": "albumartist", "album": "album",
+                   "title": "title", "genre": "genre", "track": "track",
+                   "disc": "disc", "year": "year"}
+
+
+def test_tag_reader() -> None:
+    """Step 2.3: ``read_info`` reads all eight fields for every format.
+
+    One fixture file per format (flac, mp3, ogg, opus, m4a); the values are
+    checked against the golden ``alle_tags.jsonl``, so the raw-frame reader
+    stays in step with the report. Runs only with mutagen installed.
+    """
+    print("tag reader (read_info)")
+    import json
+
+    from sortiton.tags import TAG_FIELDS, TrackInfo, read_info
+
+    helper = _load_export_helper()
+    fixture = helper.FIXTURE_DIR
+    golden_file = helper.GOLDEN_DIR / "base" / "alle_tags.jsonl"
+    if not fixture.is_dir() or not golden_file.is_file():
+        skip("tag reader", "fixture or golden missing")
+        return
+    if importlib.util.find_spec("mutagen") is None:
+        skip("tag reader", "mutagen not installed")
+        return
+
+    records = {}
+    for line in golden_file.read_text(encoding="utf-8").splitlines():
+        if line:
+            rec = json.loads(line)
+            records[rec["path"]] = rec
+
+    samples = ("Artist A/Album One/01 - Song One.flac",
+               "Sampler/01.mp3",
+               "Artist B/Album Two/01 Song (Official Video).ogg",
+               "Artist B/Album Two/02 - snake_case_title.opus",
+               "Artist B/Album Two/03 - Same Song (2).m4a")
+    for rel in samples:
+        info = read_info(fixture / rel)
+        ext = Path(rel).suffix.lstrip(".")
+        check(f"read_info reads {ext}", isinstance(info, TrackInfo) and not info.error,
+              info.error)
+        if info.error:
+            continue
+        wrong = {field: (info.joined(field, " | "), records[rel][_INFO_TO_RECORD[field]])
+                 for field in TAG_FIELDS
+                 if info.joined(field, " | ") != records[rel][_INFO_TO_RECORD[field]]}
+        check(f"read_info fills all eight fields ({ext})", not wrong, str(wrong))
+
+
+def test_probe_tags_unchanged() -> None:
+    """Step 2.3: ``probe_tags`` keeps its five fields and the ``"; "`` separator.
+
+    The expected values were captured before the reader merge; this is the
+    regression guard for the tag/rename/sort/scan commands.
+    """
+    print("probe_tags (regression)")
+    from sortiton.tags import probe_tags
+
+    fixture = _load_export_helper().FIXTURE_DIR
+    if not fixture.is_dir():
+        skip("probe_tags regression", "fixture missing")
+        return
+    if importlib.util.find_spec("mutagen") is None:
+        skip("probe_tags regression", "mutagen not installed")
+        return
+
+    expected = {
+        "Artist A/Album One/01 - Song One.flac":
+            {"artist": "Artist A", "album_artist": "Artist A", "album": "Album One",
+             "title": "Song One", "genre": "Rock"},
+        "Sampler/01.mp3":
+            {"artist": "Alpha", "album_artist": "", "album": "Sampler",
+             "title": "Alpha One", "genre": "Pop"},
+        "Artist E/Album Five/01 - Cherry.flac":
+            {"artist": "Artist E", "album_artist": "Artist E", "album": "Album Five",
+             "title": "Cherry", "genre": "J-Pop; Rock"},
+        "Ünïcode/ぼ.flac":
+            {"artist": "Unicode", "album_artist": "Unicode", "album": "Ünïcode Album",
+             "title": "ぼ", "genre": "J-Pop"},
+    }
+    for rel, want in expected.items():
+        got = probe_tags(fixture / rel)
+        check(f"probe_tags keeps the five fields ({Path(rel).name})", got == want,
+              f"{got} != {want}")
+
+
 def test_export_public_api() -> None:
     """Step 1.9: the export entry point and progress are part of the public API."""
     print("export public interface")
@@ -1326,6 +1415,7 @@ def main() -> int:
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
                  test_features_isolation, test_packages_complete, test_read_extensions,
+                 test_tag_reader, test_probe_tags_unchanged,
                  test_scan,
                  test_export_fixture, test_export_golden, test_export_golden_en,
                  test_export_ffprobe_loose,

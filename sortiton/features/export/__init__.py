@@ -52,8 +52,7 @@ def cmd_export(args: CmdArgs) -> int:
         outdir = free_path(EXPORT_DIR / f"export_{datetime.now():%Y%m%d_%H%M%S}")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    use_ffprobe = external.available(external.FFPROBE)
-    recs = reader.scan(root, args.threads, use_ffprobe=use_ffprobe)
+    recs = reader.scan(root, args.threads)
     if not recs:
         output.message(i18n.t("export.error.no_files"))
         return 1
@@ -78,6 +77,9 @@ def cmd_export(args: CmdArgs) -> int:
     (outdir / "00_prompt.md").write_text(
         report.prompt_text(lang, len(recs), len(parts)), encoding="utf-8")
     if args.jsonl:
+        # Own non-core tags are only needed for the JSONL dump (owner decision O4).
+        for rec in recs:
+            rec["extra"] = reader.read_extra(root / rec["path"])
         with open(outdir / "alle_tags.jsonl", "w", encoding="utf-8") as handle:
             for rec in recs:
                 handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
