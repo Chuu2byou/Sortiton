@@ -112,11 +112,21 @@ _EN: dict[str, str] = {
     "cli.fixes.apply": "write the corrections",
     "cli.fixes.backup": "copy the files into a backup folder before writing",
 
-    # fetch feature (download audio with yt-dlp, step 4.2; network part: 4.3)
+    # fetch feature (download audio with yt-dlp: preview, confirmation, download)
     "fetch.title": "FETCH - download audio with yt-dlp",
     "fetch.error.url": "  ERROR: no URL given.",
-    "fetch.error.pending": ("  ERROR: the yt-dlp download is not wired yet "
-                            "(step 4.3); nothing was downloaded."),
+    "fetch.error.preview": "  ERROR: the yt-dlp preview failed: {detail}",
+    "fetch.error.empty": "  ERROR: yt-dlp found nothing to download.",
+    "fetch.error.download": "  ERROR: the download failed: {detail}",
+    "fetch.error.exit": "  ERROR: yt-dlp exited with code {rc}.",
+    "fetch.preview.header": "  Preview: {count} entry/entries (nothing downloaded).",
+    "fetch.preview.entry": "    {title}  ({duration})",
+    "fetch.preview.only": "  Preview only. Use --apply --confirm to download.",
+    "fetch.apply.needs_confirm": "  ERROR: refusing to download without --confirm.",
+    "fetch.download.start": "  Downloading {count} entry/entries with yt-dlp ...",
+    "fetch.download.file": "  Saved: {path}",
+    "fetch.download.done": "  Done: {files} file(s) downloaded.",
+    "fetch.progress": "downloading",
     "cli.fetch.help": "Download a track or playlist as audio with yt-dlp (needs --confirm)",
     "cli.fetch.url": "URL of the video or playlist to download",
     "cli.fetch.target": "folder the downloaded audio is written to",
@@ -514,6 +524,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.hint.fixes": ("Applies single tag corrections from a CSV (the export "
                        "prompt asks for exactly this shape). Only rows whose "
                        "current value still matches are written."),
+    "gui.hint.fetch": ("Downloads audio with yt-dlp. Only download content you "
+                       "have the rights to."),
     "gui.confirm.tags.title": "Really write the tags?",
     "gui.confirm.tags.text": ("{changes} changes in {files} files:\n"
                               "artist, album artist, title, album and genre.\n\n"
@@ -534,6 +546,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.confirm.tools.title": "Really write the corrections?",
     "gui.confirm.tools.text": ("{changes} corrections from {files} CSV row(s) will "
                                "be written to the audio files."),
+    "gui.confirm.fetch.title": "Really download?",
+    "gui.confirm.fetch.text": ("yt-dlp will download the URL and write the audio "
+                               "into the chosen folder."),
+    "gui.confirm.fetch.note": "Only download content you have the rights to.",
     "gui.confirm.ok": "Write the changes",
     "gui.confirm.backup": "Create a backup of the original files",
     "gui.confirm.append": "\n\nRun now?",
@@ -627,6 +643,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.preview.unchanged": "Nothing to do - everything is already correct.",
     "gui.preview.summary_tags": "{changes} changes in {files} files",
     "gui.preview.summary_files": "{files} files affected",
+    "gui.preview.summary_fetch": "{count} entry/entries found",
     "gui.preview.more": "+{count} more",
     "gui.field.artist": "Artist",
     "gui.field.album_artist": "Album artist",
@@ -819,11 +836,21 @@ _DE: dict[str, str] = {
     "cli.fixes.apply": "die Korrekturen schreiben",
     "cli.fixes.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
 
-    # Fetch-Feature (Audio mit yt-dlp herunterladen, Schritt 4.2; Netzwerk: 4.3)
+    # Fetch-Feature (Audio mit yt-dlp herunterladen: Vorschau, Bestätigung, Download)
     "fetch.title": "FETCH - Audio mit yt-dlp herunterladen",
     "fetch.error.url": "  FEHLER: keine URL angegeben.",
-    "fetch.error.pending": ("  FEHLER: der yt-dlp-Download ist noch nicht verdrahtet "
-                            "(Schritt 4.3); es wurde nichts geladen."),
+    "fetch.error.preview": "  FEHLER: die yt-dlp-Vorschau ist fehlgeschlagen: {detail}",
+    "fetch.error.empty": "  FEHLER: yt-dlp hat nichts zum Herunterladen gefunden.",
+    "fetch.error.download": "  FEHLER: der Download ist fehlgeschlagen: {detail}",
+    "fetch.error.exit": "  FEHLER: yt-dlp wurde mit Code {rc} beendet.",
+    "fetch.preview.header": "  Vorschau: {count} Eintrag/Einträge (nichts geladen).",
+    "fetch.preview.entry": "    {title}  ({duration})",
+    "fetch.preview.only": "  Nur Vorschau. Zum Laden mit --apply --confirm erneut starten.",
+    "fetch.apply.needs_confirm": "  FEHLER: ohne --confirm wird nichts geladen.",
+    "fetch.download.start": "  Lade {count} Eintrag/Einträge mit yt-dlp ...",
+    "fetch.download.file": "  Gespeichert: {path}",
+    "fetch.download.done": "  Fertig: {files} Datei(en) geladen.",
+    "fetch.progress": "lädt",
     "cli.fetch.help": ("Einen Titel oder eine Playlist als Audio mit yt-dlp laden "
                        "(braucht --confirm)"),
     "cli.fetch.url": "URL des Videos oder der Playlist",
@@ -1226,6 +1253,8 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                      "sortieren."),
     "gui.hint.export": ("Nur lesend: liest den Ordner und schreibt die Berichte. "
                         "In der Bibliothek ändert sich nichts."),
+    "gui.hint.fetch": ("Lädt Audio mit yt-dlp. Nur Inhalte laden, für die du die "
+                       "Rechte hast."),
     "gui.hint.fixes": ("Wendet Einzelkorrekturen aus einer CSV an (der Export-Prompt "
                        "verlangt genau dieses Format). Nur Zeilen, deren aktueller "
                        "Wert noch passt, werden geschrieben."),
@@ -1247,6 +1276,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                              "  Ziel: {target}"),
     "gui.confirm.note": "Eine Vorschau ändert nichts.",
     "gui.confirm.tools.title": "Korrekturen wirklich schreiben?",
+    "gui.confirm.fetch.title": "Wirklich herunterladen?",
+    "gui.confirm.fetch.text": ("yt-dlp lädt die URL herunter und schreibt das Audio "
+                               "in den gewählten Ordner."),
+    "gui.confirm.fetch.note": "Nur Inhalte laden, für die du die Rechte hast.",
     "gui.confirm.tools.text": ("{changes} Korrekturen aus {files} CSV-Zeile(n) werden "
                                "in die Audiodateien geschrieben."),
     "gui.confirm.ok": "Änderungen schreiben",
@@ -1342,6 +1375,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.preview.unchanged": "Nichts zu tun – alles ist bereits korrekt.",
     "gui.preview.summary_tags": "{changes} Änderungen in {files} Dateien",
     "gui.preview.summary_files": "{files} Dateien betroffen",
+    "gui.preview.summary_fetch": "{count} Eintrag/Einträge gefunden",
     "gui.preview.more": "+{count} weitere",
     "gui.field.artist": "Künstler",
     "gui.field.album_artist": "Album-Künstler",

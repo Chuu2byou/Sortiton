@@ -473,6 +473,135 @@ def test_fetch() -> None:
     check("an unknown audio format is refused", refused)
 
 
+#: A fake yt-dlp: it answers the preview template with one metadata line and,
+#: for a download, writes a small file plus machine progress and the final path.
+#: It never touches the network (step 4.3 tests run without it).
+FAKE_YTDLP = """#!/usr/bin/env python3
+# Fake yt-dlp for the smoke test: deterministic output, no network.
+import os
+import sys
+
+SEP = "\\t"
+args = sys.argv[1:]
+
+if any("SORTITON_META" in arg for arg in args):
+    print("SORTITON_META" + SEP + "https://example.org/watch?v=abc" + SEP
+          + "Fake Song" + SEP + "215")
+    sys.exit(0)
+
+if any(arg.startswith("after_move:SORTITON_FILE") for arg in args):
+    target = "."
+    for index, arg in enumerate(args):
+        if arg in ("-P", "--paths") and index + 1 < len(args):
+            target = args[index + 1]
+    os.makedirs(target, exist_ok=True)
+    path = os.path.join(target, "Fake Song.mp3")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("fake audio")
+    for done, total in ((10, 100), (50, 100), (100, 100)):
+        print("SORTITON_PROGRESS" + SEP + str(done) + SEP + str(total) + SEP + "NA")
+        sys.stdout.flush()
+    print("SORTITON_FILE" + SEP + os.path.abspath(path))
+    sys.exit(0)
+
+sys.stderr.write("fake yt-dlp: unexpected call\\n")
+sys.exit(3)
+"""
+
+
+def test_fetch_run() -> None:
+    """Step 4.3: preview, the confirmation gate, download and journal.
+
+    A fake ``yt-dlp`` on the ``PATH`` stands in for the real program: the
+    preview prints one metadata line, the download writes a small file and
+    prints progress plus the finished path. No network is used.
+    """
+    print("fetch: preview, confirmation, download")
+    import unittest.mock as mock
+
+    from sortiton import external, journal, output
+    from sortiton.features.fetch import cmd_fetch
+
+    plans: list[tuple] = []
+    progresses: list[tuple] = []
+    recorded: list[tuple] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        bindir = work / "bin"
+        bindir.mkdir()
+        fake = bindir / "yt-dlp"
+        fake.write_text(FAKE_YTDLP, encoding="utf-8")
+        fake.chmod(0o755)
+        target = work / "music"
+        target.mkdir()
+        url = "https://example.org/watch?v=abc"
+        env = {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+
+        output.set_plan_sink(lambda kind, data: plans.append((kind, data)))
+        output.set_progress(lambda current, total, text="":
+                            progresses.append((current, total, text)))
+        try:
+            with mock.patch.dict(os.environ, env):
+                # 1) The preview reports the plan and downloads nothing.
+                rc = cmd_fetch(SimpleNamespace(url=url, target=str(target)))
+                check("fetch preview returns 0", rc == 0, str(rc))
+                check("fetch preview reports a fetch plan",
+                      any(kind == "fetch" for kind, _ in plans), str(plans[:2]))
+                check("fetch preview names the title",
+                      any(data.get("title") == "Fake Song" for _, data in plans))
+                check("fetch preview downloads nothing", not list(target.iterdir()))
+
+                # 2) --apply without --confirm must not download either.
+                plans.clear()
+                rc = cmd_fetch(SimpleNamespace(url=url, target=str(target),
+                                               apply=True))
+                check("fetch refuses without --confirm", rc == 2, str(rc))
+                check("an unconfirmed download writes nothing",
+                      not list(target.iterdir()))
+
+                # 3) --apply --confirm downloads and writes the journal entry.
+                plans.clear()
+                with mock.patch.object(journal, "record",
+                                       lambda op, **data: recorded.append((op, data))):
+                    rc = cmd_fetch(SimpleNamespace(url=url, target=str(target),
+                                                   apply=True, confirm=True))
+                files = list(target.iterdir())
+                check("a confirmed download returns 0", rc == 0, str(rc))
+                check("a confirmed download writes one file", len(files) == 1,
+                      ", ".join(str(item) for item in files))
+                check("the download journal entry is written",
+                      any(op == "download" for op, _ in recorded), str(recorded))
+                check("the journal entry points at the file",
+                      any(str(data.get("path", "")).endswith("Fake Song.mp3")
+                          for _, data in recorded), str(recorded))
+                check("progress is reported up to 100",
+                      bool(progresses) and progresses[-1][0] == 100, str(progresses[:3]))
+                check("fetch reports its stats",
+                      output.last_stats("fetch").get("files") == 1,
+                      str(output.last_stats("fetch")))
+
+                # 4) Without yt-dlp the command stops with code 2 and a hint.
+                messages: list[str] = []
+                with mock.patch.object(external.shutil, "which", return_value=None), \
+                        mock.patch.object(output, "message",
+                                          side_effect=messages.append):
+                    rc = cmd_fetch(SimpleNamespace(url=url, target=str(target)))
+                check("a missing yt-dlp returns 2", rc == 2, str(rc))
+                check("the missing-tool message names yt-dlp",
+                      any("yt-dlp" in text for text in messages), str(messages[:2]))
+        finally:
+            output.set_plan_sink(None)
+            output.set_progress(None)
+
+    # The real program, when present, answers; the skip names it otherwise.
+    if external.available(external.YT_DLP):
+        check("external.version for the real yt-dlp",
+              external.version(external.YT_DLP) != "")
+    else:
+        skip("fetch against the real yt-dlp", "yt-dlp not installed")
+
+
 def test_features_isolation() -> None:
     """Step 1.9: a feature must stay loadable without the GUI or the tasks.
 
@@ -1840,7 +1969,8 @@ def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
-                 test_fetch, test_features_isolation, test_packages_complete, test_read_extensions,
+                 test_fetch, test_fetch_run, test_features_isolation, test_packages_complete,
+                 test_read_extensions,
                  test_tag_reader, test_probe_tags_unchanged,
                  test_scan,
                  test_export_fixture, test_export_golden, test_export_golden_en,

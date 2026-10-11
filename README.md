@@ -84,6 +84,7 @@ sortiton sort   ~/Downloads/Music ~/Music --move --apply
 sortiton all    ~/Downloads/Music ~/Music --move --apply
 sortiton scan   ~/Music                        # count files/albums/artists
 sortiton export ~/Music                        # write reports for an LLM
+sortiton fetch  URL ~/Music --apply --confirm  # download audio (yt-dlp)
 sortiton rules  --template                     # create my_rules.ini
 sortiton restore --list                        # list runs that can be undone
 sortiton restore --apply                       # undo the last run
@@ -106,6 +107,12 @@ The export only reads the library - it never changes a file, so there is no
 `--apply`. The reports go to `SORTITON_EXPORT_DIR` (default `exports/` in the
 project folder), the fingerprint cache to `SORTITON_CACHE_DIR` (default
 `cache/`).
+
+## Download audio (`fetch`)
+
+`sortiton fetch URL FOLDER` previews a video or playlist with `yt-dlp` and
+reports what it would find. Downloading needs both `--apply` and `--confirm`;
+`yt-dlp` must be on the `PATH`. Only download content you have the rights to.
 
 ## Custom rules (`my_rules.ini`)
 

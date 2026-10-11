@@ -24,8 +24,10 @@ from .widgets import RoundButton, Segments
 SEGMENT_LIMIT = 3
 
 # Bool options driven by the action bar / the confirm dialog, not the form: a
-# writing feature gets a preview/write pair and the shared backup switch.
-_ACTION_FLAGS = {"apply", "backup"}
+# writing feature gets a preview/write pair and the shared backup switch. The
+# fetch feature's "confirm" is the same idea - the GUI asks its own dialog
+# before every download, so the raw checkbox stays out of the form.
+_ACTION_FLAGS = {"apply", "backup", "confirm"}
 
 # Fallback bounds for the spin boxes when a feature leaves minimum/maximum open.
 _INT_MAX = 1_000_000

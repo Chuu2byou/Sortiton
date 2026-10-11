@@ -71,6 +71,19 @@ def _fmt_number(value) -> str:
         return str(value)
 
 
+def _fmt_duration(value) -> str:
+    """Format a duration in seconds as ``M:SS`` or ``H:MM:SS`` (``?`` if unknown)."""
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return "?"
+    if seconds <= 0:
+        return "?"
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
 def _pretty_path(path) -> str:
     """Shorten a path for display: the home directory becomes ``~``, very long
     paths lose their front (keeps the field readable, screenshots free of paths).
@@ -941,8 +954,10 @@ class SortitonGUI:
     def _tool_args(self, feature, execute: bool = False) -> SimpleNamespace:
         """Read the tools form back into the namespace the feature expects.
 
-        ``apply`` and ``backup`` come from the action bar and the confirm
-        dialog, not from the form (the form does not draw those two).
+        ``apply``, ``backup`` and ``confirm`` come from the action bar and the
+        confirm dialog, not from the form (the form does not draw those).
+        ``confirm`` follows ``apply``: the GUI shows its own dialog before a
+        run, so reaching this point with ``execute`` means the user confirmed.
         """
         values = {option.name: tool_value(option, self.var_tool[feature.key][option.name])
                   for option in feature.options}
@@ -950,6 +965,8 @@ class SortitonGUI:
             values["apply"] = execute
         if any(option.name == "backup" for option in feature.options):
             values["backup"] = self.var_backup.get()
+        if any(option.name == "confirm" for option in feature.options):
+            values["confirm"] = execute
         return SimpleNamespace(**values)
 
     def _run_tools(self, execute: bool = False) -> None:
@@ -982,7 +999,7 @@ class SortitonGUI:
                           i18n.t("gui.dialog.folder_missing.text"))
             return
 
-        if feature.writes and execute and not self._confirm_write("tools"):
+        if feature.writes and execute and not self._confirm_tool_write(feature):
             return
         last = config.EXPORT_DIR if folder else location
         self._start("tools", self._job_name(f"gui.job.{feature.key}", execute),
@@ -1017,6 +1034,29 @@ class SortitonGUI:
             self.var_backup.set(options.get("backup", True))
             settings.save_backup(self.var_backup.get())
         self._backup_for_run = self.var_backup.get()
+        return confirmed
+
+    def _confirm_tool_write(self, feature) -> bool:
+        """Confirmation before a writing tool runs.
+
+        The fetch feature asks on its own: a download must be confirmed every
+        single time, and its dialog must not reuse the CSV wording of the fixes
+        feature.
+        """
+        if feature.key == "fetch":
+            return self._confirm_fetch()
+        return self._confirm_write("tools")
+
+    def _confirm_fetch(self) -> bool:
+        """Dedicated download confirmation, including the rights note."""
+        confirmed, _options = ask_confirm(
+            self.root,
+            title=i18n.t("gui.confirm.fetch.title"),
+            heading=i18n.t("gui.confirm.fetch.title"),
+            text=i18n.t("gui.confirm.fetch.text"),
+            note=i18n.t("gui.confirm.fetch.note"),
+            ok_text=i18n.t("gui.confirm.ok"),
+            cancel_text=i18n.t("gui.button.cancel"))
         return confirmed
 
     def _confirm_text(self, page: str, *, files: str, changes: str, **fields) -> str:
@@ -1063,6 +1103,17 @@ class SortitonGUI:
                 example = (pair[0], pair[1])
                 if example not in entry["examples"]:
                     entry["examples"].append(example)
+            return
+
+        if kind == "fetch":
+            # The fetch feature reports what yt-dlp would load, not files on
+            # disk; keep the entries so the preview card can name them.
+            plan["kind"] = "fetch"
+            plan["files"] += 1
+            entries = plan.setdefault("entries", [])
+            if len(entries) < 3:
+                entries.append((str(data.get("title") or data.get("url") or ""),
+                                _fmt_duration(data.get("duration"))))
             return
 
         source = data.get("source")
@@ -1177,10 +1228,15 @@ class SortitonGUI:
         if plan.get("kind") == "tags":
             return i18n.t("gui.preview.summary_tags",
                           changes=_fmt_number(plan.get("changes_total", 0)), files=files)
+        if plan.get("kind") == "fetch":
+            return i18n.t("gui.preview.summary_fetch", count=files)
         return i18n.t("gui.preview.summary_files", files=files)
 
     def _plan_rows(self, plan: dict) -> list[tuple[str, str, str, str]]:
         rows: list[tuple[str, str, str, str]] = []
+        if plan.get("kind") == "fetch":
+            return [(i18n.t("gui.field.title"), "", title, duration)
+                    for title, duration in (plan.get("entries") or [])]
         if plan.get("kind") == "tags":
             for field in PLAN_FIELDS:
                 entry = (plan.get("fields") or {}).get(field)

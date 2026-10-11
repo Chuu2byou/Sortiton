@@ -1,40 +1,54 @@
-"""The fetch feature: download audio with yt-dlp (step 4.2: definition).
+"""The fetch feature: download audio with yt-dlp.
 
 ``sortiton fetch URL FOLDER`` downloads the given track - or, with
 ``--playlist``, the whole playlist - as audio into ``FOLDER``. The command
-writes, so it needs ``--apply`` and (see step 4.3) an explicit ``--confirm``;
-without both it must stay a network-free no-op. yt-dlp is never bundled: it is
+writes, so it needs ``--apply`` *and* an explicit ``--confirm`` (step 4.3);
+without both it stays a network-free no-op. yt-dlp is never bundled: it is
 looked up on the user's ``PATH`` (step 4.1).
 
-This module defines the feature and its options only. The network part - a
-preview that parses ``yt-dlp --simulate`` and the confirmed download - is step
-4.3 and will replace the body of :func:`cmd_fetch`; until then the function only
-checks the tool and the arguments and never touches the network, so nothing is
-ever downloaded.
+The run has two stages. A preview asks yt-dlp's simulation mode what it would
+find and reports the result via :func:`sortiton.output.report_plan`; nothing is
+downloaded. Only when the confirmation is there does the second stage really
+download, report progress and write one journal entry per finished file. The
+process handling lives in :mod:`sortiton.features.fetch.download`.
+
+Only download content you have the rights to - the GUI and the README say so.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from ... import external, i18n, output
+from ... import external, i18n, journal, output
+from ...cancel import NO_CANCEL, Cancelled
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
+from . import download
 
 #: Audio formats ``--audio-format`` accepts for our downloads (a subset of the
 #: formats yt-dlp supports: best, aac, alac, flac, m4a, mp3, opus, vorbis, wav).
 AUDIO_FORMATS: tuple[str, ...] = ("mp3", "m4a", "opus", "flac")
 
 
-def cmd_fetch(args: CmdArgs) -> int:
-    """Validate the input for ``sortiton fetch`` (step 4.2: definition only).
+def _duration_text(seconds: int | None) -> str:
+    """Format a duration in seconds as ``M:SS`` or ``H:MM:SS`` (``?`` if unknown)."""
+    if not seconds:
+        return "?"
+    hours, rest = divmod(int(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
 
-    Returns 0 on success, 2 on a bad input or a missing tool. The network part
-    (preview with ``yt-dlp --simulate``, confirmation, download) is step 4.3;
-    until it lands this function only checks the tool and the arguments and
-    reports that the download is not wired yet, so it never downloads and never
-    writes.
+
+def cmd_fetch(args: CmdArgs) -> int:
+    """Preview a URL with yt-dlp and, on request, download it as audio.
+
+    Returns 0 on success, 1 when yt-dlp reported a failure, 2 on a bad input or
+    a missing confirmation/tool, 130 when the run was cancelled. The preview
+    never downloads; the download only runs with ``--apply`` *and* ``--confirm``.
     """
     args = resolve_args(FEATURE, args)
+    cancel = getattr(args, "cancel", NO_CANCEL)
 
     # The GUI does not go through cli.main, so the tool check lives here too.
     lacking = external.missing(FEATURE, args)
@@ -42,7 +56,8 @@ def cmd_fetch(args: CmdArgs) -> int:
         output.message(external.format_missing(lacking))
         return 2
 
-    if not str(args.url or "").strip():
+    url = str(args.url or "").strip()
+    if not url:
         output.message(i18n.t("fetch.error.url"))
         return 2
 
@@ -51,10 +66,49 @@ def cmd_fetch(args: CmdArgs) -> int:
         output.message(i18n.t("task.error.folder", path=target))
         return 2
 
-    # Step 4.3 wires the yt-dlp preview and download here. Until then the run
-    # stops after the checks and reports that nothing was loaded.
-    output.message(i18n.t("fetch.error.pending"))
-    return 2
+    output.banner(i18n.t("fetch.title"), not args.apply)
+    try:
+        entries, error = download.preview(url, playlist=args.playlist, cancel=cancel)
+        if error:
+            output.message(i18n.t("fetch.error.preview", detail=error))
+            return 1
+        if not entries:
+            output.message(i18n.t("fetch.error.empty"))
+            return 1
+
+        output.message(i18n.t("fetch.preview.header", count=len(entries)))
+        for entry in entries:
+            output.report_plan("fetch", url=entry.url, title=entry.title,
+                               duration=entry.duration)
+            output.message(i18n.t("fetch.preview.entry", title=entry.title,
+                                  duration=_duration_text(entry.duration)))
+
+        if not args.apply:
+            output.message(i18n.t("fetch.preview.only"))
+            output.report_stats("fetch", files=len(entries), applied=False)
+            return 0
+
+        if not args.confirm:
+            output.message(i18n.t("fetch.apply.needs_confirm"))
+            return 2
+
+        output.message(i18n.t("fetch.download.start", count=len(entries)))
+        paths, error = download.download(url, target, audio_format=args.audio_format,
+                                         playlist=args.playlist,
+                                         no_archive=args.no_archive, cancel=cancel)
+        if error:
+            output.message(i18n.t("fetch.error.download", detail=error))
+            return 1
+    except Cancelled:
+        output.message(i18n.t("task.cancelled"))
+        return 130
+
+    for path in paths:
+        journal.record("download", path=str(path), url=url)
+        output.message(i18n.t("fetch.download.file", path=path))
+    output.message(i18n.t("fetch.download.done", files=len(paths)))
+    output.report_stats("fetch", files=len(paths), applied=True)
+    return 0
 
 
 #: The one description the CLI and the GUI share.
