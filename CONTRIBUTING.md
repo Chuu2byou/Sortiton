@@ -34,6 +34,7 @@ python3 tests/smoke.py
 xvfb-run -a python3 tests/smoke.py                # with a display: GUI too
 python3 sortiton.py --help
 python3 sortiton.py rules --builtin
+python3 sortiton.py export --help
 pylint sortiton sortiton_gui.py tests tools
 pylint sortiton.py
 bandit -r sortiton sortiton.py sortiton_gui.py tests tools -ll
@@ -62,6 +63,32 @@ Notes:
   into the job log. Both workflows ask for `contents: read`; only the release
   job writes.
 
+## Golden files
+
+The export feature is pinned to a reference output of the old standalone
+script. The fixture library lives in `tests/fixtures/export_library/`, the
+reference in `tests/golden/export/`; `tests/smoke.py::test_export_golden`
+runs the feature on the fixture and compares every file byte for byte after
+normalising the two machine-dependent lines (source folder, timestamp).
+
+The old `musik_export.py` no longer exists in the working tree (step 1.11).
+To rebuild the reference, recover it from the commit that added it and pass
+it explicitly:
+
+```bash
+git show "$(git log --format=%H --diff-filter=A -1 -- musik_export.py)":musik_export.py \
+    > /tmp/musik_export.py
+python3 tools/make_export_golden.py --reference /tmp/musik_export.py
+```
+
+Variant A (plain) lands in `tests/golden/export/base/`, variant B
+(`--gross-klein`) in `tests/golden/export/case/`. Build them with `mutagen`
+installed - otherwise the old script takes the slower ffprobe path.
+
+A golden update is a commit of its own with the reason in the message
+(`test: update export golden (reason)`). Never fold it into a feature commit,
+otherwise the diff hides the real change.
+
 ## Layout
 
 The scripts in the main folder are entry points; the logic lives in the
@@ -80,6 +107,8 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/files.py` | File names, target paths, content comparison |
 | `sortiton/tags.py` | Read/write tags (mutagen or ffprobe/ffmpeg) |
 | `sortiton/tasks.py` | The tasks (`cmd_*`) |
+| `sortiton/features/base.py` | Feature interface (`Feature`, `Option`, argparse builder) |
+| `sortiton/features/export/` | Read-only export for an LLM (`cmd_export`) |
 | `sortiton/cli.py` | Command line arguments |
 | `sortiton/__init__.py` | Public interface (the stable names) |
 | `sortiton/gui/design.py` | Colours and fonts |
