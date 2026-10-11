@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -474,48 +475,26 @@ def test_fetch() -> None:
     check("an unknown audio format is refused", refused)
 
 
-#: A fake yt-dlp: it answers the preview template with one metadata line and,
-#: for a download, writes a small file plus machine progress and the final path.
-#: It never touches the network (step 4.3 tests run without it).
-FAKE_YTDLP = """#!/usr/bin/env python3
-# Fake yt-dlp for the smoke test: deterministic output, no network.
-import os
-import sys
+#: The fake yt-dlp that stands in for the real program (step 4.7). The script
+#: lives in the test folder and is put in front of ``PATH`` by the fetch tests,
+#: so none of them touches the network or the real yt-dlp.
+FAKE_YTDLP = BASE / "tests" / "fixtures" / "fake_ytdlp" / "yt-dlp"
 
-SEP = "\\t"
-args = sys.argv[1:]
 
-if any("SORTITON_META" in arg for arg in args):
-    print("SORTITON_META" + SEP + "https://example.org/watch?v=abc" + SEP
-          + "Fake Song" + SEP + "215")
-    sys.exit(0)
-
-if any(arg.startswith("after_move:SORTITON_FILE") for arg in args):
-    target = "."
-    for index, arg in enumerate(args):
-        if arg in ("-P", "--paths") and index + 1 < len(args):
-            target = args[index + 1]
-    os.makedirs(target, exist_ok=True)
-    path = os.path.join(target, "Fake Song.mp3")
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write("fake audio")
-    for done, total in ((10, 100), (50, 100), (100, 100)):
-        print("SORTITON_PROGRESS" + SEP + str(done) + SEP + str(total) + SEP + "NA")
-        sys.stdout.flush()
-    print("SORTITON_FILE" + SEP + os.path.abspath(path))
-    sys.exit(0)
-
-sys.stderr.write("fake yt-dlp: unexpected call\\n")
-sys.exit(3)
-"""
+def _fake_ytdlp_env(**extra: str) -> dict[str, str]:
+    """Environment with the fake yt-dlp first on ``PATH`` (plus any extra vars)."""
+    env = {"PATH": str(FAKE_YTDLP.parent) + os.pathsep + os.environ.get("PATH", "")}
+    env.update(extra)
+    return env
 
 
 def test_fetch_run() -> None:
-    """Step 4.3: preview, the confirmation gate, download and journal.
+    """Step 4.3/4.7: preview, the confirmation gate, download and journal.
 
-    A fake ``yt-dlp`` on the ``PATH`` stands in for the real program: the
-    preview prints one metadata line, the download writes a small file and
-    prints progress plus the finished path. No network is used.
+    The fake yt-dlp (``tests/fixtures/fake_ytdlp/yt-dlp``, step 4.7) stands in
+    for the real program: the preview prints one metadata line, the download
+    writes a small file and prints progress plus the finished path. No network
+    and no real yt-dlp is used.
     """
     print("fetch: preview, confirmation, download")
     import unittest.mock as mock
@@ -529,15 +508,10 @@ def test_fetch_run() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        bindir = work / "bin"
-        bindir.mkdir()
-        fake = bindir / "yt-dlp"
-        fake.write_text(FAKE_YTDLP, encoding="utf-8")
-        fake.chmod(0o755)
         target = work / "music"
         target.mkdir()
         url = "https://example.org/watch?v=abc"
-        env = {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+        env = _fake_ytdlp_env()
 
         output.set_plan_sink(lambda kind, data: plans.append((kind, data)))
         output.set_progress(lambda current, total, text="":
@@ -595,12 +569,117 @@ def test_fetch_run() -> None:
             output.set_plan_sink(None)
             output.set_progress(None)
 
-    # The real program, when present, answers; the skip names it otherwise.
-    if external.available(external.YT_DLP):
-        check("external.version for the real yt-dlp",
-              external.version(external.YT_DLP) != "")
-    else:
-        skip("fetch against the real yt-dlp", "yt-dlp not installed")
+
+def test_fetch_cancel() -> None:
+    """Step 4.7: cancelling a fetch terminates the running yt-dlp process.
+
+    The fake yt-dlp switches to a slow mode, writes its pid and waits for
+    ``SIGTERM``. The test runs ``cmd_fetch`` in a thread, waits for the first
+    progress line, cancels the token and checks: code 130, a SIGTERM marker
+    from the fake, and a process that is really gone. No network.
+    """
+    print("fetch: cancellation")
+    import unittest.mock as mock
+
+    from sortiton.cancel import CancelToken
+    from sortiton.features.fetch import cmd_fetch
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        target = work / "music"
+        target.mkdir()
+        pidfile = work / "ytdlp.pid"
+        termfile = work / "ytdlp.terminated"
+        started = threading.Event()
+        result: list[int] = []
+        token = CancelToken()
+
+        def run() -> None:
+            with mock.patch.dict(os.environ, _fake_ytdlp_env(
+                    SORTITON_FAKE_YTDLP_SLOW="1",
+                    SORTITON_FAKE_YTDLP_PIDFILE=str(pidfile),
+                    SORTITON_FAKE_YTDLP_TERMFILE=str(termfile))):
+                result.append(cmd_fetch(SimpleNamespace(
+                    url="https://example.org/watch?v=abc", target=str(target),
+                    apply=True, confirm=True, cancel=token)))
+
+        output.set_progress(lambda *_args: started.set())
+        try:
+            thread = threading.Thread(target=run)
+            thread.start()
+            check("the fake yt-dlp started", started.wait(timeout=15.0))
+            token.cancel()
+            thread.join(timeout=20.0)
+        finally:
+            output.set_progress(None)
+
+        check("the cancelled fetch returns", not thread.is_alive())
+        check("cancellation returns 130", result == [130], str(result))
+        check("the fake process got SIGTERM", termfile.exists(),
+              termfile.read_text(encoding="utf-8") if termfile.exists() else "missing")
+        if pidfile.exists():
+            pid = int(pidfile.read_text(encoding="utf-8"))
+            gone = True
+            try:
+                os.kill(pid, 0)
+                gone = False
+            except ProcessLookupError:
+                gone = True
+            except PermissionError:
+                gone = False
+            check("the fake process is really gone", gone, str(pid))
+
+
+def test_fetch_restore() -> None:
+    """Step 4.7: the fetch -> restore loop, driven by the fake yt-dlp.
+
+    A confirmed download writes the file and an archive line. ``restore`` has
+    to delete the file and drop the archive line, so the archive does not block
+    a later run. No network and no real yt-dlp is used.
+    """
+    print("fetch: download then restore")
+    import unittest.mock as mock
+
+    from sortiton import tasks
+    from sortiton.features.fetch import cmd_fetch
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        target = work / "music"
+        target.mkdir()
+        archive = work / "fetch_archive.txt"
+        url = "https://example.org/watch?v=abc"
+
+        journal.close()
+        log = work / "sortiton_2026-01-01_00-00-00.log"
+        log.write_text("", encoding="utf-8")
+        opened = journal.open_for(log)
+
+        with mock.patch.object(config, "FETCH_ARCHIVE", archive), \
+                mock.patch.object(tasks, "FETCH_ARCHIVE", archive):
+            with mock.patch.dict(os.environ, _fake_ytdlp_env()):
+                rc = cmd_fetch(SimpleNamespace(url=url, target=str(target),
+                                               apply=True, confirm=True))
+            journal.close()
+
+            downloaded = sorted(target.iterdir())
+            check("the fake download returns 0", rc == 0, str(rc))
+            check("the fake download writes one file", len(downloaded) == 1,
+                  ", ".join(str(item) for item in downloaded))
+            check("the fake download fills the archive",
+                  archive.exists() and "abc123" in archive.read_text(encoding="utf-8"),
+                  archive.read_text(encoding="utf-8") if archive.exists() else "missing")
+
+            check("restore of the download runs",
+                  cmd_restore(_restore_args(opened, apply=True)) == 0)
+            check("restore deletes the downloaded file",
+                  bool(downloaded) and not downloaded[0].exists())
+            check("restore drops the archive line",
+                  "abc123" not in archive.read_text(encoding="utf-8"),
+                  archive.read_text(encoding="utf-8"))
+            check("restore reports no errors",
+                  output.last_stats("restore").get("errors") == 0,
+                  str(output.last_stats("restore")))
 
 
 def test_all_pipeline() -> None:
@@ -2129,7 +2208,8 @@ def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
-                 test_fetch, test_fetch_run, test_all_pipeline, test_features_isolation,
+                 test_fetch, test_fetch_run, test_fetch_cancel, test_fetch_restore,
+                 test_all_pipeline, test_features_isolation,
                  test_packages_complete,
                  test_read_extensions,
                  test_tag_reader, test_probe_tags_unchanged,
