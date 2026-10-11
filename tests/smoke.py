@@ -603,6 +603,71 @@ def test_fetch_run() -> None:
         skip("fetch against the real yt-dlp", "yt-dlp not installed")
 
 
+def test_all_pipeline() -> None:
+    """Step 4.5: cmd_all runs an optional fetch stage before tags/rename/sort.
+
+    The stages are stubbed, so the test never calls yt-dlp or touches a file -
+    it only checks the stage sequence ``cmd_all`` builds from the arguments,
+    with and without ``fetch_url`` and with a missing confirmation.
+    """
+    print("all-in-one pipeline")
+    import unittest.mock as mock
+
+    from sortiton import tasks
+
+    order: list[str] = []
+
+    def recorder(name: str):
+        def run(_args) -> int:
+            order.append(name)
+            return 0
+        return run
+
+    def all_args(**extra):
+        data = dict(source="/src", target="/dst", pattern="%artist% - %title%",
+                    move=False, apply=True, backup=False)
+        data.update(extra)
+        return SimpleNamespace(**data)
+
+    with mock.patch.object(tasks, "cmd_tags", recorder("tags")), \
+            mock.patch.object(tasks, "cmd_rename", recorder("rename")), \
+            mock.patch.object(tasks, "cmd_sort", recorder("sort")), \
+            mock.patch.object(tasks, "cmd_fetch", recorder("fetch")):
+        # Without a URL the pipeline is the three classic stages, unchanged.
+        order.clear()
+        rc = tasks.cmd_all(all_args())
+        check("all without fetch_url returns 0", rc == 0, str(rc))
+        check("all without fetch_url is tags -> rename -> sort",
+              order == ["tags", "rename", "sort"], str(order))
+        keys = [step.title_key for step in tasks._pipeline_steps(all_args())]
+        check("pipeline has no fetch stage without fetch_url",
+              keys == ["task.step.tags", "task.step.rename", "task.step.sort"], str(keys))
+
+        # A confirmed URL puts the fetch stage in front of the others.
+        order.clear()
+        rc = tasks.cmd_all(all_args(fetch_url="https://example.org/x",
+                                    fetch_confirmed=True))
+        check("all with fetch_url returns 0", rc == 0, str(rc))
+        check("fetch runs before the classic stages",
+              order == ["fetch", "tags", "rename", "sort"], str(order))
+        keys = [step.title_key for step in tasks._pipeline_steps(
+            all_args(fetch_url="https://example.org/x", fetch_confirmed=True))]
+        check("pipeline puts the fetch stage first",
+              keys == ["task.step.fetch", "task.step.tags", "task.step.rename",
+                       "task.step.sort"], str(keys))
+
+        # A URL without the explicit confirmation must download nothing (step 4.3).
+        order.clear()
+        messages: list[str] = []
+        with mock.patch.object(tasks, "message",
+                               side_effect=lambda text="": messages.append(str(text))):
+            rc = tasks.cmd_all(all_args(fetch_url="https://example.org/x"))
+        check("all refuses an unconfirmed fetch", rc == 2, str(rc))
+        check("an unconfirmed fetch downloads nothing", order == [], str(order))
+        check("the refusal names the confirmation",
+              any("confirm" in text.lower() for text in messages), str(messages[:3]))
+
+
 def test_features_isolation() -> None:
     """Step 1.9: a feature must stay loadable without the GUI or the tasks.
 
@@ -2064,7 +2129,8 @@ def main() -> int:
     settings.apply_language()
     for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
-                 test_fetch, test_fetch_run, test_features_isolation, test_packages_complete,
+                 test_fetch, test_fetch_run, test_all_pipeline, test_features_isolation,
+                 test_packages_complete,
                  test_read_extensions,
                  test_tag_reader, test_probe_tags_unchanged,
                  test_scan,

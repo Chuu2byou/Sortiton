@@ -21,6 +21,7 @@ from . import i18n, journal
 from .cancel import NO_CANCEL, Cancelled
 from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST,
                      FETCH_ARCHIVE, LOG_DIR, RULES_FILE, WRITE_WORKERS)
+from .features.fetch import cmd_fetch
 from .files import build_name, free_target, iter_audio, safe_name, same_content
 from .output import _progress, banner, last_stats, message, report_plan, report_stats
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
@@ -332,7 +333,12 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
     parsed arguments (see the optional fetch stage in step 4.5).
     """
     cancel = getattr(args, "cancel", NO_CANCEL)
-    return [
+    steps: list[Step] = []
+    # The fetch stage is optional and runs first: the classic stages then see
+    # the freshly fetched files in the source folder (step 4.5).
+    if getattr(args, "fetch_url", None):
+        steps.append(Step("task.step.fetch", lambda: _run_fetch_step(args, cancel)))
+    steps.extend([
         Step("task.step.tags",
              lambda: cmd_tags(SimpleNamespace(folder=args.source, apply=args.apply,
                                               backup=getattr(args, "backup", False),
@@ -344,7 +350,22 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
              lambda: cmd_sort(SimpleNamespace(source=args.source, target=args.target,
                                               pattern=args.pattern, move=args.move,
                                               apply=args.apply, cancel=cancel))),
-    ]
+    ])
+    return steps
+
+
+def _run_fetch_step(args: CmdArgs, cancel) -> int:
+    """Download ``args.fetch_url`` into ``args.source`` - never without consent.
+
+    Step 4.3: inside "all" the download only happens when ``fetch_confirmed``
+    is explicitly True. Without it the stage stops the whole run before a
+    single byte is fetched, so "all" can never download by accident.
+    """
+    if getattr(args, "fetch_confirmed", False) is not True:
+        message(i18n.t("fetch.apply.needs_confirm"))
+        return 2
+    return cmd_fetch(SimpleNamespace(url=args.fetch_url, target=args.source,
+                                     apply=True, confirm=True, cancel=cancel))
 
 
 def cmd_all(args: CmdArgs) -> int:
@@ -357,8 +378,10 @@ def cmd_all(args: CmdArgs) -> int:
     message(i18n.t("task.label.mode", value=mode))
 
     steps = _pipeline_steps(args)
-    for step in steps:
-        title = i18n.t(step.title_key)
+    total = len(steps)
+    for index, step in enumerate(steps, start=1):
+        title = i18n.t("task.step.label", index=index, total=total,
+                       title=i18n.t(step.title_key))
         message()
         message(_STEP_LINE)
         message(i18n.t("task.step", title=title))

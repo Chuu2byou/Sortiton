@@ -62,6 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_all.add_argument("--move", action="store_true", help=i18n.t("cli.all.move"))
     p_all.add_argument("--apply", action="store_true", help=i18n.t("cli.all.apply"))
     p_all.add_argument("--backup", action="store_true", help=i18n.t("cli.all.backup"))
+    p_all.add_argument("--fetch-url", dest="fetch_url", default=None,
+                       help=i18n.t("cli.all.fetch_url"))
+    p_all.add_argument("--fetch-confirmed", dest="fetch_confirmed",
+                       action="store_true", help=i18n.t("cli.all.fetch_confirmed"))
     p_all.set_defaults(func=cmd_all)
 
     p_scan = sub.add_parser("scan", parents=[common], help=i18n.t("cli.scan.help"))
