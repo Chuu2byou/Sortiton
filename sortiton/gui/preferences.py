@@ -1,21 +1,20 @@
-"""Settings window: tag backend status and language."""
+"""Settings window: external tools status and language."""
 
 from __future__ import annotations
 
 import tkinter as tk
 
-from .. import i18n
+from .. import external, i18n
 from . import design
-from .design import (BACKGROUND, BORDER, CARD, GREEN, RED, TEXT, TEXT_FAINT, TEXT_MUTED,
+from .design import (BACKGROUND, BORDER, CARD, GREEN, TEXT, TEXT_FAINT, TEXT_MUTED,
                      YELLOW)
 from .widgets import Pill, RoundButton, Segments
 
 
 class PreferencesWindow:
-    """Toplevel showing the tag backends and the language switch."""
+    """Toplevel showing the external tools and the language switch."""
 
-    def __init__(self, parent: tk.Misc, language: tk.StringVar, on_language,
-                 ffprobe: bool, mutagen: bool) -> None:
+    def __init__(self, parent: tk.Misc, language: tk.StringVar, on_language) -> None:
         self.window = tk.Toplevel(parent)
         self.window.title(i18n.t("gui.settings.title"))
         self.window.configure(bg=BACKGROUND)
@@ -30,7 +29,7 @@ class PreferencesWindow:
         tk.Label(body, text=i18n.t("gui.settings.heading"), bg=BACKGROUND, fg=TEXT,
                  font=design.FONT_SECTION, anchor="w").grid(row=0, column=0, sticky="w")
 
-        self._backend_card(body, 1, ffprobe, mutagen)
+        self._tools_card(body, 1)
         self._language_card(body, 2, language, on_language)
 
         footer = tk.Frame(body, bg=BACKGROUND)
@@ -55,29 +54,43 @@ class PreferencesWindow:
         inner.columnconfigure(0, weight=1)
         return inner
 
-    def _backend_card(self, parent: tk.Misc, row: int, ffprobe: bool,
-                      mutagen: bool) -> None:
+    def _tools_card(self, parent: tk.Misc, row: int) -> None:
+        """One pill per tool from :data:`external.TOOLS`, plus install hints.
+
+        The list is built from the registry, never per program, so a new tool
+        only has to be added to ``external.TOOLS``.
+        """
         card = self._card(parent, row)
-        tk.Label(card, text=i18n.t("gui.settings.backend").upper(), bg=CARD,
+        tk.Label(card, text=i18n.t("gui.settings.tools").upper(), bg=CARD,
                  fg=TEXT_FAINT, font=design.FONT_LABEL, anchor="w").grid(
                      row=0, column=0, sticky="w")
 
         pills = tk.Frame(card, bg=CARD)
         pills.grid(row=1, column=0, sticky="w", pady=(8, 0))
-        Pill(pills, i18n.t("gui.chip.mutagen_ok") if mutagen
-             else i18n.t("gui.chip.mutagen_missing"),
-             GREEN if mutagen else YELLOW).pack(side="left", padx=(0, 8))
-        Pill(pills, i18n.t("gui.chip.ffprobe_ok") if ffprobe
-             else i18n.t("gui.chip.ffprobe_missing"),
-             GREEN if ffprobe else RED).pack(side="left")
+        missing: list[external.Tool] = []
+        for tool in external.TOOLS:
+            if external.available(tool):
+                version = external.version(tool)
+                text = (i18n.t("gui.chip.tool_ok", tool=tool.key, version=version)
+                        if version else i18n.t("gui.chip.tool_ok_noversion", tool=tool.key))
+                Pill(pills, text, GREEN).pack(side="left", padx=(0, 8))
+            else:
+                Pill(pills, i18n.t("gui.chip.tool_missing", tool=tool.key),
+                     YELLOW).pack(side="left", padx=(0, 8))
+                missing.append(tool)
 
-        tk.Label(card, text=i18n.t("gui.settings.backend_hint"), bg=CARD,
+        tk.Label(card, text=i18n.t("gui.settings.tools_hint"), bg=CARD,
                  fg=TEXT_MUTED, font=design.FONT_SMALL, anchor="w", justify="left",
                  wraplength=380).grid(row=2, column=0, sticky="w", pady=(8, 0))
-        if not ffprobe:
-            tk.Label(card, text=i18n.t("gui.dialog.ffmpeg_missing.text"), bg=CARD,
-                     fg=YELLOW, font=design.FONT_SMALL, anchor="w", justify="left",
-                     wraplength=380).grid(row=3, column=0, sticky="w", pady=(6, 0))
+
+        hint_row = 3
+        for tool in missing:
+            if not tool.hint_key:
+                continue
+            tk.Label(card, text=i18n.t(tool.hint_key).strip(), bg=CARD, fg=YELLOW,
+                     font=design.FONT_SMALL, anchor="w", justify="left",
+                     wraplength=380).grid(row=hint_row, column=0, sticky="w", pady=(6, 0))
+            hint_row += 1
 
     def _language_card(self, parent: tk.Misc, row: int, language: tk.StringVar,
                        on_language) -> None:

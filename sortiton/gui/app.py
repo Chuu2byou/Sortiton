@@ -279,10 +279,9 @@ class SortitonGUI:
                 pass
             self._prefs_window = None
 
+        # The window reads external.TOOLS itself, so it stays generic.
         self._prefs_window = PreferencesWindow(self.root, self.var_language,
-                                              self._language_changed,
-                                              ffprobe=self.has_ffprobe,
-                                              mutagen=self.has_mutagen)
+                                               self._language_changed)
         self._prefs_window.window.bind("<Destroy>", self._prefs_closed, add="+")
 
     def _prefs_closed(self, event) -> None:

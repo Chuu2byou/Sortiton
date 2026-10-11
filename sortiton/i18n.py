@@ -67,6 +67,7 @@ _EN: dict[str, str] = {
                              "Fedora: sudo dnf install chromaprint-tools | "
                              "Arch: sudo pacman -S chromaprint."),
     "external.hint.mutagen": "  mutagen is missing - run: pip install mutagen.",
+    "external.hint.ytdlp": "  yt-dlp is missing - install it, e.g.: pip install yt-dlp.",
 
     # export feature (read-only reports for an LLM)
     "export.title": "EXPORT - reports for an LLM (read only)",
@@ -453,12 +454,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.window.title": "Sortiton",
     "gui.button.custom_rules": "Custom Rules …",
     "gui.button.paste_llm": "Paste LLM answer",
-    "gui.chip.ffprobe_checking": "ffprobe …",
-    "gui.chip.mutagen_checking": "mutagen …",
-    "gui.chip.ffprobe_ok": "ffprobe ✓",
-    "gui.chip.ffprobe_missing": "ffprobe missing!",
-    "gui.chip.mutagen_ok": "mutagen ✓",
-    "gui.chip.mutagen_missing": "mutagen missing (slower)",
+    "gui.chip.tool_ok": "{tool} ✓ {version}",
+    "gui.chip.tool_ok_noversion": "{tool} ✓",
+    "gui.chip.tool_missing": "{tool} missing",
     "gui.tab.tags": "Clean tags",
     "gui.tab.rename": "Rename",
     "gui.tab.sort": "Sort",
@@ -534,11 +532,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.dialog.folder_not_found.text": "This folder does not exist:\n{path}",
     "gui.dialog.file_not_found.title": "File not found",
     "gui.dialog.file_not_found.text": "This file does not exist:\n{path}",
-    "gui.dialog.ffmpeg_missing.title": "ffmpeg missing",
-    "gui.dialog.ffmpeg_missing.text": ("ffprobe was not found.\n\nPlease install ffmpeg, e.g.:\n"
-                                       "  Debian / Ubuntu:  sudo apt install ffmpeg\n"
-                                       "  Fedora:           sudo dnf install ffmpeg\n"
-                                       "  Arch / Manjaro:   sudo pacman -S ffmpeg"),
     "gui.dialog.save_failed.title": "Saving failed",
     "gui.dialog.save_failed.text": "The rule file could not be written:\n\n{error}",
     "gui.status.ready": "ready",
@@ -646,9 +639,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.log.ffprobe_missing": "  Note: ffprobe is missing - reading tags is slower (install ffmpeg).",
     "gui.settings.title": "Settings",
     "gui.settings.heading": "Settings",
-    "gui.settings.backend": "Tag backend",
-    "gui.settings.backend_hint": ("Tags use the best backend that is available - no setting "
-                                  "needed."),
+    "gui.settings.tools": "External tools",
+    "gui.settings.tools_hint": ("Sortiton uses the best program that is available - "
+                                "nothing to set up here."),
     "gui.settings.language": "Language",
     "gui.settings.language_hint": "Stored in settings.ini, applied again on the next start.",
 
@@ -766,6 +759,7 @@ _DE: dict[str, str] = {
                              "Fedora: sudo dnf install chromaprint-tools | "
                              "Arch: sudo pacman -S chromaprint."),
     "external.hint.mutagen": "  mutagen fehlt - bitte ausführen: pip install mutagen.",
+    "external.hint.ytdlp": "  yt-dlp fehlt - bitte installieren, z. B.: pip install yt-dlp.",
 
     # Export-Feature (nur lesende Berichte für ein LLM)
     "export.title": "EXPORT - Berichte für ein LLM (nur lesend)",
@@ -1159,12 +1153,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.window.title": "Sortiton",
     "gui.button.custom_rules": "Eigene Regeln …",
     "gui.button.paste_llm": "LLM-Antwort einfügen",
-    "gui.chip.ffprobe_checking": "ffprobe …",
-    "gui.chip.mutagen_checking": "mutagen …",
-    "gui.chip.ffprobe_ok": "ffprobe ✓",
-    "gui.chip.ffprobe_missing": "ffprobe fehlt!",
-    "gui.chip.mutagen_ok": "mutagen ✓",
-    "gui.chip.mutagen_missing": "mutagen fehlt (langsamer)",
+    "gui.chip.tool_ok": "{tool} ✓ {version}",
+    "gui.chip.tool_ok_noversion": "{tool} ✓",
+    "gui.chip.tool_missing": "{tool} fehlt",
     "gui.tab.tags": "Tags bereinigen",
     "gui.tab.rename": "Umbenennen",
     "gui.tab.sort": "Sortieren",
@@ -1241,11 +1232,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.dialog.folder_not_found.text": "Dieser Ordner existiert nicht:\n{path}",
     "gui.dialog.file_not_found.title": "Datei nicht gefunden",
     "gui.dialog.file_not_found.text": "Diese Datei existiert nicht:\n{path}",
-    "gui.dialog.ffmpeg_missing.title": "ffmpeg fehlt",
-    "gui.dialog.ffmpeg_missing.text": ("ffprobe wurde nicht gefunden.\n\nBitte ffmpeg installieren, z. B.:\n"
-                                       "  Debian / Ubuntu:  sudo apt install ffmpeg\n"
-                                       "  Fedora:           sudo dnf install ffmpeg\n"
-                                       "  Arch / Manjaro:   sudo pacman -S ffmpeg"),
     "gui.dialog.save_failed.title": "Speichern fehlgeschlagen",
     "gui.dialog.save_failed.text": "Die Regeldatei konnte nicht geschrieben werden:\n\n{error}",
     "gui.status.ready": "bereit",
@@ -1353,9 +1339,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.log.ffprobe_missing": "  Hinweis: ffprobe fehlt – Tags werden langsamer gelesen (ffmpeg installieren).",
     "gui.settings.title": "Einstellungen",
     "gui.settings.heading": "Einstellungen",
-    "gui.settings.backend": "Tag-Backend",
-    "gui.settings.backend_hint": ("Tags nutzen das beste verfügbare Backend – hier gibt es nichts "
-                                  "einzustellen."),
+    "gui.settings.tools": "Externe Programme",
+    "gui.settings.tools_hint": ("Sortiton nutzt das beste verfügbare Programm – hier gibt es "
+                                "nichts einzustellen."),
     "gui.settings.language": "Sprache",
     "gui.settings.language_hint": "Steht in settings.ini und gilt wieder beim nächsten Start.",
 

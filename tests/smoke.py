@@ -234,14 +234,74 @@ def test_external_tools() -> None:
         check("available(MUTAGEN) follows config (on)",
               external.available(external.MUTAGEN))
 
+    # The registry lists every tool once, and yt-dlp is part of it (step 4.1).
+    keys = [tool.key for tool in external.TOOLS]
+    check("TOOLS lists every tool once", len(keys) == len(set(keys)), ", ".join(keys))
+    check("TOOLS contains yt-dlp", external.YT_DLP in external.TOOLS)
+
+    # version(): the first flag that exits cleanly wins, any error gives "".
+    ok_run = subprocess.CompletedProcess(args=["yt-dlp", "--version"], returncode=0,
+                                         stdout="2024.08.06\n", stderr="")
+    with mock.patch.object(external.shutil, "which", return_value="/usr/bin/yt-dlp"), \
+            mock.patch.object(external.subprocess, "run", return_value=ok_run):
+        got = external.version(external.YT_DLP)
+        check("version() reads the program output", got == "2024.08.06", repr(got))
+
+    with mock.patch.object(external.shutil, "which", return_value=None):
+        check("version() is empty without the program",
+              external.version(external.YT_DLP) == "")
+
+    def _two_flags(argv, **_kwargs):
+        """fpcalc/ffprobe reject --version but answer -version."""
+        if argv[1] == "--version":
+            return subprocess.CompletedProcess(argv, 2, "", "ERROR: Unknown option")
+        return subprocess.CompletedProcess(argv, 0, "fpcalc version 1.6.1\n", "")
+
+    with mock.patch.object(external.shutil, "which", return_value="/usr/bin/fpcalc"), \
+            mock.patch.object(external.subprocess, "run", side_effect=_two_flags):
+        got = external.version(external.FPCALC)
+        check("version() falls back to the single-dash flag", got == "1.6.1", repr(got))
+
+    banner = subprocess.CompletedProcess(
+        args=["ffprobe"], returncode=0,
+        stdout="ffprobe version 9.0.2 Copyright (c) 2026 the FFmpeg developers\n", stderr="")
+    with mock.patch.object(external.shutil, "which", return_value="/usr/bin/ffprobe"), \
+            mock.patch.object(external.subprocess, "run", return_value=banner):
+        got = external.version(external.FFPROBE)
+        check("version() reduces a banner to the number", got == "9.0.2", repr(got))
+
+    for problem in (subprocess.TimeoutExpired("yt-dlp", 3), OSError("boom")):
+        with mock.patch.object(external.shutil, "which", return_value="/usr/bin/yt-dlp"), \
+                mock.patch.object(external.subprocess, "run", side_effect=problem):
+            check(f"version() survives {type(problem).__name__}",
+                  external.version(external.YT_DLP) == "")
+
+    # The real program, when present, answers. The skip names the tool so the
+    # end-of-run list shows which program was missing.
+    if external.available(external.YT_DLP):
+        real = external.version(external.YT_DLP)
+        check("version(yt-dlp) on the real program", real != "", repr(real))
+    else:
+        skip("external.version for yt-dlp", "yt-dlp not installed")
+
     # Every hint key exists in both catalogs.
-    for tool in (external.FFPROBE, external.FPCALC, external.MUTAGEN):
+    for tool in external.TOOLS:
         ok = (tool.hint_key in i18n.catalog("en")
               and tool.hint_key in i18n.catalog("de"))
         check(f"hint key {tool.hint_key} in en+de", ok)
     check("external.error.missing in en+de",
           "external.error.missing" in i18n.catalog("en")
           and "external.error.missing" in i18n.catalog("de"))
+
+    # format_missing names the missing tool(s) and adds their install hints.
+    text = external.format_missing([external.Requirement((external.YT_DLP,))])
+    flat = text.replace("\n", " / ")
+    check("format_missing names yt-dlp", "yt-dlp" in text, flat)
+    check("format_missing adds the yt-dlp hint", i18n.t("external.hint.ytdlp") in text, flat)
+    both = external.format_missing(
+        [external.Requirement((external.FFPROBE, external.FPCALC))])
+    check("format_missing lists every tool of a requirement",
+          "ffprobe" in both and "fpcalc" in both)
 
 
 def test_features_base() -> None:
