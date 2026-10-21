@@ -27,7 +27,7 @@ from .widgets import RoundButton
 MAX_ROWS = 4
 
 # A callback of the window: (journal, keep_copies) -> start the undo run.
-RunHook = Callable[[Path, bool], None]
+RunHook = Callable[[Path, bool], bool]
 
 
 def _basename(value: object) -> str:
@@ -69,10 +69,23 @@ def undo_rows(events: list[dict]) -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def _op_label(op: str) -> str:
+    """Translated name of a journal operation for the summary line."""
+    if op == "tags":
+        return i18n.t("gui.restore.op.tags")
+    if op in ("rename", "sort"):
+        return i18n.t("gui.restore.op.move")
+    if op == "copy":
+        return i18n.t("gui.restore.op.copy")
+    if op == "download":
+        return i18n.t("gui.restore.op.download")
+    return i18n.t("gui.restore.op.other")
+
+
 def undo_summary(events: list[dict]) -> str:
     """One line: how many events of which kind this journal holds."""
     counts = journal.summarize(events)
-    parts = ", ".join(f"{op} {count}" for op, count in counts.items())
+    parts = ", ".join(f"{_op_label(op)} {count}" for op, count in counts.items())
     return i18n.t("gui.restore.summary", total=len(events), parts=parts or "-")
 
 
@@ -262,5 +275,7 @@ class RestoreWindow(tk.Toplevel):
         self._backup.set(bool(options.get("backup", True)))
         keep_copies = bool(options.get("keep_copies", False))
         journal_path = path
-        self.destroy()
-        self._on_run(journal_path, keep_copies)
+        if self._on_run(journal_path, keep_copies):
+            self.destroy()
+        else:
+            self._status.set(i18n.t("gui.restore.busy"))

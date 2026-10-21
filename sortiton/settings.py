@@ -17,7 +17,10 @@ SECTION_TOOLS = "tools"
 
 
 def _parser() -> configparser.ConfigParser:
-    parser = configparser.ConfigParser()
+    # No interpolation: a value such as "50%" or a naming pattern must survive
+    # a write/read round-trip. With the default interpolation the read would
+    # raise InterpolationSyntaxError and the write would refuse the value.
+    parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(SETTINGS_FILE, encoding="utf-8")
     except (OSError, configparser.Error):

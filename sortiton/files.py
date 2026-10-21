@@ -25,7 +25,9 @@ def safe_name(name: str) -> str:
     if not name:
         return "_"
     if len(name) > MAX_NAME_LENGTH:
-        name = name[:MAX_NAME_LENGTH].rstrip()
+        # A cut can leave a trailing dot/space behind, which some file systems
+        # silently drop - the name we report and write would then differ.
+        name = name[:MAX_NAME_LENGTH].rstrip(" .")
     return name
 
 
@@ -37,6 +39,10 @@ def build_name(tags: dict, file_base: str, pattern: str) -> str:
     through :func:`safe_name`, so a missing tag renders like an empty album
     (``_``); ``%title%`` falls back to the file name and ``%artist%`` /
     ``%albumartist%`` to :data:`FALLBACK_ARTIST`.
+
+    The finished name is sanitized once more: a pattern is user input and may
+    contain a path separator or ``..``. Without that last pass ``--pattern
+    ../../outside`` would write outside the folder the user chose.
     """
     artist = tags.get("artist") or FALLBACK_ARTIST
     album_artist = tags.get("album_artist") or artist
@@ -46,25 +52,28 @@ def build_name(tags: dict, file_base: str, pattern: str) -> str:
     disc = tags.get("disc") or ""
     year = tags.get("year") or ""
 
-    name = pattern
-    name = name.replace("%artist%", safe_name(artist))
-    name = name.replace("%albumartist%", safe_name(album_artist))
-    name = name.replace("%album%", safe_name(album))
-    name = name.replace("%title%", safe_name(title))
-    name = name.replace("%track%", safe_name(track))
-    name = name.replace("%disc%", safe_name(disc))
-    name = name.replace("%year%", safe_name(year))
+    values = {
+        "%artist%": artist,
+        "%albumartist%": album_artist,
+        "%album%": album,
+        "%title%": title,
+        "%track%": track,
+        "%disc%": disc,
+        "%year%": year,
+    }
+    # One pass over the pattern: a tag value that happens to contain a
+    # placeholder ("100% %album%") must be taken literally, not substituted in
+    # a later step. unknown placeholders stay as they are.
+    name = re.sub(r"%(artist|albumartist|album|title|track|disc|year)%",
+                  lambda match: safe_name(values[match.group(0)]), pattern)
 
     # Collapse repeated separators ("A -  - B" -> "A - B").
     name = re.sub(r"(\s*-\s*){2,}", " - ", name)
     name = name.strip(" -")
 
     if not name:
-        name = safe_name(file_base)
-    if len(name) > MAX_NAME_LENGTH:
-        name = name[:MAX_NAME_LENGTH].rstrip()
-
-    return name
+        name = file_base
+    return safe_name(name)
 
 
 def free_path(path: Path) -> Path:
@@ -85,6 +94,24 @@ def free_path(path: Path) -> Path:
     raise RuntimeError(i18n.t("file.error.no_free_name", path=path))
 
 
+def open_new(path: Path):
+    """Create a new text file and return ``(path, handle)``.
+
+    ``free_path`` alone is a check followed by an open, so two runs starting in
+    the same second can both pick the same name and the second one truncates
+    the first. Opening exclusively (``"x"``) closes that gap; a name that was
+    taken in between is simply skipped.
+    """
+    path = Path(path)
+    for _ in range(1000):
+        candidate = free_path(path)
+        try:
+            return candidate, candidate.open("x", encoding="utf-8")
+        except FileExistsError:
+            continue
+    raise RuntimeError(i18n.t("file.error.no_free_name", path=path))
+
+
 def _key(path: Path) -> str:
     """Comparison key for path names.
 
@@ -95,15 +122,34 @@ def _key(path: Path) -> str:
     return str(path).casefold()
 
 
+def _same_file(first: Path, second: Path | None) -> bool:
+    """True when both names point at the same file (case-only names included).
+
+    The casefold key alone is not enough: on a case-sensitive file system
+    ``Song.mp3`` and ``song.mp3`` are two different files. Treating them as the
+    same would let a rename overwrite the other one.
+    """
+    if second is None:
+        return False
+    try:
+        return first.samefile(second)
+    except OSError:
+        # At least one side cannot be inspected. If both names "exist" (a test
+        # may fake that) and only the case differs, treat them as one file;
+        # on a real case-sensitive disk both files exist and samefile() above
+        # would have answered instead of raising.
+        return (_key(first) == _key(second)
+                and first.exists() and second.exists())
+
+
 def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     """Return a free target path, never overwriting it (" (2)", " (3)", ...).
 
     ``ignore`` counts as free, so a file never blocks its own target name.
     """
     key = _key(dst)
-    ignore_key = _key(ignore) if ignore is not None else None
 
-    if ignore_key is not None and key == ignore_key:
+    if _same_file(dst, ignore):
         used.add(key)
         return dst
 
@@ -116,7 +162,7 @@ def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     while number <= 9999:
         candidate = dst.with_name(f"{base} ({number}){dst.suffix}")
         k = _key(candidate)
-        taken = k in used or (candidate.exists() and k != ignore_key)
+        taken = k in used or (candidate.exists() and not _same_file(candidate, ignore))
         if not taken:
             used.add(k)
             return candidate

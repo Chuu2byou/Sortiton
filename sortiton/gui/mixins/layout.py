@@ -69,14 +69,29 @@ class LayoutMixin:
                 pass
 
     def _build_all(self) -> None:
-        """Build (or rebuild) the whole window - used for the language switch."""
+        """Build (or rebuild) the whole window - used for the language switch.
+
+        Toplevels are left alone: the rules editor and the undo window may hold
+        unsaved work, and destroying them just because the language changed
+        would throw it away. Only the preferences window is closed (it is
+        reopened right after the rebuild).
+        """
         for variable, identifier in self._traces:
             try:
                 variable.trace_remove("write", identifier)
             except (tk.TclError, ValueError):
                 pass
         self._traces = []
-        for child in self.root.winfo_children():
+        prefs = self._prefs_window
+        self._prefs_window = None
+        if prefs is not None:
+            try:
+                prefs.window.destroy()
+            except tk.TclError:
+                pass
+        for child in list(self.root.winfo_children()):
+            if isinstance(child, tk.Toplevel):
+                continue
             child.destroy()
         self.action_buttons = []
         self._tools_buttons = []
@@ -86,8 +101,6 @@ class LayoutMixin:
         self._previews = {}
         self._stats_labels = {}
         self._tool_widgets = {}
-        self._prefs_window = None
-        self._llm_window = None
         self._last_inset = None
         # Keep the current size and position: only the very first build places
         # the window, otherwise a rebuild would recentre it (on two monitors

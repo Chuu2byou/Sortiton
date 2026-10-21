@@ -26,9 +26,10 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from . import redact
 from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME, LOG_DIR,
                      LOG_PREFIX, OFF_VALUES)
-from .files import free_path
+from .files import open_new
 
 SCHEMA = 1
 
@@ -80,11 +81,11 @@ def open_for(log_path: Path) -> Path | None:
     if not enabled():
         return None
 
-    path = free_path(journal_path_for(log_path))
+    path = journal_path_for(log_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        handle = path.open("w", encoding="utf-8")
-    except OSError:
+        path, handle = open_new(path)
+    except (OSError, RuntimeError):
         return None
 
     with _lock:
@@ -102,7 +103,7 @@ def open_for(log_path: Path) -> Path | None:
         cwd = os.getcwd()
     except OSError:
         cwd = "?"      # the working directory was removed while we ran
-    record("run", status="start", argv=list(sys.argv), cwd=cwd)
+    record("run", status="start", argv=redact.command(sys.argv), cwd=cwd)
     return path
 
 
@@ -234,10 +235,23 @@ def _op_order(op: str) -> tuple[int, str]:
 
 
 def find_journals(limit: int | None = JOURNAL_KEEP) -> list[Path]:
-    """Available journals, newest first."""
+    """Available journals, newest first.
+
+    The name alone is not enough: two runs can start in the same second, and
+    the second one then gets a " (2)" suffix. Lexicographically the base name
+    sorts *after* its suffix, which would report the older run as newer. The
+    modification time (with the name as a tie-breaker) keeps them in the order
+    they were really written.
+    """
+    def key(path: Path) -> tuple[int, str]:
+        try:
+            return path.stat().st_mtime_ns, path.name
+        except OSError:
+            return 0, path.name
+
     try:
         files = sorted(LOG_DIR.glob(f"{LOG_PREFIX}_*{JOURNAL_SUFFIX}"),
-                       key=lambda path: path.name, reverse=True)
+                       key=key, reverse=True)
     except OSError:
         return []
     return files if limit is None else files[:limit]

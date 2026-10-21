@@ -154,6 +154,11 @@ def _custom_rules() -> CustomRules:
         return _CUSTOM
 
 
+def snapshot() -> CustomRules:
+    """One rule set for a whole run (the GUI may reload rules mid-run)."""
+    return _custom_rules()
+
+
 def _set_custom_rules(rules: CustomRules) -> None:
     """Swap the active rule set atomically and refresh the compatibility names."""
     global _CUSTOM, CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
@@ -200,7 +205,11 @@ def parse_custom_rules(text: str,
     # An indented line would count as a continuation of the line above (INI quirk).
     content = "\n".join(line.lstrip() for line in text.splitlines())
 
-    parser = configparser.ConfigParser(allow_no_value=True, interpolation=None, strict=False)
+    # Only "=" separates key and value. With the default delimiters a colon
+    # inside a name ("AC:DC = AC DC") would split the rule and silently change
+    # every artist that starts with "AC".
+    parser = configparser.ConfigParser(allow_no_value=True, interpolation=None,
+                                       strict=False, delimiters=("=",))
     parser.optionxform = lambda optionstr: optionstr  # keep key spelling
     try:
         parser.read_string(content)
@@ -357,12 +366,16 @@ def strip_cv_notation(value: str) -> str:
     return CV_REGEX.sub(replacement, value)
 
 
-def clean_artist(value: str) -> str:
-    """Artist / album artist cleanup (idempotent)."""
+def clean_artist(value: str, custom: CustomRules | None = None) -> str:
+    """Artist / album artist cleanup (idempotent).
+
+    ``custom`` is the snapshot a run captured at its start; without one the
+    current rule set is read (single-value callers).
+    """
     if not value:
         return value or ""
 
-    custom = _custom_rules()
+    custom = custom or _custom_rules()
     new = strip_cv_notation(value)
 
     # Park protected names: they keep their spelling and are restored 1:1 below.
@@ -423,16 +436,17 @@ def clean_artist(value: str) -> str:
     return new
 
 
-def clean_genre(value: str) -> str:
+def clean_genre(value: str, custom: CustomRules | None = None) -> str:
     """Genre cleanup: normalise spellings, never split at "-".
 
-    Only ";" and "," split, so "J-Pop" stays intact.
+    Only ";" and "," split, so "J-Pop" stays intact. ``custom`` is the run's
+    snapshot; without one the current rule set is read.
     """
     if not value:
         return value or ""
 
     new = clean_text_field(value)
-    custom = _custom_rules()
+    custom = custom or _custom_rules()
 
     parts: list[str] = []
     for part in re.split(r"[;,，、]\s*", new):

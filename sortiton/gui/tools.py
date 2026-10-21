@@ -263,8 +263,9 @@ def _make_var(option: Option) -> tk.Variable:
 def tool_value(option: Option, variable: tk.Variable) -> object:
     """Read one widget back as the type the feature expects.
 
-    A number field that does not parse falls back to the option's default; the
-    feature validates the range itself (see ``resolve_args``).
+    A number field that does not parse falls back to the option's default. A
+    parsed value is clamped to ``minimum``/``maximum``: a spinbox can be typed
+    into, and a negative thread count would otherwise reach the worker pool.
     """
     raw = variable.get()
     if option.kind == "bool":
@@ -272,14 +273,24 @@ def tool_value(option: Option, variable: tk.Variable) -> object:
     text = str(raw).strip()
     if option.kind == "int":
         try:
-            return int(text)
+            value = int(text)
         except ValueError:
             return option.default
+        if option.minimum is not None:
+            value = max(value, int(option.minimum))
+        if option.maximum is not None:
+            value = min(value, int(option.maximum))
+        return value
     if option.kind == "float":
         try:
-            return float(text)
+            value = float(text)
         except ValueError:
             return option.default
+        if option.minimum is not None:
+            value = max(value, float(option.minimum))
+        if option.maximum is not None:
+            value = min(value, float(option.maximum))
+        return value
     return text
 
 

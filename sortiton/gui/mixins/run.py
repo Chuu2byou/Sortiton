@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from ..common import (
     CancelToken,
     GREEN,
@@ -44,18 +46,25 @@ from ..common import (
 class RunMixin:
     """Running tasks: plans, previews, workers, progress and closing."""
 
-    def _run_restore(self, path: Path, keep_copies: bool) -> None:
+    #: A second close attempt may force the window away after this many seconds
+    #: of waiting for a worker that ignores cancellation.
+    _FORCE_CLOSE_AFTER = 10.0
+
+    def _run_restore(self, path: Path, keep_copies: bool) -> bool:
         """Undo the given journal - the dialog has confirmed everything."""
         settings.save_backup(self.var_backup.get())
-        self._start("restore", self._job_name("gui.job.restore", True), cmd_restore,
-                    SimpleNamespace(journal=str(path), apply=True,
-                                    backup=self.var_backup.get(),
-                                    keep_copies=keep_copies),
-                    Path(path).parent, source=str(path))
+        return self._start("restore", self._job_name("gui.job.restore", True),
+                           cmd_restore,
+                           SimpleNamespace(journal=str(path), apply=True,
+                                           backup=self.var_backup.get(),
+                                           keep_copies=keep_copies),
+                           Path(path).parent, source=str(path))
 
     def _run_tags(self, write: bool) -> None:
         folder = self.var_tags_folder.get().strip()
         if not self._path_ok(folder):
+            return
+        if write and not self._preview_allowed("tags"):
             return
         if write and not self._confirm_write("tags", folder=folder):
             return
@@ -69,7 +78,11 @@ class RunMixin:
         if not self._path_ok(folder):
             return
         pattern = self.var_ren_pattern.get().strip() or PATTERN_DEFAULT
-        if execute and not self._confirm_write("rename", folder=folder, pattern=pattern):
+        if execute and not self._preview_allowed("rename"):
+            return
+        if execute and not self._confirm_write("rename", folder=folder,
+                                               pattern=pattern,
+                                               allow_backup=False):
             return
         self._start("rename", self._job_name("gui.job.rename", execute), cmd_rename,
                     SimpleNamespace(folder=folder, pattern=pattern, apply=execute),
@@ -82,7 +95,10 @@ class RunMixin:
             return
         pattern = self.var_sort_pattern.get().strip() or PATTERN_DEFAULT
         move = self.var_sort_mode.get() == "move"
-        if execute and not self._confirm_write("sort", folder=source, target=target):
+        if execute and not self._preview_allowed("sort"):
+            return
+        if execute and not self._confirm_write("sort", folder=source, target=target,
+                                               allow_backup=False):
             return
         self._start("sort", self._job_name("gui.job.sort", execute), cmd_sort,
                     SimpleNamespace(source=source, target=target, pattern=pattern,
@@ -96,6 +112,8 @@ class RunMixin:
             return
         pattern = self.var_all_pattern.get().strip() or PATTERN_DEFAULT
         move = self.var_all_mode.get() == "move"
+        if execute and not self._preview_allowed("all"):
+            return
         if execute and not self._confirm_write("all", folder=source, target=target):
             return
         # TODO: unlike the sort page this hands the source folder to "Open
@@ -105,6 +123,14 @@ class RunMixin:
                                     move=move, apply=execute,
                                     backup=self._backup_for_run), source,
                     source=source, target_root=target)
+
+    def _preview_allowed(self, page: str) -> bool:
+        """A write needs a preview of exactly the inputs the form has now."""
+        if self._preview_ready(page):
+            return True
+        _show_warning(i18n.t("gui.dialog.preview_stale.title"),
+                      i18n.t("gui.dialog.preview_stale.text"))
+        return False
 
     def _tool_args(self, feature, execute: bool = False) -> SimpleNamespace:
         """Read the tools form back into the namespace the feature expects.
@@ -134,6 +160,7 @@ class RunMixin:
         folder = str(getattr(args, "folder", "") or "").strip()
         root = str(getattr(args, "root", "") or "").strip()
         csv_path = str(getattr(args, "file", "") or "").strip()
+        target = str(getattr(args, "target", "") or "").strip()
         if folder:
             if not self._path_ok(folder):
                 return
@@ -149,6 +176,12 @@ class RunMixin:
                             i18n.t("gui.dialog.file_not_found.text", path=csv_file))
                 return
             location = str(csv_file.parent)
+        elif target:
+            # fetch names its output folder "target"; without this branch every
+            # GUI fetch stopped at "choose a folder first".
+            if not self._path_ok(target):
+                return
+            location = target
         else:
             _show_warning(i18n.t("gui.dialog.folder_missing.title"),
                           i18n.t("gui.dialog.folder_missing.text"))
@@ -156,9 +189,14 @@ class RunMixin:
 
         if feature.writes and execute and not self._confirm_tool_write(feature):
             return
+        if any(option.name == "backup" for option in feature.options):
+            # The dialog may have changed the backup switch after args was built.
+            args.backup = self._backup_for_run
         last = config.EXPORT_DIR if folder else location
-        self._start("tools", self._job_name(f"gui.job.{feature.key}", execute),
-                    feature.run, args, last, source=location)
+        description = (self._job_name(f"gui.job.{feature.key}", execute)
+                       if feature.writes else
+                       i18n.t("gui.job.run", name=i18n.t(f"gui.job.{feature.key}")))
+        self._start("tools", description, feature.run, args, last, source=location)
 
     def _job_name(self, key: str, execute: bool) -> str:
         name = i18n.t(key)
@@ -170,12 +208,15 @@ class RunMixin:
         return (i18n.t("gui.mode.move") if variable.get() == "move"
                 else i18n.t("gui.mode.copy"))
 
-    def _confirm_write(self, page: str, **fields) -> bool:
+    def _confirm_write(self, page: str, *, allow_backup: bool = True,
+                       **fields) -> bool:
         """Confirmation with the counts of the preview and the backup switch."""
         plan = self._plans.get(page) or {}
         text = self._confirm_text(page, files=_fmt_number(plan.get("files", 0)),
                                   changes=_fmt_number(plan.get("changes_total", 0)),
                                   **fields)
+        options = ([("backup", i18n.t("gui.confirm.backup"), self.var_backup.get())]
+                   if allow_backup else None)
         confirmed, options = ask_confirm(
             self.root,
             title=i18n.t("gui.confirm." + page + ".title"),
@@ -184,8 +225,8 @@ class RunMixin:
             note=i18n.t("gui.confirm.note"),
             ok_text=i18n.t("gui.confirm.ok"),
             cancel_text=i18n.t("gui.button.cancel"),
-            options=[("backup", i18n.t("gui.confirm.backup"), self.var_backup.get())])
-        if confirmed:
+            options=options)
+        if confirmed and allow_backup:
             self.var_backup.set(options.get("backup", True))
             settings.save_backup(self.var_backup.get())
         self._backup_for_run = self.var_backup.get()
@@ -200,7 +241,8 @@ class RunMixin:
         """
         if feature.key == "fetch":
             return self._confirm_fetch()
-        return self._confirm_write("tools")
+        has_backup = any(option.name == "backup" for option in feature.options)
+        return self._confirm_write("tools", allow_backup=has_backup)
 
     def _confirm_fetch(self) -> bool:
         """Dedicated download confirmation, including the rights note."""
@@ -437,6 +479,7 @@ class RunMixin:
             return
 
         self._scan_page = page
+        self._scan_got_stats = False
         label.configure(text=i18n.t("gui.stats.scanning"))
         self.status_var.set(i18n.t("gui.status.scanning"))
         self._set_state(YELLOW)
@@ -463,6 +506,7 @@ class RunMixin:
     def _absorb_stats(self, kind: str, values: dict) -> None:
         """Route the counters: a folder scan fills the line, a run fills the card."""
         if kind == "scan":
+            self._scan_got_stats = True
             self._show_folder_stats(self._scan_page, values)
             self._scan_page = None
             if not self.running:
@@ -477,6 +521,8 @@ class RunMixin:
 
     def _render_stats(self, kind: str, values: dict) -> None:
         number = _fmt_number
+        self._last_result_kind = kind
+        self._last_result_values = dict(values)
         if kind == "all":
             rows = [
                 (GREEN, "✓", number(values.get("tags_changed", 0)),
@@ -514,9 +560,9 @@ class RunMixin:
         self._refresh_recent()
 
     def _start(self, page: str, description: str, function, args, last_path: str | Path,
-               source: str = "", target_root: str = "") -> None:
+               source: str = "", target_root: str = "") -> bool:
         if self.running:
-            return
+            return False
         self.running = True
         self._job_page = page
         self._cancel = CancelToken()
@@ -526,6 +572,11 @@ class RunMixin:
             self._cancel_button.grid()
         self.last_path = Path(last_path).expanduser()
         self._begin_plan(page, source=source, target_root=target_root)
+        # Snapshot the inputs of this run. _finish() must not recompute them:
+        # the user may have changed the form while the worker was running, and
+        # stamping the new values would enable a write against other inputs.
+        self._job_signature = self._signature(page)
+        self._job_applied = bool(getattr(args, "apply", False))
         self._set_buttons(False)
         self._render_preview(page)
         self.progress.start()
@@ -543,8 +594,12 @@ class RunMixin:
                 if log_file:
                     output.message(i18n.t("gui.log.log_file", path=log_file))
                     if getattr(args, "apply", False):
-                        # Only a run that writes gets a journal.
-                        journal.open_for(log_file)
+                        # Only a run that writes gets a journal. Without one the
+                        # run could not be undone, so it must not start.
+                        if journal.enabled() and journal.open_for(log_file) is None:
+                            output.message(i18n.t("journal.error.open"))
+                            rc = 2
+                            return
                 rc = function(args)
             except Exception:
                 output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
@@ -555,11 +610,14 @@ class RunMixin:
                 self.queue.put(("done", rc))
 
         threading.Thread(target=worker, daemon=True).start()
+        return True
 
     def _finish(self, rc: int) -> None:
         """A run is over: release the buttons and stamp the preview.
 
-        Only a preview with the current signature enables the execute button.
+        Only a successful preview keeps a signature, and it is the one captured
+        when the run started. An applied run (or a failed one) has no valid
+        preview any more: the files or tags on disk may have changed.
         """
         self.progress.stop()
         self.progress_label.configure(text="")
@@ -568,14 +626,15 @@ class RunMixin:
         if self._cancel_button is not None:
             self._cancel_button.grid_remove()
         plan = self._plans.get(self._job_page)
+        applied = getattr(self, "_job_applied", False)
+        signature = getattr(self, "_job_signature", None)
         if plan is not None:
-            plan["signature"] = self._signature(self._job_page)
-        if self._job_page == "restore":
-            # An undo changes tags and file names behind the other pages, so
-            # their previews are stale now and have to be created again before
-            # anything is written from them.
+            plan["signature"] = signature if rc == 0 and not applied else None
+        if rc == 0 and applied:
+            # A write changes tags or names behind the other pages, so their
+            # previews are stale now and have to be created again.
             for page, other in self._plans.items():
-                if page != "restore":
+                if page != self._job_page:
                     other["signature"] = None
         self._set_buttons(True)
         self._refresh_preview_states()
@@ -602,6 +661,14 @@ class RunMixin:
         therefore cancelled and the window closes when it has finished.
         """
         if self._closing:
+            # A second close attempt is the escape hatch for a worker that
+            # ignores cancellation (a stuck yt-dlp, a huge move) - but only
+            # after a grace period, so a double click cannot kill a write.
+            since = getattr(self, "_closing_since", time.monotonic())
+            if (time.monotonic() - since >= self._FORCE_CLOSE_AFTER
+                    and _ask_yes_no(i18n.t("gui.dialog.force_close.title"),
+                                    i18n.t("gui.dialog.force_close.text"))):
+                self.root.destroy()
             return
         if not self.running:
             self.root.destroy()
@@ -610,6 +677,7 @@ class RunMixin:
                            i18n.t("gui.dialog.close.text")):
             return
         self._closing = True
+        self._closing_since = time.monotonic()
         self._cancel_run()
         self._set_buttons(False)
         self.status_var.set(i18n.t("gui.status.cancelling"))
@@ -628,32 +696,45 @@ class RunMixin:
                 self._dispatch(kind, value)
         except queue.Empty:
             pass
-        if self._closing and not self.running:
-            return
-        try:
-            self.root.after(80, self._queue_pump)
-        except tk.TclError:
-            pass
+        finally:
+            if not (self._closing and not self.running):
+                try:
+                    self.root.after(80, self._queue_pump)
+                except tk.TclError:
+                    pass
 
     def _dispatch(self, kind: str, value) -> None:
         """Handle one message from a worker thread (also used by the tests)."""
-        if kind == "log":
-            self._log_line(value)
-        elif kind == "prog":
-            self._set_progress(*value)
-        elif kind == "plan":
-            self._absorb_plan(*value)
-        elif kind == "stats":
-            self._absorb_stats(*value)
-        elif kind == "scan_done":
-            self._scan_finished()
-        elif kind == "done":
-            self._finish(value)
+        try:
+            if kind == "log":
+                self._log_line(value)
+            elif kind == "prog":
+                # A folder scan must not paint over the progress bar of a run.
+                if self._scan_page is None or not self.running:
+                    self._set_progress(*value)
+            elif kind == "plan":
+                self._absorb_plan(*value)
+            elif kind == "stats":
+                self._absorb_stats(*value)
+            elif kind == "scan_done":
+                self._scan_finished()
+            elif kind == "done":
+                self._finish(value)
+        except Exception:
+            # One broken handler must not stop the queue pump for the rest of
+            # the session (the window would freeze on its last status).
+            output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
 
     def _scan_finished(self) -> None:
         """A folder scan is over (also when it failed and sent no counters)."""
-        if self._scan_page is not None and not self.running:
-            self._scan_page = None
+        page, self._scan_page = self._scan_page, None
+        if page is None:
+            return
+        if not getattr(self, "_scan_got_stats", False):
+            label = self._stats_labels.get(page)
+            if label is not None:
+                label.configure(text=i18n.t("gui.stats.unknown"))
+        if not self.running:
             self.progress_label.configure(text="")
             self.status_var.set(i18n.t("gui.status.ready"))
             self._set_state(GREEN if self.has_ffprobe else YELLOW)

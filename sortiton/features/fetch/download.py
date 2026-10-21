@@ -104,7 +104,8 @@ def _stream(argv: list[str], cancel, on_line) -> tuple[int | None, str]:
     cancel = cancel or NO_CANCEL
     try:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                encoding="utf-8", errors="replace")
     except OSError as exc:
         return None, str(exc)
 
@@ -173,7 +174,7 @@ def preview(url: str, *, playlist: bool, cancel=None) -> tuple[list[Entry], str]
 
 def download(url: str, target: Path, *, audio_format: str, playlist: bool,
              archive: Path | None = None,
-             cancel=None) -> tuple[list[Saved], str]:
+             cancel=None, on_saved=None) -> tuple[list[Saved], str]:
     """Download ``url`` as audio into ``target``; return the finished files.
 
     ``archive`` is yt-dlp's download archive (``--download-archive``): when it
@@ -184,13 +185,22 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
 
     ``--no-overwrites`` keeps yt-dlp from replacing an existing file, matching
     the project rule that nothing is ever overwritten. Returns ``(files, "")``
-    on success and ``([], error)`` on failure.
+    on success and ``(files, error)`` on failure; the list also contains the
+    files of a playlist that finished before the error or the cancellation, so
+    the caller can journal (and later undo) them. ``on_saved`` is called once
+    per completed file, before the function returns or raises.
     """
+    if archive is not None:
+        try:
+            archive.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass                     # yt-dlp reports the real problem below
     before = _archive_lines(archive) if archive is not None else []
 
     argv = ["yt-dlp", "--no-simulate", "--newline", "--no-warnings",
             "-x", "--audio-format", audio_format, "--audio-quality", "0",
             "--embed-metadata", "--embed-thumbnail", "--no-overwrites",
+            "--no-post-overwrites",
             "--progress", "--progress-template", PROGRESS_TEMPLATE,
             "--print", DOWNLOAD_PRINT,
             "-P", str(target), "-o", "%(title)s.%(ext)s"]
@@ -211,18 +221,34 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
             log_tail.append(line)
             del log_tail[:-LOG_TAIL]
 
-    rc, error = _stream(argv, cancel, handle)
+    def collect() -> list[Saved]:
+        """Finished files so far, with the archive ids that belong to them."""
+        if archive is None:
+            return [Saved(path, "") for path in paths]
+        # yt-dlp appends one archive line per finished file, in the order of the
+        # after_move prints; the new lines are exactly this run's archive ids.
+        new_ids = _archive_lines(archive)[len(before):]
+        return [Saved(path, new_ids[index] if index < len(new_ids) else "")
+                for index, path in enumerate(paths)]
+
+    def deliver(saved: list[Saved]) -> None:
+        if on_saved is not None:
+            for item in saved:
+                on_saved(item)
+
+    try:
+        rc, error = _stream(argv, cancel, handle)
+    except Cancelled:
+        # Keep what finished before the cancel: the caller journals it, so a
+        # half-done playlist stays undoable.
+        deliver(collect())
+        raise
+
+    saved = collect()
+    deliver(saved)
     if rc != 0:
         detail = error or "\n".join(log_tail)
-        return [], detail or i18n.t("fetch.error.exit", rc=rc)
-
-    if archive is None:
-        return [Saved(path, "") for path in paths], ""
-    # yt-dlp appends one archive line per finished file, in the order of the
-    # after_move prints; the new lines are exactly this run's archive ids.
-    new_ids = _archive_lines(archive)[len(before):]
-    saved = [Saved(path, new_ids[index] if index < len(new_ids) else "")
-             for index, path in enumerate(paths)]
+        return saved, detail or i18n.t("fetch.error.exit", rc=rc)
     return saved, ""
 
 

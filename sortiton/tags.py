@@ -351,13 +351,19 @@ def _ffprobe_info(path: Path) -> TrackInfo:
     return info
 
 
-def probe_many(files: list[Path], report=None, cancel=None) -> list[dict]:
+def probe_many(files: list[Path], report=None, cancel=None,
+               unreadable: list[Path] | None = None) -> list[dict]:
     """Read tags of many files in parallel.
 
     ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`, checked
     after every finished file. When it is set, the reads that have not started
     yet are dropped and :class:`~sortiton.cancel.Cancelled` is raised; the
     running ones are left to finish on their own.
+
+    ``unreadable`` is an optional list the caller supplies; every file that no
+    reader could read is appended to it. Without that report such a file is
+    indistinguishable from one with empty tags and would be renamed or sorted
+    under the fallback artist.
     """
     cancel = cancel or NO_CANCEL
     if not files:
@@ -367,8 +373,20 @@ def probe_many(files: list[Path], report=None, cancel=None) -> list[dict]:
     results: list[dict] = [dict(EMPTY_TAGS) for _ in files]
     workers = min(READ_WORKERS, len(files))
 
+    def read(path: Path) -> dict:
+        info = read_info(path)
+        if info.error and unreadable is not None:
+            unreadable.append(path)
+        return {
+            "artist": info.joined("artist", "; "),
+            "album_artist": info.joined("album_artist", "; "),
+            "album": info.joined("album", "; "),
+            "title": info.joined("title", "; "),
+            "genre": info.joined("genre", "; "),
+        }
+
     pool = ThreadPoolExecutor(max_workers=workers)
-    futures = {pool.submit(probe_tags, path): i for i, path in enumerate(files)}
+    futures = {pool.submit(read, path): i for i, path in enumerate(files)}
     cancelled = False
     try:
         for done, future in enumerate(as_completed(futures), start=1):
@@ -378,6 +396,8 @@ def probe_many(files: list[Path], report=None, cancel=None) -> list[dict]:
                 results[i] = future.result()
             except Exception:
                 results[i] = dict(EMPTY_TAGS)
+                if unreadable is not None:
+                    unreadable.append(files[i])
             if report is not None:
                 report(done, files[i].name)
     except Cancelled:
@@ -509,6 +529,9 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
 
 def _write_ffmpeg(path: Path, updates: dict) -> bool:
     """Fallback without mutagen: remux with -c copy (no re-encoding)."""
+    # A symlinked track must keep its link: os.replace() below would otherwise
+    # replace the link itself and leave the real file untouched.
+    path = Path(path).resolve()
     temp = path.with_name(path.name + ".tagtmp" + path.suffix)
     command = ["ffmpeg", "-v", "error", "-y", "-i", str(path),
                "-map", "0", "-c", "copy", "-map_metadata", "0"]

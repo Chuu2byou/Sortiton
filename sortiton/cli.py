@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import time
 
-from . import external, i18n, journal, output, settings
+from . import external, i18n, journal, output, redact, settings
 from .config import RULES_FILE
 from .features import FEATURES
 from .features.base import add_feature_parser
@@ -17,6 +16,11 @@ from .tasks import (cmd_all, cmd_rename, cmd_restore, cmd_rules, cmd_scan, cmd_s
                     cmd_tags)
 
 PATTERN_DEFAULT = "%artist% - %title%"
+
+#: Built-in commands that only read tags. mutagen can replace ffprobe.
+READ_COMMANDS = frozenset({"tags", "rename", "sort", "scan", "all"})
+#: A restore that writes tags needs a tag writer (mutagen or ffmpeg).
+WRITE_COMMANDS = frozenset({"restore"})
 
 # Console progress (P8): throttle the stderr line and close it at the end.
 _PROGRESS_INTERVAL = 0.1
@@ -138,19 +142,36 @@ def main() -> int:
         if lacking:
             message(external.format_missing(lacking))
             return 2
-    elif shutil.which("ffprobe") is None:      # unchanged for the built-in commands
-        message(i18n.t("cli.error.ffprobe"))
-        return 2
+    else:
+        # Only the commands that read tags need a reader, and only a writing
+        # restore needs a writer. "rules" and "restore --list" need neither.
+        requirements = []
+        if args.command in READ_COMMANDS:
+            requirements.append(external.Requirement(
+                (external.MUTAGEN, external.FFPROBE)))
+        elif (args.command in WRITE_COMMANDS
+              and getattr(args, "apply", False)):
+            requirements.append(external.Requirement(
+                (external.MUTAGEN, external.FFMPEG)))
+        lacking = [item for item in requirements
+                   if not any(external.available(tool) for tool in item.any_of)]
+        if lacking:
+            message(external.format_missing(lacking))
+            return 2
 
     if not getattr(args, "quiet", False) and sys.stderr.isatty():
         output.set_progress(console_progress)
 
-    log = open_log_file(" ".join(sys.argv[1:]))
+    log = open_log_file(" ".join(redact.command(sys.argv[1:])))
     if log:
         message(i18n.t("cli.log_file", path=log))
     if log and getattr(args, "apply", False):
         # Only a run that writes gets a journal; a preview leaves no file.
-        journal.open_for(log)
+        # Without a journal the run could not be undone, so do not start it.
+        if journal.enabled() and journal.open_for(log) is None:
+            message(i18n.t("journal.error.open"))
+            close_log_file(2)
+            return 2
 
     show_rules = args.command != "rules" and (feature is None or feature.uses_rules)
     if show_rules:

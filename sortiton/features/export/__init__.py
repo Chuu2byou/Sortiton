@@ -24,15 +24,51 @@ from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import fingerprint, reader, report
 
 
+def _clear_reports(outdir: Path) -> None:
+    """Remove the reports of an earlier run that this run may not rewrite.
+
+    Without this a second export into the same folder keeps a stale
+    ``03_duplikate.md`` (run without ``--fingerprint``) or extra
+    ``tracks_partNN.tsv`` files, and ``00_prompt.md`` presents them as current.
+    Only the names this feature writes are touched.
+    """
+    for name in ("00_prompt.md", "01_zusammenfassung.md", "02_auffaelligkeiten.md",
+                 "03_duplikate.md", "alle_tags.jsonl", "fpcalc_fehler.log"):
+        try:
+            (outdir / name).unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        for old in outdir.glob("tracks_part*.tsv"):
+            old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def cmd_export(args: CmdArgs) -> int:
     """Read a music folder and write the LLM reports (nothing is changed).
 
-    Returns 0 on success, 1 when no audio file was found, 2 on a bad input or a
-    missing tool, 130 when the run was cancelled. The old script always ended
-    with 1; the split is deliberate.
+    Returns 0 on success, 1 when no audio file was found (or none was
+    readable), 2 on a bad input or a missing tool, 130 when the run was
+    cancelled. The old script always ended with 1; the split is deliberate.
     """
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
+
+    # Option.minimum was only a hint for the GUI spinbox; a typed or scripted
+    # value (--threads 0) used to crash deep inside the run.
+    for option in FEATURE.options:
+        if option.kind not in ("int", "float") or option.minimum is None:
+            continue
+        value = getattr(args, option.name, None)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if number < option.minimum:
+            output.message(i18n.t("export.error.minimum", option=option.name,
+                                  minimum=option.minimum))
+            return 2
 
     if not 0.0 <= args.fp_threshold <= 1.0:
         output.message(i18n.t("export.error.threshold"))
@@ -53,17 +89,23 @@ def cmd_export(args: CmdArgs) -> int:
         outdir = Path(args.output).expanduser()
     else:
         outdir = free_path(EXPORT_DIR / f"export_{datetime.now():%Y%m%d_%H%M%S}")
-    outdir.mkdir(parents=True, exist_ok=True)
+    try:
+        outdir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        output.message(i18n.t("export.error.outdir", path=outdir, error=error))
+        return 2
 
     try:
         recs = reader.scan(root, args.threads, cancel)
         if not recs:
             output.message(i18n.t("export.error.no_files"))
             return 1
+        _clear_reports(outdir)
 
         lang = args.report_lang or i18n.get_language()
         opts = report.ReportOptions(max_examples=args.examples, check_case=args.check_case)
         sections = report.build_report(recs, root, opts, lang)
+        cancel.check()
 
         duplicate_groups: int | None = None
         if args.fingerprint:
@@ -83,6 +125,7 @@ def cmd_export(args: CmdArgs) -> int:
         if args.jsonl:
             # Own non-core tags are only needed for the JSONL dump (owner decision O4).
             for rec in recs:
+                cancel.check()
                 rec["extra"] = reader.read_extra(root / rec["path"])
             with open(outdir / "alle_tags.jsonl", "w", encoding="utf-8") as handle:
                 for rec in recs:
@@ -98,7 +141,8 @@ def cmd_export(args: CmdArgs) -> int:
     output.report_stats("export", files=len(recs), errors=errors, parts=len(parts),
                         outdir=str(outdir.resolve()), duplicate_groups=duplicate_groups,
                         applied=False)
-    return 0
+    # A folder in which not a single file could be read has no usable report.
+    return 1 if errors == len(recs) else 0
 
 
 #: The one description the CLI and the GUI share (steps 1.6 and 1.8).

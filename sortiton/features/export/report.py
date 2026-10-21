@@ -135,7 +135,7 @@ def _summary_formats_and_tags(ok, recs, n_ok, opts, lang):
 
     lines += [i18n.t_in(lang, "export.report.genres.title"), ""]
     g = Counter(v for r in ok for v in (r["genre"].split(SEP) if r["genre"] else []))
-    lines += [f"- {k}: {v}" for k, v in g.most_common()] + [""]
+    lines += lst([f"{k}: {v}" for k, v in g.most_common()], max_ex, lang) + [""]
 
     lines += [i18n.t_in(lang, "export.report.dates.title"), ""]
     fm = defaultdict(list)
@@ -368,7 +368,10 @@ TSV_HEAD = ["path", "artist", "albumartist", "album", "title", "track", "disc",
 
 
 def clean(v: object) -> str:
-    return "".join(" " if unicodedata.category(char) == "Cc" else char for char in str(v))
+    # Cc = control, Zl/Zp = Unicode line/paragraph separator. All three would
+    # split a TSV row in tools that use splitlines().
+    return "".join(" " if unicodedata.category(char) in {"Cc", "Zl", "Zp"} else char
+                   for char in str(v))
 
 
 def tsv_row(r):

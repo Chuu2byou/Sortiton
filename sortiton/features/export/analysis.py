@@ -289,7 +289,8 @@ def folder_vs_tags(recs):
 
         if len(parts) >= 3:
             album_folder = parts[-2]
-            if album_folder.lower().startswith(("cd", "disc", "disk")) and len(parts) >= 4:
+            if re.fullmatch(r"(?:cd|disc|disk)[\s._-]*\d*", album_folder,
+                            re.IGNORECASE) and len(parts) >= 4:
                 album_folder = parts[-3]
 
             album_tag = (r.get("album") or "").strip()

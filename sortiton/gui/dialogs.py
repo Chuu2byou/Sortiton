@@ -46,7 +46,9 @@ def _pick_folder(start_dir: Path) -> str | None:
                 timeout=_DIALOG_TIMEOUT)
             if result.returncode == 0:
                 return result.stdout.strip() or None
-            return None
+            if result.returncode == 1:
+                return None          # cancelled by the user
+            # Any other exit code means zenity itself failed - try Tkinter.
         except (OSError, subprocess.TimeoutExpired):
             pass
     chosen = filedialog.askdirectory(title=title, initialdir=str(start_dir), mustexist=True)
@@ -76,12 +78,15 @@ def _pick_file(start_dir: Path, title: str) -> str | None:
                 timeout=_DIALOG_TIMEOUT)
             if result.returncode == 0:
                 return result.stdout.strip() or None
-            return None
+            if result.returncode == 1:
+                return None          # cancelled by the user
+            # Any other exit code means zenity itself failed - try Tkinter.
         except (OSError, subprocess.TimeoutExpired):
             pass
     chosen = filedialog.askopenfilename(
         title=title, initialdir=str(start_dir),
-        filetypes=[("CSV / text", "*.csv *.tsv *.txt"), ("All files", "*")])
+        filetypes=[(i18n.t("gui.dialog.filetype.csv"), "*.csv *.tsv *.txt"),
+                   (i18n.t("gui.dialog.filetype.all"), "*")])
     return chosen or None
 
 
@@ -102,7 +107,11 @@ def _ask_yes_no(title: str, text: str) -> bool:
                 ["zenity", "--question", f"--title={title}", f"--text={text}"],
                 capture_output=True, text=True, check=False,
                 timeout=_DIALOG_TIMEOUT)
-            return result.returncode == 0
+            if result.returncode == 0:
+                return True
+            if result.returncode == 1:
+                return False
+            # Any other exit code: zenity failed, fall through to Tkinter.
         except (OSError, subprocess.TimeoutExpired):
             pass
     return messagebox.askyesno(title, text, icon="warning", default="no")
@@ -119,10 +128,12 @@ def _show_error(title: str, text: str) -> None:
             pass
     if _command_available("zenity"):
         try:
-            subprocess.run(["zenity", "--error", f"--title={title}", f"--text={text}"],
-                           capture_output=True, text=True, check=False,
-                           timeout=_DIALOG_TIMEOUT)
-            return
+            result = subprocess.run(
+                ["zenity", "--error", f"--title={title}", f"--text={text}"],
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
+            if result.returncode == 0:
+                return
         except (OSError, subprocess.TimeoutExpired):
             pass
     messagebox.showerror(title, text)
@@ -139,10 +150,12 @@ def _show_warning(title: str, text: str) -> None:
             pass
     if _command_available("zenity"):
         try:
-            subprocess.run(["zenity", "--warning", f"--title={title}", f"--text={text}"],
-                           capture_output=True, text=True, check=False,
-                           timeout=_DIALOG_TIMEOUT)
-            return
+            result = subprocess.run(
+                ["zenity", "--warning", f"--title={title}", f"--text={text}"],
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
+            if result.returncode == 0:
+                return
         except (OSError, subprocess.TimeoutExpired):
             pass
     messagebox.showwarning(title, text)

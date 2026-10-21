@@ -60,6 +60,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._llm_text: tk.Text | None = None
         self._llm_status: tk.StringVar | None = None
         self._llm_status_label: tk.Label | None = None
+        self._restore_window: tk.Toplevel | None = None
         self._log_history: list[str] = []
         self._log_lines = 0          # lines currently in the Text widget
         self.pages: dict[str, tk.Frame] = {}

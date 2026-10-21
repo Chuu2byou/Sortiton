@@ -83,6 +83,12 @@ class RulesMixin:
                     self._rules_window.lift()
                     self._rules_window.focus_set()
                     if prefill is not None:
+                        current = self._rules_text.get("1.0", "end-1c") \
+                            if self._rules_text is not None else ""
+                        if current.strip() and not _ask_yes_no(
+                                i18n.t("gui.rules.confirm_replace.title"),
+                                i18n.t("gui.rules.confirm_replace.text")):
+                            return
                         self._set_editor_text(prefill)
                         self._set_rules_status(i18n.t("gui.rules.status.prefilled"), YELLOW)
                     return
@@ -342,9 +348,14 @@ class RulesMixin:
             self._set_rules_status(i18n.t("gui.rules.status.saved",
                                           summary=summary or i18n.t("gui.rules.status.none")),
                                    GREEN)
+        # Every preview that used the old rules is stale now.
+        self._inputs_changed()
 
     def _open_system_editor(self) -> None:
         """Save and open the rules file in the system's default editor."""
         self._save_rules()
         if config.RULES_FILE.is_file():
             self._xdg_open(config.RULES_FILE)
+            # The editor may change the file behind our back: require a fresh
+            # preview before the next write run.
+            self._inputs_changed()

@@ -37,6 +37,8 @@ _EN: dict[str, str] = {
     "cli.rules.template": "write the template if the file does not exist yet",
     "cli.rules.builtin": "print an overview of all built-in rules",
     "cli.error.ffprobe": "  ERROR: ffprobe is missing - install ffmpeg (apt, dnf or pacman).",
+    "journal.error.open": ("  ERROR: the journal could not be created - no file "
+                           "was changed, because the run could not be undone."),
     "cli.log_file": "  Log file: {path}",
     "cli.scan.help": "count files, albums and artists (nothing is changed)",
     "cli.scan.folder": "music folder (recursive)",
@@ -64,6 +66,10 @@ _EN: dict[str, str] = {
                               "(Debian/Ubuntu: sudo apt install ffmpeg | "
                               "Fedora: sudo dnf install ffmpeg | "
                               "Arch: sudo pacman -S ffmpeg)."),
+    "external.hint.ffmpeg": ("  ffmpeg is missing - install ffmpeg "
+                             "(Debian/Ubuntu: sudo apt install ffmpeg | "
+                             "Fedora: sudo dnf install ffmpeg | "
+                             "Arch: sudo pacman -S ffmpeg)."),
     "external.hint.fpcalc": ("  fpcalc is missing - Debian/Ubuntu: "
                              "sudo apt install libchromaprint-tools | "
                              "Fedora: sudo dnf install chromaprint-tools | "
@@ -79,6 +85,8 @@ _EN: dict[str, str] = {
     "export.fp.failed": ("  Note: {count} file(s) without fingerprint, "
                          "details in fpcalc_fehler.log"),
     "export.error.threshold": "  ERROR: --fp-threshold must be between 0.0 and 1.0.",
+    "export.error.minimum": "  ERROR: {option} must be at least {minimum}.",
+    "export.error.outdir": "  ERROR: cannot create the output folder {path}: {error}",
     "export.error.no_files": "  ERROR: no audio files found.",
     "export.error.tools": "  ERROR: neither mutagen nor ffprobe is available.",
     "cli.export.report_lang": "report language (default: the interface language)",
@@ -117,6 +125,7 @@ _EN: dict[str, str] = {
     # fetch feature (download audio with yt-dlp: preview, confirmation, download)
     "fetch.title": "FETCH - download audio with yt-dlp",
     "fetch.error.url": "  ERROR: no URL given.",
+    "fetch.error.url_invalid": "  ERROR: not a usable URL: {url}",
     "fetch.error.preview": "  ERROR: the yt-dlp preview failed: {detail}",
     "fetch.error.empty": "  ERROR: yt-dlp found nothing to download.",
     "fetch.error.download": "  ERROR: the download failed: {detail}",
@@ -367,9 +376,13 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "task.progress.sorting": "sorting …",
     "task.ok": "  OK: {name}",
     "task.error.file": "  ERROR '{name}': {error}",
+    "task.error.unreadable": "  SKIPPED (no reader could read it): {name}",
     "task.progress.backup": "backing up …",
     "task.backup.done": "  Backup of {count} file(s): {path}",
     "task.backup.failed": "  Backup folder could not be created ({path}): {error}",
+    "task.backup.incomplete": ("  Backup is incomplete; no file was changed. "
+                               "Partial backup: {path}"),
+    "task.backup.aborted": "  Run stopped: the requested backup is not complete.",
     "task.backup.file_error": "  BACKUP FAILED '{name}': {error}",
     "task.scan.done": "  {files} files · {albums} albums · {artists} artists",
     "task.tags.done": "  Done. Files changed: {changed} / {total}",
@@ -584,6 +597,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.job.all": "Apply all",
     "gui.job.export": "Export reports",
     "gui.job.fixes": "Apply CSV corrections",
+    "gui.job.fetch": "Fetch audio",
     "gui.job.preview": "{name} (preview)",
     "gui.job.run": "{name} (run)",
     "gui.log.job": "▶ {description}",
@@ -604,6 +618,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.rules.status.saved": "Saved ✓  ({summary})",
     "gui.rules.status.none": "no entries",
     "gui.rules.status.prefilled": "Prefilled from the LLM answer - not saved yet",
+    "gui.rules.confirm_replace.title": "Replace the editor content?",
+    "gui.rules.confirm_replace.text": ("The editor already contains unsaved text. "
+                                       "Replace it with the LLM block?"),
     "gui.rules.confirm_template.title": "Insert template?",
     "gui.rules.confirm_template.text": ("The text in the field will be replaced by the template - "
                                         "the file itself stays unchanged until you save."),
@@ -618,6 +635,16 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.language.en": "EN",
     "gui.dialog.busy.title": "Please wait",
     "gui.dialog.busy.text": "A task is still running. Wait until it is done.",
+    "gui.dialog.preview_stale.title": "Preview needed",
+    "gui.dialog.preview_stale.text": ("The inputs changed or the last run already "
+                                      "wrote its changes. Create a new preview "
+                                      "before writing."),
+    "gui.dialog.force_close.title": "Close anyway?",
+    "gui.dialog.force_close.text": ("The task is still running. Closing now can "
+                                    "interrupt a file in the middle of a write. "
+                                    "Close anyway?"),
+    "gui.dialog.filetype.csv": "CSV / text",
+    "gui.dialog.filetype.all": "All files",
     "gui.dialog.close.title": "A task is still running",
     "gui.dialog.close.text": ("A task is still running. Cancel it and close the window "
                               "when it has stopped?"),
@@ -742,6 +769,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "restore.skip.only_copy": ("  kept (the original is gone - this is the only copy): "
                                 "{name}"),
     "restore.skip.unknown": "  skipped (cannot be undone): {op}",
+    "restore.skip.changed": "  skipped (changed since the run: {fields}): {name}",
+    "restore.skip.modified": "  kept (the copy differs from the original): {name}",
+    "restore.error.archive": ("  ERROR: could not remove the download archive line "
+                              "for {name} - the file was kept."),
     "restore.list.title": "  Journals in the log folder: {count}",
     "restore.list.none": "  No journals yet ({path}).",
     "restore.list.empty": "no changes",
@@ -757,6 +788,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.restore.note": ("Only the changes this journal recorded are undone. Deleted copies "
                           "stay gone."),
     "gui.restore.empty": "This journal holds nothing that can be undone.",
+    "gui.restore.busy": "A task is still running - the undo did not start.",
     "gui.restore.run": "Undo now",
     "gui.restore.more": "… and {count} more",
     "gui.restore.op.tags": "Tags",
@@ -799,6 +831,9 @@ _DE: dict[str, str] = {
     "cli.rules.template": "Vorlage anlegen, falls die Datei noch fehlt",
     "cli.rules.builtin": "Übersicht aller eingebauten Regeln ausgeben",
     "cli.error.ffprobe": "  FEHLER: ffprobe fehlt - bitte ffmpeg installieren (apt, dnf oder pacman).",
+    "journal.error.open": ("  FEHLER: Das Journal konnte nicht angelegt werden - "
+                           "es wurde nichts geändert, weil sich der Lauf nicht "
+                           "rückgängig machen ließe."),
     "cli.log_file": "  Protokoll: {path}",
     "cli.scan.help": "Dateien, Alben und Künstler zählen (ändert nichts)",
     "cli.scan.folder": "Musikordner (rekursiv)",
@@ -826,6 +861,10 @@ _DE: dict[str, str] = {
                               "(Debian/Ubuntu: sudo apt install ffmpeg | "
                               "Fedora: sudo dnf install ffmpeg | "
                               "Arch: sudo pacman -S ffmpeg)."),
+    "external.hint.ffmpeg": ("  ffmpeg fehlt - bitte ffmpeg installieren "
+                             "(Debian/Ubuntu: sudo apt install ffmpeg | "
+                             "Fedora: sudo dnf install ffmpeg | "
+                             "Arch: sudo pacman -S ffmpeg)."),
     "external.hint.fpcalc": ("  fpcalc fehlt - Debian/Ubuntu: "
                              "sudo apt install libchromaprint-tools | "
                              "Fedora: sudo dnf install chromaprint-tools | "
@@ -841,6 +880,8 @@ _DE: dict[str, str] = {
     "export.fp.failed": ("  Hinweis: {count} Datei(en) ohne Fingerprint, "
                          "Details in fpcalc_fehler.log"),
     "export.error.threshold": "  FEHLER: --fp-schwelle muss zwischen 0.0 und 1.0 liegen.",
+    "export.error.minimum": "  FEHLER: {option} muss mindestens {minimum} sein.",
+    "export.error.outdir": "  FEHLER: Ausgabeordner {path} lässt sich nicht anlegen: {error}",
     "export.error.no_files": "  FEHLER: Keine Audiodateien gefunden.",
     "export.error.tools": "  FEHLER: weder mutagen noch ffprobe verfügbar.",
     "cli.export.report_lang": "Sprache der Berichte (Standard: wie die Oberfläche)",
@@ -880,6 +921,7 @@ _DE: dict[str, str] = {
     # Fetch-Feature (Audio mit yt-dlp herunterladen: Vorschau, Bestätigung, Download)
     "fetch.title": "FETCH - Audio mit yt-dlp herunterladen",
     "fetch.error.url": "  FEHLER: keine URL angegeben.",
+    "fetch.error.url_invalid": "  FEHLER: keine brauchbare URL: {url}",
     "fetch.error.preview": "  FEHLER: die yt-dlp-Vorschau ist fehlgeschlagen: {detail}",
     "fetch.error.empty": "  FEHLER: yt-dlp hat nichts zum Herunterladen gefunden.",
     "fetch.error.download": "  FEHLER: der Download ist fehlgeschlagen: {detail}",
@@ -1137,9 +1179,13 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "task.progress.sorting": "sortiere …",
     "task.ok": "  OK: {name}",
     "task.error.file": "  FEHLER '{name}': {error}",
+    "task.error.unreadable": "  ÜBERSPRUNGEN (kein Leseprogramm konnte sie lesen): {name}",
     "task.progress.backup": "sichere …",
     "task.backup.done": "  Backup von {count} Datei(en): {path}",
     "task.backup.failed": "  Backup-Ordner konnte nicht angelegt werden ({path}): {error}",
+    "task.backup.incomplete": ("  Backup unvollständig; es wurde keine Datei geändert. "
+                               "Teil-Backup: {path}"),
+    "task.backup.aborted": "  Lauf gestoppt: Das gewünschte Backup ist nicht vollständig.",
     "task.backup.file_error": "  BACKUP FEHLGESCHLAGEN '{name}': {error}",
     "task.scan.done": "  {files} Dateien · {albums} Alben · {artists} Künstler",
     "task.tags.done": "  Fertig. Dateien mit Änderungen: {changed} / {total}",
@@ -1355,6 +1401,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.job.all": "Alles anwenden",
     "gui.job.export": "Berichte exportieren",
     "gui.job.fixes": "CSV-Korrekturen anwenden",
+    "gui.job.fetch": "Audio herunterladen",
     "gui.job.preview": "{name} (Vorschau)",
     "gui.job.run": "{name} (ausführen)",
     "gui.log.job": "▶ {description}",
@@ -1375,6 +1422,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.rules.status.saved": "Gespeichert ✓  ({summary})",
     "gui.rules.status.none": "keine Einträge",
     "gui.rules.status.prefilled": "Aus der LLM-Antwort vorbelegt – noch nicht gespeichert",
+    "gui.rules.confirm_replace.title": "Editorinhalt ersetzen?",
+    "gui.rules.confirm_replace.text": ("Im Editor steht noch ungespeicherter Text. "
+                                       "Durch den LLM-Block ersetzen?"),
     "gui.rules.confirm_template.title": "Vorlage einfügen?",
     "gui.rules.confirm_template.text": ("Der Text im Feld wird durch die Vorlage ersetzt – die Datei "
                                         "selbst bleibt unverändert, bis du speicherst."),
@@ -1389,6 +1439,16 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.language.en": "EN",
     "gui.dialog.busy.title": "Bitte warten",
     "gui.dialog.busy.text": "Es läuft noch ein Auftrag. Bitte warten, bis er fertig ist.",
+    "gui.dialog.preview_stale.title": "Vorschau nötig",
+    "gui.dialog.preview_stale.text": ("Die Eingaben wurden geändert oder der letzte "
+                                      "Lauf hat geschrieben. Bitte vor dem Schreiben "
+                                      "eine neue Vorschau erstellen."),
+    "gui.dialog.force_close.title": "Trotzdem schließen?",
+    "gui.dialog.force_close.text": ("Der Auftrag läuft noch. Beim Schließen kann "
+                                    "eine Datei mitten im Schreiben unterbrochen "
+                                    "werden. Trotzdem schließen?"),
+    "gui.dialog.filetype.csv": "CSV / Text",
+    "gui.dialog.filetype.all": "Alle Dateien",
     "gui.dialog.close.title": "Ein Auftrag läuft noch",
     "gui.dialog.close.text": ("Ein Auftrag läuft noch. Abbrechen und das Fenster "
                               "schließen, sobald er beendet ist?"),
@@ -1515,6 +1575,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "restore.skip.only_copy": ("  behalten (das Original ist weg – es ist die letzte Kopie): "
                                "{name}"),
     "restore.skip.unknown": "  übersprungen (nicht rücknehmbar): {op}",
+    "restore.skip.changed": "  übersprungen (seit dem Lauf geändert: {fields}): {name}",
+    "restore.skip.modified": "  behalten (die Kopie weicht vom Original ab): {name}",
+    "restore.error.archive": ("  FEHLER: Die Download-Archivzeile für {name} ließ "
+                              "sich nicht entfernen - die Datei wurde behalten."),
     "restore.list.title": "  Journale im Log-Ordner: {count}",
     "restore.list.none": "  Noch keine Journale ({path}).",
     "restore.list.empty": "keine Änderungen",
@@ -1530,6 +1594,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.restore.note": ("Zurückgenommen werden nur die Änderungen aus diesem Journal. "
                           "Gelöschte Kopien bleiben weg."),
     "gui.restore.empty": "Dieses Journal enthält nichts, was sich zurücknehmen lässt.",
+    "gui.restore.busy": "Es läuft noch ein Auftrag - das Rückgängigmachen startete nicht.",
     "gui.restore.run": "Jetzt zurücknehmen",
     "gui.restore.more": "… und {count} weitere",
     "gui.restore.op.tags": "Tags",

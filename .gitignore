@@ -2,6 +2,8 @@
 .codegraph/
 __pycache__/
 *.py[cod]
+.coverage
+htmlcov/
 logs/
 backups/
 exports/

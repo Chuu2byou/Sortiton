@@ -44,12 +44,13 @@ class Requirement:
 
 
 FFPROBE = Tool("ffprobe", "ffprobe", hint_key="external.hint.ffprobe")
+FFMPEG = Tool("ffmpeg", "ffmpeg", hint_key="external.hint.ffmpeg")
 FPCALC = Tool("fpcalc", "fpcalc", hint_key="external.hint.fpcalc")
 MUTAGEN = Tool("mutagen", "", module="mutagen", hint_key="external.hint.mutagen")
 YT_DLP = Tool("yt-dlp", "yt-dlp", hint_key="external.hint.ytdlp")
 
 #: Every helper the program can use, in the order the settings window lists them.
-TOOLS: tuple[Tool, ...] = (FFPROBE, FPCALC, MUTAGEN, YT_DLP)
+TOOLS: tuple[Tool, ...] = (FFPROBE, FFMPEG, FPCALC, MUTAGEN, YT_DLP)
 
 #: Flags tried by :func:`version`, in order. Most tools answer ``--version``;
 #: ffprobe and fpcalc only know the single-dash form.

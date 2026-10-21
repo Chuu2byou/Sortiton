@@ -10,7 +10,7 @@ from pathlib import Path
 from . import i18n
 from .config import (JOURNAL_SUFFIX, LATEST_LOG_NAME, LOG_DIR, LOG_KEEP,
                      LOG_PREFIX, MUTAGEN_AVAILABLE, READ_WORKERS, WRITE_WORKERS)
-from .files import free_path
+from .files import open_new
 
 _sink = None                 # GUI callback; None = console
 _progress_sink = None
@@ -109,15 +109,16 @@ def open_log_file(title: str = "") -> Path | None:
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        path = free_path(LOG_DIR / f"{LOG_PREFIX}_{stamp}.log")
-        handle = path.open("w", encoding="utf-8")
-    except OSError:
-        _log_file = None
-        _log_path = None
+        path, handle = open_new(LOG_DIR / f"{LOG_PREFIX}_{stamp}.log")
+    except (OSError, RuntimeError):
+        with _log_lock:
+            _log_file = None
+            _log_path = None
         return None
 
-    _log_file = handle
-    _log_path = path
+    with _log_lock:
+        _log_file = handle
+        _log_path = path
     ok = i18n.t("log.available")
     missing = i18n.t("log.missing")
     _log_line(i18n.t("log.title"))
@@ -143,29 +144,32 @@ def open_log_file(title: str = "") -> Path | None:
 def close_log_file(rc: int | None = None) -> None:
     """Write the footer and close the log file."""
     global _log_file
-    if _log_file is not None:
+    with _log_lock:
+        handle, _log_file = _log_file, None
+        if handle is None:
+            return
         try:
-            _log_line("#" + "-" * 62)
             stamp = f"{datetime.now():%Y-%m-%d %H:%M:%S}"
             if rc is None:
-                _log_line(i18n.t("log.end", time=stamp))
+                footer = i18n.t("log.end", time=stamp)
             else:
-                _log_line(i18n.t("log.end_rc", time=stamp, rc=rc))
-            _log_file.close()
-        except OSError:
+                footer = i18n.t("log.end_rc", time=stamp, rc=rc)
+            handle.write("#" + "-" * 62 + "\n")
+            handle.write(footer + "\n")
+            handle.close()
+        except (OSError, ValueError):
             pass
-    _log_file = None
 
 
 def _log_line(text: str) -> None:
-    if _log_file is None:
-        return
-    try:
-        with _log_lock:
+    with _log_lock:
+        if _log_file is None:
+            return
+        try:
             _log_file.write(text + "\n")
             _log_file.flush()
-    except OSError:
-        pass
+        except (OSError, ValueError):
+            pass
 
 
 def _prune_old_logs(keep: int = LOG_KEEP) -> None:

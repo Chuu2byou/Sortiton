@@ -12,6 +12,9 @@ journal entry per changed file (undo via ``sortiton restore``).
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +30,10 @@ from . import parse
 #: Separator the export uses when it joins several tag values into one cell.
 JOIN_SEP = "; "
 
+#: Fields that may hold several values; the export joins them with " | ".
+MULTI_VALUE_FIELDS = {"artist", "album_artist", "genre"}
+_VALUE_SPLIT = re.compile(r"\s*[|;]\s*")
+
 
 @dataclass
 class _Action:
@@ -37,6 +44,29 @@ class _Action:
     field: str
     current: str
     new: str
+
+
+def _value_list(text: str) -> list[str]:
+    """Split a multi-value tag cell at ``|`` and ``;`` (both joins are in use)."""
+    return [part for part in (item.strip() for item in _VALUE_SPLIT.split(text)) if part]
+
+
+def _same_value(left: str, right: str) -> bool:
+    """True when two renderings name the same values (separator-independent)."""
+    if left.strip() == right.strip():
+        return True
+    return _value_list(left) == _value_list(right)
+
+
+def _normalised_new(field: str, value: str) -> str:
+    """Store a CSV value in the ``; `` form ``write_tags`` understands.
+
+    The export/LLM round trip uses " | " between values; writing that string as
+    one value would produce a single tag "A | B" instead of two values.
+    """
+    if field not in MULTI_VALUE_FIELDS or "|" not in value:
+        return value
+    return "; ".join(_value_list(value))
 
 
 def cmd_fixes(args: CmdArgs) -> int:
@@ -109,6 +139,10 @@ def cmd_fixes(args: CmdArgs) -> int:
         if getattr(args, "backup", False):
             backup_folder = _backup_files(root or csv_path.parent,
                                           [action.path for action in actions])
+            if backup_folder is None:
+                # An incomplete backup is no safety net; do not touch a file.
+                _report(rows, 0, len(skipped), errors, args, None)
+                return 2
 
         output.message()
         output.message(i18n.t("fixes.writing", count=changed))
@@ -234,16 +268,32 @@ def _backup_files(root: Path, paths: list[Path]) -> Path | None:
 
     A feature may not import :mod:`sortiton.tasks`, so the small backup helper
     lives here; it mirrors ``tasks._backup_files`` (same folder name, same path
-    below ``root``) so undo stays a plain copy.
+    below ``root``) so undo stays a plain copy. Returns ``None`` unless every
+    file was copied - the caller must then not write anything.
     """
-    folder = BACKUP_DIR / f"backup_{datetime.now():%Y-%m-%d_%H-%M-%S}"
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        output.message(i18n.t("task.backup.failed", path=folder, error=error))
+    stamp = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
+    folder: Path | None = None
+    for number in range(1, 1000):
+        name = f"backup_{stamp}" if number == 1 else f"backup_{stamp} ({number})"
+        candidate = BACKUP_DIR / name
+        try:
+            # exist_ok=False: two backups in the same second must not share
+            # (and thereby mix) one folder.
+            candidate.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            continue
+        except OSError as error:
+            output.message(i18n.t("task.backup.failed", path=candidate, error=error))
+            return None
+        folder = candidate
+        break
+    if folder is None:
+        output.message(i18n.t("task.backup.failed", path=BACKUP_DIR,
+                              error=i18n.t("file.error.no_free_name", path=BACKUP_DIR)))
         return None
 
     copied = 0
+    failed = False
     for path in paths:
         try:
             relative = path.relative_to(root)
@@ -252,21 +302,43 @@ def _backup_files(root: Path, paths: list[Path]) -> Path | None:
         try:
             target = folder / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(path), str(target))
+            _copy_new(path, target)
             copied += 1
         except OSError as error:
+            failed = True
             output.message(i18n.t("task.backup.file_error", name=path.name, error=error))
 
+    if failed:
+        output.message(i18n.t("task.backup.incomplete", path=folder))
+        return None
     output.message(i18n.t("task.backup.done", count=copied, path=folder))
     _prune_backups()
     return folder
 
 
+def _copy_new(source: Path, target: Path) -> None:
+    """Copy ``source`` to a target that must not exist yet.
+
+    ``shutil.copy2`` opens the target with "w" and would silently replace a
+    file that appeared in the backup folder in the meantime. "xb" fails
+    instead, so the backup never mixes two versions.
+    """
+    with source.open("rb") as reader, target.open("xb") as writer:
+        shutil.copyfileobj(reader, writer)
+    shutil.copystat(source, target)
+
+
 def _prune_backups(keep: int = BACKUP_KEEP) -> None:
     """Keep only the most recent backup folders (mirrors the task's helper)."""
+    def key(path: Path) -> tuple[int, str]:
+        try:
+            return path.stat().st_mtime_ns, path.name
+        except OSError:
+            return 0, path.name
+
     try:
         folders = sorted((folder for folder in BACKUP_DIR.glob("backup_*")
-                          if folder.is_dir()), key=lambda path: path.name, reverse=True)
+                          if folder.is_dir()), key=key, reverse=True)
         for old in folders[keep:]:
             shutil.rmtree(old, ignore_errors=True)
     except OSError:
@@ -286,6 +358,9 @@ FEATURE = Feature(
         Option("apply", "bool", False, "cli.fixes.apply", flags=("--apply",)),
         Option("backup", "bool", False, "cli.fixes.backup", flags=("--backup",)),
     ),
-    requires=(Requirement(any_of=(external.MUTAGEN, external.FFPROBE)),),
+    requires=(Requirement(any_of=(external.MUTAGEN, external.FFPROBE)),
+              # Writing without mutagen is an ffmpeg remux (tags.write_tags).
+              Requirement(any_of=(external.MUTAGEN, external.FFMPEG),
+                          when="apply")),
     writes=True,
 )

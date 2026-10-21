@@ -56,7 +56,14 @@ class LogMixin:
                                         i18n.t("gui.label.last_entries"), recent_lines=3)
         self.result_panel.grid(row=0, column=0, sticky="nsew")
         self._last_backup: Path | None = None
-        self._rebuild_result_header()
+        last_kind = getattr(self, "_last_result_kind", None)
+        last_values = getattr(self, "_last_result_values", None)
+        if last_kind and last_values is not None:
+            # A language switch (or a theme rebuild) must not wipe the card of
+            # the last run; the counters are still valid.
+            self._render_stats(last_kind, last_values)
+        else:
+            self._rebuild_result_header()
 
         view = tk.Frame(self._result_area, bg=LOG_BG, highlightthickness=1,
                         highlightbackground=BORDER, bd=0)
@@ -274,4 +281,20 @@ class LogMixin:
         """Undo window: pick a journal, check the plan, then undo the run."""
         if self.running:
             return
-        RestoreWindow(self.root, self._run_restore, self.var_backup)
+        if self._restore_window is not None:
+            try:
+                if self._restore_window.winfo_exists():
+                    self._restore_window.lift()
+                    self._restore_window.focus_set()
+                    return
+            except tk.TclError:
+                pass
+            self._restore_window = None
+        window = RestoreWindow(self.root, self._run_restore, self.var_backup)
+        self._restore_window = window
+        window.bind("<Destroy>", self._restore_closed, add="+")
+
+    def _restore_closed(self, event) -> None:
+        """Forget the undo window once it is really gone."""
+        if self._restore_window is not None and event.widget is self._restore_window:
+            self._restore_window = None

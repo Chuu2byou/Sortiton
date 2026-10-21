@@ -20,8 +20,11 @@ FROZEN = bool(getattr(sys, "frozen", False))
 IN_SOURCE_TREE = not FROZEN and (SOURCE_DIR / "sortiton.py").is_file()
 _XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME", "").strip()
 DATA_HOME = Path(_XDG_DATA_HOME) if _XDG_DATA_HOME else Path.home() / ".local" / "share"
-PROJECT_DIR = (SOURCE_DIR if IN_SOURCE_TREE
-               else Path(os.environ.get("SORTITON_DATA_DIR") or DATA_HOME / "sortiton"))
+_DATA_DIR = os.environ.get("SORTITON_DATA_DIR", "").strip()
+# An explicit SORTITON_DATA_DIR wins everywhere - also in the checkout, where a
+# test run or a portable setup may want its data somewhere else.
+PROJECT_DIR = (Path(_DATA_DIR) if _DATA_DIR else
+               SOURCE_DIR if IN_SOURCE_TREE else DATA_HOME / "sortiton")
 
 # The icons travel with the program: a frozen build unpacks them next to the
 # executable (sys._MEIPASS).

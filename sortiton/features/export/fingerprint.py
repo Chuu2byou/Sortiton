@@ -130,6 +130,8 @@ def compute_fingerprints(recs, root: Path, secs: int,
         cache = json.loads(cache_file.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         cache = {}
+    if not isinstance(cache, dict):
+        cache = {}
     active_paths = {r["path"] for r in recs}
     cache_size = len(cache)
     cache = {path: value for path, value in cache.items() if path in active_paths}
@@ -276,7 +278,7 @@ def fingerprint_groups(recs, fps: dict[int, list[int]],
 
 def _duplicate_marker(path):
     stem = Path(path).stem
-    return bool(re.search(r"(?i)(?:\(\d+\)|\bcopy\b|\bkopie\b|\bduplicate\b)", stem))
+    return bool(re.search(r"(?i)(?:\(\d{1,2}\)|\bcopy\b|\bkopie\b|\bduplicate\b)", stem))
 
 
 def _duration_close(durs):
