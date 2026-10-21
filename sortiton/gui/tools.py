@@ -558,4 +558,3 @@ class ToolsTab(tk.Frame):
                 i18n.t("gui.tools.badge.writes" if feature.writes
                        else "gui.tools.badge.readonly"),
                 YELLOW if feature.writes else ACCENT)
-
