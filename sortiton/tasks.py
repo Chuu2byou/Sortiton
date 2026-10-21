@@ -8,22 +8,23 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
 from . import i18n, journal
+from .backup import backup_files, prune_backups
 from .cancel import NO_CANCEL, Cancelled
-from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST,
-                     FETCH_ARCHIVE, LOG_DIR, RULES_FILE, WRITE_WORKERS)
+from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, FETCH_ARCHIVE,
+                     LOG_DIR, RULES_FILE, WRITE_WORKERS)
 from .features.fetch import cmd_fetch
+from .fileops import atomic_write_text, copy_new, move_no_clobber
 from .files import build_name, free_target, iter_audio, safe_name, same_content
-from .output import progress, banner, last_stats, message, report_plan, report_stats
+from .output import (progress, banner, clear_stats, last_stats, message,
+                     report_plan, report_stats)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
                     load_custom_rules, rules_summary, rules_template)
 from .rules import snapshot as rules_snapshot
@@ -37,21 +38,23 @@ _STEP_LINE = "#" * 62
 
 
 def _no_clobber_copy(source: Path, target: Path) -> None:
-    """Copy ``source`` to a *new* ``target``; never overwrite one.
-
-    ``shutil.copy2`` opens the target with "w" and would silently replace a
-    file that appeared after the plan was made. "xb" fails instead.
-    """
-    with source.open("rb") as reader, target.open("xb") as writer:
-        shutil.copyfileobj(reader, writer)
-    shutil.copystat(source, target)
+    """Copy ``source`` to a *new* ``target``; never overwrite one."""
+    copy_new(source, target)
 
 
 def _no_clobber_move(source: Path, target: Path) -> None:
     """Move ``source`` to ``target`` only when the name is still free."""
-    if target.exists():
-        raise FileExistsError(f"target already exists: {target}")
-    shutil.move(str(source), str(target))
+    move_no_clobber(source, target)
+
+
+def _backup_files(root: Path, paths: list[Path]) -> Path | None:
+    """Backwards-compatible name for the shared backup helper."""
+    return backup_files(root, paths)
+
+
+def _prune_backups(keep: int = BACKUP_KEEP) -> None:
+    """Backwards-compatible name for the shared retention helper."""
+    prune_backups(keep)
 
 
 def _finish(key: str, fields: dict, *, changed: int, errors: int, applied: bool,
@@ -150,7 +153,8 @@ def cmd_tags(args: CmdArgs) -> int:
             # so it is written after the file has been touched.
             old = {key: before[key] for key in diff}
             try:
-                write_tags(path, diff)
+                if write_tags(path, diff) is False:
+                    raise RuntimeError(f"tags could not be written: {path.name}")
                 journal.record_tags(path, old, diff)
                 with lock:
                     done_count += 1
@@ -467,6 +471,7 @@ def cmd_all(args: CmdArgs) -> int:
     steps = _pipeline_steps(args)
     total = len(steps)
     step_rc = 0
+    clear_stats("fetch", "tags", "rename", "sort")
     for index, step in enumerate(steps, start=1):
         title = i18n.t("task.step.label", index=index, total=total,
                        title=i18n.t(step.title_key))
@@ -493,16 +498,16 @@ def cmd_all(args: CmdArgs) -> int:
     tags_stats = last_stats("tags")
     rename_stats = last_stats("rename")
     sort_stats = last_stats("sort")
+    fetch_stats = last_stats("fetch")
+    errors = (tags_stats.get("errors", 0) + rename_stats.get("errors", 0)
+              + sort_stats.get("errors", 0) + fetch_stats.get("errors", 0))
     report_stats("all", files=sort_stats.get("files", 0), steps=len(steps),
                  tags_changed=tags_stats.get("changed", 0),
                  renamed=rename_stats.get("changed", 0),
                  sorted_files=sort_stats.get("changed", 0),
                  skipped=sort_stats.get("skipped", 0),
-                 errors=(tags_stats.get("errors", 0) + rename_stats.get("errors", 0)
-                         + sort_stats.get("errors", 0)),
+                 errors=errors,
                  applied=bool(args.apply))
-    errors = (tags_stats.get("errors", 0) + rename_stats.get("errors", 0)
-              + sort_stats.get("errors", 0))
     return 1 if errors or step_rc else 0
 
 
@@ -522,8 +527,7 @@ def cmd_rules(args: CmdArgs) -> int:
             message(i18n.t("rules.present", path=file))
         else:
             try:
-                file.parent.mkdir(parents=True, exist_ok=True)
-                file.write_text(rules_template(), encoding="utf-8")
+                atomic_write_text(file, rules_template())
                 message(i18n.t("rules.created", path=file))
             except OSError as error:
                 message(i18n.t("rules.error.create", error=error))
@@ -639,8 +643,8 @@ def _drop_archive_id(archive_id: str) -> bool:
     if len(remaining) == len(lines):
         return True
     try:
-        FETCH_ARCHIVE.write_text("\n".join(remaining) + ("\n" if remaining else ""),
-                                 encoding="utf-8")
+        atomic_write_text(FETCH_ARCHIVE,
+                          "\n".join(remaining) + ("\n" if remaining else ""))
     except OSError:
         return False
     return True
@@ -680,7 +684,8 @@ def _undo_step(step: dict) -> str:
                 message(i18n.t("restore.skip.changed", name=path.name,
                                fields=", ".join(sorted(changed))))
                 return "skipped"
-            write_tags(path, step["values"])
+            if write_tags(path, step["values"]) is False:
+                raise RuntimeError(f"tags could not be written: {path.name}")
             journal.record_tags(path, step["current"], step["values"])
             message(i18n.t("restore.ok.tags", name=path.name))
             return "done"
@@ -967,73 +972,3 @@ def cmd_restore(args: CmdArgs) -> int:
                  errors=errors, applied=bool(args.apply),
                  backup=str(backup_folder) if backup_folder else "")
     return 1 if errors else 0
-
-
-def _prune_backups(keep: int = BACKUP_KEEP) -> None:
-    """Keep only the most recent backup folders."""
-    def key(path: Path) -> tuple[int, str]:
-        try:
-            return path.stat().st_mtime_ns, path.name
-        except OSError:
-            return 0, path.name
-
-    try:
-        folders = sorted((folder for folder in BACKUP_DIR.glob("backup_*")
-                          if folder.is_dir()), key=key, reverse=True)
-        for old in folders[keep:]:
-            shutil.rmtree(old, ignore_errors=True)
-    except OSError:
-        pass
-
-
-def _backup_files(root: Path, paths: list[Path]) -> Path | None:
-    """Copy the files that are about to change into a fresh backup folder.
-
-    The path below ``root`` is kept, so restoring is a plain copy. Returns the
-    folder only when *every* file was copied; None means the caller must not
-    start writing (an incomplete backup is not a usable safety net).
-    """
-    stamp = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
-    folder: Path | None = None
-    for number in range(1, 1000):
-        name = f"backup_{stamp}" if number == 1 else f"backup_{stamp} ({number})"
-        candidate = BACKUP_DIR / name
-        try:
-            # exist_ok=False: two backups in the same second must not share
-            # (and thereby mix) one folder.
-            candidate.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            continue
-        except OSError as error:
-            message(i18n.t("task.backup.failed", path=candidate, error=error))
-            return None
-        folder = candidate
-        break
-    if folder is None:
-        message(i18n.t("task.backup.failed", path=BACKUP_DIR,
-                       error=i18n.t("file.error.no_free_name", path=BACKUP_DIR)))
-        return None
-
-    copied = 0
-    failed = False
-    for index, path in enumerate(paths, start=1):
-        try:
-            relative = path.relative_to(root)
-        except ValueError:
-            relative = Path(path.name)
-        try:
-            target = folder / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _no_clobber_copy(path, target)
-            copied += 1
-        except OSError as error:
-            failed = True
-            message(i18n.t("task.backup.file_error", name=path.name, error=error))
-        progress(index, len(paths), i18n.t("task.progress.backup"))
-
-    if failed:
-        message(i18n.t("task.backup.incomplete", path=folder))
-        return None
-    message(i18n.t("task.backup.done", count=copied, path=folder))
-    _prune_backups()
-    return folder

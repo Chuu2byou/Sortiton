@@ -26,7 +26,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from . import redact
+from . import i18n, output, redact
 from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME, LOG_DIR,
                      LOG_PREFIX, OFF_VALUES)
 from .files import open_new
@@ -39,6 +39,7 @@ UNDOABLE = ("tags", "rename", "sort", "copy", "download")
 _file = None                 # open file handle while a run is in progress
 _path: Path | None = None    # its path
 _lock = threading.Lock()     # writes come from several worker threads
+_write_error_reported = False
 
 
 def enabled() -> bool:
@@ -73,7 +74,7 @@ def open_for(log_path: Path) -> Path | None:
     combined run (tags -> rename -> sort) therefore writes a single file, which
     is exactly what undo needs.
     """
-    global _file, _path
+    global _file, _path, _write_error_reported
 
     with _lock:
         if _file is not None:
@@ -90,12 +91,19 @@ def open_for(log_path: Path) -> Path | None:
 
     with _lock:
         # Another thread may have opened the journal while this one was
-        # creating its file. One run, one journal: keep the first one.
+        # creating its file. One run, one journal: keep the first one and
+        # remove the file this thread created (otherwise it stays behind as an
+        # empty, misleading journal).
         if _file is not None:
             handle.close()
+            try:
+                path.unlink()
+            except OSError:
+                pass
             return _path
         _file = handle
         _path = path
+        _write_error_reported = False
 
     _link_latest(path)
     _prune_journals()
@@ -125,6 +133,16 @@ def close() -> None:
         pass
 
 
+def _report_write_error(error: object) -> None:
+    """Warn once when the journal can no longer be written."""
+    global _write_error_reported
+    with _lock:
+        if _write_error_reported:
+            return
+        _write_error_reported = True
+    output.message(i18n.t("journal.error.write", error=error))
+
+
 def record(op: str, **data: object) -> None:
     """Append one event. Never raises, never interrupts the run."""
     event = {"v": SCHEMA, "ts": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "op": op}
@@ -144,8 +162,8 @@ def record(op: str, **data: object) -> None:
                 return
             handle.write(line + "\n")
             handle.flush()     # a crash keeps everything written so far
-    except (OSError, ValueError):
-        pass
+    except (OSError, ValueError) as error:
+        _report_write_error(error)
 
 
 def record_tags(path: Path, before: dict, after: dict) -> None:

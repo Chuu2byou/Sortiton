@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -421,6 +422,37 @@ def write_tags(path: Path, updates: dict) -> bool:
 
 
 def _write_mutagen(path: Path, updates: dict) -> bool:
+    """Tag a temporary copy, then replace the original atomically.
+
+    mutagen saves in place. A crash in the middle of ``save()`` could leave the
+    only copy inconsistent, so the tags are applied to a copy in the same
+    folder and only a finished file replaces the original.
+    """
+    path = Path(path).resolve()
+    descriptor, temporary = tempfile.mkstemp(
+        dir=path.parent, prefix=f".sortiton-{path.name[:40]}.",
+        suffix=f".tagtmp{path.suffix}")
+    os.close(descriptor)
+    temp = Path(temporary)
+    try:
+        shutil.copy2(path, temp)
+        _write_mutagen_inplace(temp, updates)
+        try:
+            # Keep the timestamps and permissions of the original, like the
+            # ffmpeg fallback does.
+            shutil.copystat(path, temp)
+        except OSError:
+            pass
+        os.replace(temp, path)
+        return True
+    finally:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+
+
+def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
     # mutagen is optional (the caller falls back to ffmpeg).
     # pylint: disable=import-error,import-outside-toplevel
     import mutagen
@@ -532,7 +564,11 @@ def _write_ffmpeg(path: Path, updates: dict) -> bool:
     # A symlinked track must keep its link: os.replace() below would otherwise
     # replace the link itself and leave the real file untouched.
     path = Path(path).resolve()
-    temp = path.with_name(path.name + ".tagtmp" + path.suffix)
+    descriptor, temporary = tempfile.mkstemp(
+        dir=path.parent, prefix=f".sortiton-{path.name[:40]}.",
+        suffix=f".tagtmp{path.suffix}")
+    os.close(descriptor)
+    temp = Path(temporary)
     command = ["ffmpeg", "-v", "error", "-y", "-i", str(path),
                "-map", "0", "-c", "copy", "-map_metadata", "0"]
     for key, value in updates.items():

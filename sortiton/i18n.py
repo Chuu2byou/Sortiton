@@ -39,6 +39,8 @@ _EN: dict[str, str] = {
     "cli.error.ffprobe": "  ERROR: ffprobe is missing - install ffmpeg (apt, dnf or pacman).",
     "journal.error.open": ("  ERROR: the journal could not be created - no file "
                            "was changed, because the run could not be undone."),
+    "journal.error.write": ("  WARNING: the journal could not be written ({error}) - "
+                            "this run may not be fully undoable."),
     "cli.log_file": "  Log file: {path}",
     "cli.scan.help": "count files, albums and artists (nothing is changed)",
     "cli.scan.folder": "music folder (recursive)",
@@ -380,6 +382,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "task.progress.backup": "backing up …",
     "task.backup.done": "  Backup of {count} file(s): {path}",
     "task.backup.failed": "  Backup folder could not be created ({path}): {error}",
+    "task.backup.prune_failed": "  Could not remove old backup '{path}': {error}",
     "task.backup.incomplete": ("  Backup is incomplete; no file was changed. "
                                "Partial backup: {path}"),
     "task.backup.aborted": "  Run stopped: the requested backup is not complete.",
@@ -425,6 +428,9 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "rules.warn.artist_no_equals": 'Artist rule "{rule}" without "=" - skipped (old = new).',
     "rules.warn.regex_no_equals": 'Regex rule "{rule}" without "=" - skipped (pattern = replacement).',
     "rules.warn.regex_invalid": 'Regex rule "{rule}" is invalid - skipped: {error}',
+    "rules.warn.regex_too_long": 'Regex rule "{rule}" is too long - skipped.',
+    "rules.warn.regex_unsafe": ('Regex rule "{rule}" contains nested/alternating '
+                                'quantifiers (ReDoS risk) - skipped.'),
     "rules.warn.genre_no_equals": 'Genre rule "{rule}" without "=" - skipped (old = new).',
     "rules.summary.artists": "{count} artist",
     "rules.summary.artists_plural": "{count} artists",
@@ -834,6 +840,9 @@ _DE: dict[str, str] = {
     "journal.error.open": ("  FEHLER: Das Journal konnte nicht angelegt werden - "
                            "es wurde nichts geändert, weil sich der Lauf nicht "
                            "rückgängig machen ließe."),
+    "journal.error.write": ("  WARNUNG: Das Journal konnte nicht geschrieben werden "
+                            "({error}) - dieser Lauf ist möglicherweise nicht vollständig "
+                            "rückgängig zu machen."),
     "cli.log_file": "  Protokoll: {path}",
     "cli.scan.help": "Dateien, Alben und Künstler zählen (ändert nichts)",
     "cli.scan.folder": "Musikordner (rekursiv)",
@@ -1183,6 +1192,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "task.progress.backup": "sichere …",
     "task.backup.done": "  Backup von {count} Datei(en): {path}",
     "task.backup.failed": "  Backup-Ordner konnte nicht angelegt werden ({path}): {error}",
+    "task.backup.prune_failed": "  Altes Backup '{path}' konnte nicht entfernt werden: {error}",
     "task.backup.incomplete": ("  Backup unvollständig; es wurde keine Datei geändert. "
                                "Teil-Backup: {path}"),
     "task.backup.aborted": "  Lauf gestoppt: Das gewünschte Backup ist nicht vollständig.",
@@ -1228,6 +1238,9 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "rules.warn.artist_no_equals": 'Künstler-Regel „{rule}“ ohne „=“ – übersprungen (alt = neu).',
     "rules.warn.regex_no_equals": 'Regex-Regel „{rule}“ ohne „=“ – übersprungen (MUSTER = ERSATZ).',
     "rules.warn.regex_invalid": 'Regex-Regel „{rule}“ ungültig – übersprungen: {error}',
+    "rules.warn.regex_too_long": 'Regex-Regel „{rule}“ ist zu lang – übersprungen.',
+    "rules.warn.regex_unsafe": ('Regex-Regel „{rule}“ enthält verschachtelte/alternierende '
+                                'Quantoren (ReDoS-Risiko) – übersprungen.'),
     "rules.warn.genre_no_equals": 'Genre-Regel „{rule}“ ohne „=“ – übersprungen (alt = neu).',
     "rules.summary.artists": "{count} Künstler",
     "rules.summary.artists_plural": "{count} Künstler",

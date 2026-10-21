@@ -15,14 +15,13 @@ from __future__ import annotations
 import csv
 import hashlib
 import re
-import shutil
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from ... import external, i18n, journal, output
+from ...backup import backup_files
 from ...cancel import NO_CANCEL, Cancelled
-from ...config import AUDIO_EXTENSIONS, BACKUP_DIR, BACKUP_KEEP
+from ...config import AUDIO_EXTENSIONS
 from ...tags import read_info, write_tags
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import parse
@@ -72,8 +71,8 @@ def _normalised_new(field: str, value: str) -> str:
 def cmd_fixes(args: CmdArgs) -> int:
     """Apply (or preview) single tag corrections from a CSV file.
 
-    Returns 0 on success, 1 when no row could be used, 2 on a bad input or a
-    missing tool, 130 when the run was cancelled.
+    Returns 0 on success, 1 when no row could be used or a write failed, 2 on a
+    bad input or a missing tool, 130 when the run was cancelled.
     """
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
@@ -133,6 +132,7 @@ def cmd_fixes(args: CmdArgs) -> int:
 
     changed = len(actions)
     errors = len(problems)
+    write_errors = 0
     backup_folder: Path | None = None
 
     if args.apply and actions:
@@ -162,6 +162,7 @@ def cmd_fixes(args: CmdArgs) -> int:
                 journal.record_failure("tags", error, path=str(action.path),
                                        before={action.field: action.current})
                 errors += 1
+                write_errors += 1
                 output.message(i18n.t("task.error.file", name=action.path.name,
                                       error=error))
 
@@ -172,7 +173,7 @@ def cmd_fixes(args: CmdArgs) -> int:
 
     _finish(changed, len(skipped), len(rows), errors, args)
     _report(rows, changed, len(skipped), errors, args, backup_folder)
-    return 0
+    return 1 if write_errors else 0
 
 
 def _prepare(rows: list[parse.FixRow], root: Path | None
@@ -237,7 +238,8 @@ def _prepare(rows: list[parse.FixRow], root: Path | None
 
 def _write(action: _Action) -> None:
     """Write one correction and remember it in the journal (after the write)."""
-    write_tags(action.path, {action.field: action.new})
+    if write_tags(action.path, {action.field: action.new}) is False:
+        raise RuntimeError(f"tags could not be written: {action.path.name}")
     journal.record_tags(action.path, {action.field: action.current},
                         {action.field: action.new})
 
@@ -264,85 +266,8 @@ def _report(rows: list[parse.FixRow], changed: int, skipped: int, errors: int,
 
 
 def _backup_files(root: Path, paths: list[Path]) -> Path | None:
-    """Copy the files that are about to change into a fresh backup folder.
-
-    A feature may not import :mod:`sortiton.tasks`, so the small backup helper
-    lives here; it mirrors ``tasks._backup_files`` (same folder name, same path
-    below ``root``) so undo stays a plain copy. Returns ``None`` unless every
-    file was copied - the caller must then not write anything.
-    """
-    stamp = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
-    folder: Path | None = None
-    for number in range(1, 1000):
-        name = f"backup_{stamp}" if number == 1 else f"backup_{stamp} ({number})"
-        candidate = BACKUP_DIR / name
-        try:
-            # exist_ok=False: two backups in the same second must not share
-            # (and thereby mix) one folder.
-            candidate.mkdir(parents=True, exist_ok=False)
-        except FileExistsError:
-            continue
-        except OSError as error:
-            output.message(i18n.t("task.backup.failed", path=candidate, error=error))
-            return None
-        folder = candidate
-        break
-    if folder is None:
-        output.message(i18n.t("task.backup.failed", path=BACKUP_DIR,
-                              error=i18n.t("file.error.no_free_name", path=BACKUP_DIR)))
-        return None
-
-    copied = 0
-    failed = False
-    for path in paths:
-        try:
-            relative = path.relative_to(root)
-        except ValueError:
-            relative = Path(path.name)
-        try:
-            target = folder / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _copy_new(path, target)
-            copied += 1
-        except OSError as error:
-            failed = True
-            output.message(i18n.t("task.backup.file_error", name=path.name, error=error))
-
-    if failed:
-        output.message(i18n.t("task.backup.incomplete", path=folder))
-        return None
-    output.message(i18n.t("task.backup.done", count=copied, path=folder))
-    _prune_backups()
-    return folder
-
-
-def _copy_new(source: Path, target: Path) -> None:
-    """Copy ``source`` to a target that must not exist yet.
-
-    ``shutil.copy2`` opens the target with "w" and would silently replace a
-    file that appeared in the backup folder in the meantime. "xb" fails
-    instead, so the backup never mixes two versions.
-    """
-    with source.open("rb") as reader, target.open("xb") as writer:
-        shutil.copyfileobj(reader, writer)
-    shutil.copystat(source, target)
-
-
-def _prune_backups(keep: int = BACKUP_KEEP) -> None:
-    """Keep only the most recent backup folders (mirrors the task's helper)."""
-    def key(path: Path) -> tuple[int, str]:
-        try:
-            return path.stat().st_mtime_ns, path.name
-        except OSError:
-            return 0, path.name
-
-    try:
-        folders = sorted((folder for folder in BACKUP_DIR.glob("backup_*")
-                          if folder.is_dir()), key=key, reverse=True)
-        for old in folders[keep:]:
-            shutil.rmtree(old, ignore_errors=True)
-    except OSError:
-        pass
+    """Backwards-compatible name for the shared backup helper."""
+    return backup_files(root, paths)
 
 
 #: The one description the CLI and the GUI share.

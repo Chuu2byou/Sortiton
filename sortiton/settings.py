@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import configparser
+import io
 import os
 
 from . import i18n
 from .config import DEFAULT_LANGUAGE, OFF_VALUES, SETTINGS_FILE
+from .fileops import atomic_write_text
 
 SECTION = "general"
 KEY_LANGUAGE = "language"
@@ -31,9 +33,9 @@ def _parser() -> configparser.ConfigParser:
 def _write(parser: configparser.ConfigParser) -> bool:
     """Write the parser back to settings.ini. False if that failed."""
     try:
-        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with SETTINGS_FILE.open("w", encoding="utf-8") as datei:
-            parser.write(datei)
+        buffer = io.StringIO()
+        parser.write(buffer)
+        atomic_write_text(SETTINGS_FILE, buffer.getvalue())
     except OSError:
         return False
     return True
