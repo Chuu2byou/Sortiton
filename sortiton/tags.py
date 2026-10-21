@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -30,6 +31,30 @@ TAG_FIELDS = ("artist", "album_artist", "album", "title", "genre",
 
 #: :attr:`TrackInfo.error` value when no reader could read the file.
 UNREADABLE = "unreadable"
+
+# Tag fields -> writer-specific names. Plain strings keep mutagen optional; the
+# classes themselves are imported inside :func:`_write_mutagen`. Every field of
+# the fixes CSV (track/disc/year included) has an entry in each mapping.
+_ID3_FRAMES = {
+    "title": "TIT2", "artist": "TPE1", "album_artist": "TPE2",
+    "album": "TALB", "genre": "TCON",
+    "track": "TRCK", "disc": "TPOS", "year": "TDRC",
+}
+_MP4_TEXT_KEYS = {
+    "title": "\xa9nam", "artist": "\xa9ART", "album_artist": "aART",
+    "album": "\xa9alb", "genre": "\xa9gen", "year": "\xa9day",
+}
+_MP4_PAIR_KEYS = {"track": "trkn", "disc": "disk"}
+_ASF_KEYS = {
+    "title": "Title", "artist": "Author", "album_artist": "WM/AlbumArtist",
+    "album": "WM/AlbumTitle", "genre": "WM/Genre",
+    "track": "WM/TrackNumber", "disc": "WM/PartOfSet", "year": "WM/Year",
+}
+_VORBIS_KEYS = {
+    "title": "title", "artist": "artist", "album_artist": "albumartist",
+    "album": "album", "genre": "genre", "track": "tracknumber",
+    "disc": "discnumber", "year": "date",
+}
 
 
 @dataclass
@@ -344,6 +369,7 @@ def probe_many(files: list[Path], report=None, cancel=None) -> list[dict]:
 
     pool = ThreadPoolExecutor(max_workers=workers)
     futures = {pool.submit(probe_tags, path): i for i, path in enumerate(files)}
+    cancelled = False
     try:
         for done, future in enumerate(as_completed(futures), start=1):
             cancel.check()
@@ -355,9 +381,13 @@ def probe_many(files: list[Path], report=None, cancel=None) -> list[dict]:
             if report is not None:
                 report(done, files[i].name)
     except Cancelled:
-        pool.shutdown(wait=False, cancel_futures=True)
+        cancelled = True
+        for future in futures:
+            future.cancel()
         raise
-    pool.shutdown()
+    finally:
+        # Read-only: on cancel we do not wait for the reads already running.
+        pool.shutdown(wait=not cancelled, cancel_futures=cancelled)
     return results
 
 
@@ -374,9 +404,10 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
     # mutagen is optional (the caller falls back to ffmpeg).
     # pylint: disable=import-error,import-outside-toplevel
     import mutagen
+    import mutagen.id3 as id3_module
 
     from mutagen.asf import ASF, ASFTags
-    from mutagen.id3 import ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
+    from mutagen.id3 import ID3
     from mutagen.mp4 import MP4
 
     def as_list(value: str) -> list[str]:
@@ -389,45 +420,49 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
     # MP3 / WAV with ID3
     id3_tags = getattr(handle, "tags", None)
     if isinstance(id3_tags, ID3) or path.suffix.lower() == ".mp3":
-        if not isinstance(id3_tags, ID3):
+        id3 = id3_tags if isinstance(id3_tags, ID3) else None
+        if id3 is None:
             try:
                 handle.add_tags()
             except Exception:
                 pass
-        id3 = handle.tags
-        frames = {"title": TIT2, "artist": TPE1, "album_artist": TPE2,
-                  "album": TALB, "genre": TCON,
-                  "track": TRCK, "disc": TPOS, "year": TDRC}
+            id3 = getattr(handle, "tags", None)
+        if id3 is None:
+            # write_tags() falls back to the ffmpeg remux on this.
+            raise RuntimeError(f"Could not initialize ID3 tags on {path.name}")
         for key, value in updates.items():
-            frame = frames[key]
+            frame_name = _ID3_FRAMES.get(key)
+            if frame_name is None:
+                continue                      # unknown field: leave it alone
+            frame = getattr(id3_module, frame_name)
             values = as_list(value)
             if values:
-                id3.setall(frame.__name__, [frame(encoding=3, text=values)])
+                id3.setall(frame_name, [frame(encoding=3, text=values)])
             else:
-                id3.delall(frame.__name__)          # empty value = remove the field
+                id3.delall(frame_name)        # empty value = remove the field
         handle.save()
         return True
 
     # M4A / MP4
     if isinstance(handle, MP4):
-        text_keys = {"title": "\xa9nam", "artist": "\xa9ART", "album_artist": "aART",
-                     "album": "\xa9alb", "genre": "\xa9gen", "year": "\xa9day"}
-        pair_keys = {"track": "trkn", "disc": "disk"}
         for key, value in updates.items():
-            if key in pair_keys:
+            if key in _MP4_PAIR_KEYS:
                 # trkn/disk are (number, total) tuples, not text.
                 pairs = _mp4_pairs(value)
                 if pairs:
-                    handle[pair_keys[key]] = pairs
+                    handle[_MP4_PAIR_KEYS[key]] = pairs
                 else:
-                    handle.pop(pair_keys[key], None)
+                    handle.pop(_MP4_PAIR_KEYS[key], None)
+                continue
+            text_key = _MP4_TEXT_KEYS.get(key)
+            if text_key is None:
                 continue
             values = as_list(value)
             if values:
-                handle[text_keys[key]] = values
+                handle[text_key] = values
             else:
                 try:
-                    del handle[text_keys[key]]
+                    del handle[text_key]
                 except KeyError:
                     pass
         handle.save()
@@ -435,38 +470,39 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
 
     # WMA (ASF)
     if isinstance(handle, ASF):
-        asf_keys = {"title": "Title", "artist": "Author", "album_artist": "WM/AlbumArtist",
-                    "album": "WM/AlbumTitle", "genre": "WM/Genre"}
         if handle.tags is None:
             handle.tags = ASFTags()
         for key, value in updates.items():
+            asf_key = _ASF_KEYS.get(key)
+            if asf_key is None:
+                continue
             values = as_list(value)
             if values:
-                handle.tags[asf_keys[key]] = values
+                handle.tags[asf_key] = values
             else:
                 try:
-                    del handle.tags[asf_keys[key]]
+                    del handle.tags[asf_key]
                 except KeyError:
                     pass
         handle.save()
         return True
 
     # FLAC / OGG / OPUS (Vorbis comments)
-    vorbis_keys = {"title": "title", "artist": "artist", "album_artist": "albumartist",
-                   "album": "album", "genre": "genre", "track": "tracknumber",
-                   "disc": "discnumber", "year": "date"}
     for key, value in updates.items():
+        vorbis_key = _VORBIS_KEYS.get(key)
+        if vorbis_key is None:
+            continue
         values = as_list(value)
         if not values:
             try:
-                del handle[vorbis_keys[key]]
+                del handle[vorbis_key]
             except KeyError:
                 pass
             continue
         try:
-            handle[vorbis_keys[key]] = values
+            handle[vorbis_key] = values
         except TypeError:
-            handle[vorbis_keys[key]] = value
+            handle[vorbis_key] = value
     handle.save()
     return True
 
@@ -481,8 +517,26 @@ def _write_ffmpeg(path: Path, updates: dict) -> bool:
         command += ["-metadata", f"{'date' if key == 'year' else key}={value}"]
     command.append(str(temp))
     try:
-        subprocess.run(command, check=True, capture_output=True)
-        os.replace(temp, path)
+        try:
+            subprocess.run(command, check=True, capture_output=True)
+        except subprocess.CalledProcessError as error:
+            stderr = error.stderr or b""
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", "replace")
+            detail = stderr.strip() or str(error)
+            raise RuntimeError(f"ffmpeg could not write {path.name}: {detail}") from error
+        try:
+            # The temp file is a new inode: keep permissions and mtime of the
+            # original before it replaces it.
+            shutil.copystat(str(path), str(temp))
+        except OSError:
+            pass
+        try:
+            os.replace(temp, path)
+        except OSError as error:
+            # Say what failed: ffmpeg succeeded, the atomic swap did not.
+            raise RuntimeError(
+                f"could not replace {path.name} with the written copy: {error}") from error
         return True
     finally:
         # Same idiom as the log and the journal use.

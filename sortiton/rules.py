@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import configparser
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,7 +37,9 @@ _ARTIST_FIXES_COMPILED: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(pattern), replacement) for pattern, replacement in ARTIST_FIXES
 )
 
-# Your own rules (my_rules.ini) - filled by load_custom_rules().
+# Compatibility mirrors of the active custom rules (the GUI reads them).
+# Internally the workers use one immutable snapshot (_custom_rules()), so a
+# reload while a run is active can never mix two rule sets.
 CUSTOM_ARTISTS: list[tuple[re.Pattern, str]] = []
 CUSTOM_ARTIST_REGEX: list[tuple[re.Pattern, str]] = []
 CUSTOM_GENRES: dict[str, str] = {}
@@ -97,30 +100,32 @@ def rules_template() -> str:
 
 def rules_summary() -> str:
     """Short description of the loaded custom rules (empty = none loaded)."""
+    custom = _custom_rules()
     parts: list[str] = []
-    if CUSTOM_ARTISTS:
-        parts.append(_count(len(CUSTOM_ARTISTS), "rules.summary.artists",
+    if custom.artists:
+        parts.append(_count(len(custom.artists), "rules.summary.artists",
                             "rules.summary.artists_plural"))
-    if CUSTOM_ARTIST_REGEX:
-        parts.append(i18n.t("rules.summary.regex", count=len(CUSTOM_ARTIST_REGEX)))
-    if CUSTOM_GENRES:
-        parts.append(i18n.t("rules.summary.genre", count=len(CUSTOM_GENRES)))
-    if CUSTOM_PROTECTED:
-        parts.append(i18n.t("rules.summary.protected", count=len(CUSTOM_PROTECTED)))
+    if custom.regex:
+        parts.append(i18n.t("rules.summary.regex", count=len(custom.regex)))
+    if custom.genres:
+        parts.append(i18n.t("rules.summary.genre", count=len(custom.genres)))
+    if custom.protected:
+        parts.append(i18n.t("rules.summary.protected", count=len(custom.protected)))
     return ", ".join(parts)
 
 
 def rules_status() -> dict:
     """Counts of the active rules, from the last :func:`load_custom_rules` call."""
+    custom = _custom_rules()
     return {
-        "artist": len(CUSTOM_ARTISTS),
-        "regex": len(CUSTOM_ARTIST_REGEX),
-        "genre": len(CUSTOM_GENRES),
-        "protected": len(CUSTOM_PROTECTED),
+        "artist": len(custom.artists),
+        "regex": len(custom.regex),
+        "genre": len(custom.genres),
+        "protected": len(custom.protected),
         "builtin_artists": len(ARTIST_FIXES),
         "builtin_genres": len(GENRE_ALIASES),
-        "custom_total": (len(CUSTOM_ARTISTS) + len(CUSTOM_ARTIST_REGEX)
-                         + len(CUSTOM_GENRES) + len(CUSTOM_PROTECTED)),
+        "custom_total": (len(custom.artists) + len(custom.regex)
+                         + len(custom.genres) + len(custom.protected)),
     }
 
 
@@ -129,13 +134,35 @@ def _count(number: int, singular: str, plural: str) -> str:
     return i18n.t(key, count=number)
 
 
-@dataclass
+@dataclass(frozen=True)
 class CustomRules:
-    """The custom rules of one my_rules.ini - the same data the globals hold."""
+    """One parsed my_rules.ini - immutable so workers can share it safely."""
     artists: list[tuple[re.Pattern, str]]
     regex: list[tuple[re.Pattern, str]]
     genres: dict[str, str]
     protected: list[tuple[re.Pattern, str]]
+
+
+_EMPTY_RULES = CustomRules([], [], {}, [])
+_CUSTOM = _EMPTY_RULES
+_custom_lock = threading.Lock()
+
+
+def _custom_rules() -> CustomRules:
+    """The active rule set as one consistent snapshot."""
+    with _custom_lock:
+        return _CUSTOM
+
+
+def _set_custom_rules(rules: CustomRules) -> None:
+    """Swap the active rule set atomically and refresh the compatibility names."""
+    global _CUSTOM, CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
+    with _custom_lock:
+        _CUSTOM = rules
+    CUSTOM_ARTISTS = list(rules.artists)
+    CUSTOM_ARTIST_REGEX = list(rules.regex)
+    CUSTOM_GENRES = dict(rules.genres)
+    CUSTOM_PROTECTED = list(rules.protected)
 
 
 # First ```ini fenced block of an LLM answer; without a closing fence the rest
@@ -247,37 +274,33 @@ def parse_custom_rules(text: str,
 
 
 def load_custom_rules(path: Path | None = None) -> list[str]:
-    """Read the custom rules file and refill the CUSTOM_* lists.
+    """Read the custom rules file and swap in the new rule set.
 
-    Returns the warnings (empty = all good); bad entries are skipped.
+    Returns the warnings (empty = all good); bad entries are skipped. The swap
+    is atomic: a run that is already working keeps its old snapshot.
     """
-    global CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
-    CUSTOM_ARTISTS = []
-    CUSTOM_ARTIST_REGEX = []
-    CUSTOM_GENRES = {}
-    CUSTOM_PROTECTED = []
-
     file = Path(path) if path is not None else RULES_FILE
     if not file.is_file():
+        _set_custom_rules(_EMPTY_RULES)
         return []
 
     try:
         content = file.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as error:
+        _set_custom_rules(_EMPTY_RULES)
         return [i18n.t("rules.warn.read", file=file.name, error=error)]
 
     parsed, warnings = parse_custom_rules(content, file.name)
-    CUSTOM_ARTISTS = parsed.artists
-    CUSTOM_ARTIST_REGEX = parsed.regex
-    CUSTOM_GENRES = parsed.genres
-    CUSTOM_PROTECTED = parsed.protected
+    _set_custom_rules(parsed)
     return warnings
 
 
-def _mask_protected(text: str) -> tuple[str, dict[str, str]]:
+def _mask_protected(text: str,
+                    custom: CustomRules | None = None) -> tuple[str, dict[str, str]]:
     """Swap protected names for placeholders and return the restore table."""
+    custom = custom or _custom_rules()
     table: dict[str, str] = {}
-    for index, (pattern, wanted) in enumerate(CUSTOM_PROTECTED):
+    for index, (pattern, wanted) in enumerate(custom.protected):
         counter = 0
 
         def replace(m: re.Match, index: int = index, wanted: str = wanted) -> str:
@@ -339,10 +362,11 @@ def clean_artist(value: str) -> str:
     if not value:
         return value or ""
 
+    custom = _custom_rules()
     new = strip_cv_notation(value)
 
     # Park protected names: they keep their spelling and are restored 1:1 below.
-    new, protect_table = _mask_protected(new)
+    new, protect_table = _mask_protected(new, custom)
 
     new = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]", "", new)
 
@@ -362,9 +386,9 @@ def clean_artist(value: str) -> str:
         new = pattern.sub(lambda _m, e=replacement: e, new)
 
     # Custom rules: literals first, then regex - they run after the built-ins.
-    for pattern, replacement in CUSTOM_ARTISTS:
+    for pattern, replacement in custom.artists:
         new = pattern.sub(lambda _m, e=replacement: e, new)
-    for pattern, replacement in CUSTOM_ARTIST_REGEX:
+    for pattern, replacement in custom.regex:
         new = pattern.sub(replacement, new)
 
     # Normalise separators.
@@ -408,6 +432,7 @@ def clean_genre(value: str) -> str:
         return value or ""
 
     new = clean_text_field(value)
+    custom = _custom_rules()
 
     parts: list[str] = []
     for part in re.split(r"[;,，、]\s*", new):
@@ -415,8 +440,8 @@ def clean_genre(value: str) -> str:
         if not part:
             continue
         key = part.lower()
-        if key in CUSTOM_GENRES:
-            part = CUSTOM_GENRES[key]
+        if key in custom.genres:
+            part = custom.genres[key]
             if not part:
                 continue          # custom rule with an empty value deletes the genre
         else:

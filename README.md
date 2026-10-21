@@ -58,16 +58,34 @@ In a virtual environment, `pip install ".[mutagen]"` includes mutagen.
 
 ## Graphical interface
 
-The interface has four tabs: Clean tags, Rename, Sort, and Apply all.
-Each follows the same sequence: create a preview, review it, then write.
-The write button remains disabled until a preview has been run for the current
-inputs, and it locks again when any input changes. "Apply all" runs clean tags,
-rename, and sort in a single pass.
+The interface has five tabs: Clean tags, Rename, Sort, Apply all, and Tools.
+Each page starts with a short title and one sentence about what it does.
+Clean tags, Rename, Sort and Apply all follow the same sequence: create a
+preview, review it, then write. The write button remains disabled until a
+preview has been run for the current inputs, and it locks again when any input
+changes. "Apply all" runs clean tags, rename, and sort in a single pass.
+
+Tools groups the helper features (export reports, apply CSV corrections, fetch
+audio) behind a small picker. The form is built from the feature description and
+split into cards (folder & files, download, …), a badge says whether the
+selected tool reads or writes, and each empty folder field starts with the music
+folder. The run button sits next to a one-line note that repeats what will happen.
+Only the inputs of a single run stay in the tab: report length, duplicate check
+and reader count are fine-tuning and live in the settings (the gear button or
+"Fine-tuning …" below the form). Those values are stored in `settings.ini` and
+are used again on the next start.
+
+`Ctrl+1` … `Ctrl+5` switch tabs; every button can also be reached with the
+keyboard (`Tab`, then `Enter` or `Space`).
 
 The status bar shows the current step and progress.
 The result area shows the counters of the last run alongside the newest log lines;
 "Show details" opens the full log. Folder pickers use the native system dialog
 (kdialog on KDE, zenity on GNOME), with Tkinter as a fallback.
+
+Fonts, paddings and control sizes follow the screen resolution automatically.
+`SORTITON_UI_SCALE=1.25` (or `1.5`, …) overrides the detected factor; the
+settings window shows the value in use.
 
 Before writing, a confirmation dialog shows the counts and offers a backup of
 the original files. "Undo last run …" lists the journals and shows the plan
@@ -211,6 +229,7 @@ place; ffprobe/ffmpeg is the fallback. Reading, writing, and copying run in para
 | `SORTITON_BACKUP` | `false` disables the backup |
 | `SORTITON_JOURNAL` | `false` disables the run journal (restore then has nothing to work with) |
 | `SORTITON_FOLDER` / `SORTITON_TARGET` | Start folders of the GUI |
+| `SORTITON_UI_SCALE` | UI scale of the GUI, e.g. `1.25` (default: screen DPI) |
 
 ## Contributing
 

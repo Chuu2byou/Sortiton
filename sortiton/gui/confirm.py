@@ -34,44 +34,49 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
     state = {"confirmed": False}
 
     body = tk.Frame(window, bg=BACKGROUND)
-    body.grid(row=0, column=0, sticky="nsew", padx=20, pady=18)
+    body.grid(row=0, column=0, sticky="nsew", padx=design.px(20), pady=design.px(18))
     body.columnconfigure(0, weight=1)
 
     tk.Label(body, text=heading, bg=BACKGROUND, fg=TEXT, font=design.FONT_SECTION,
              anchor="w", justify="left").grid(row=0, column=0, sticky="w")
     tk.Label(body, text=text, bg=BACKGROUND, fg=TEXT_MUTED, font=design.FONT_SMALL,
-             anchor="w", justify="left", wraplength=460).grid(
-                 row=1, column=0, sticky="w", pady=(8, 0))
+             anchor="w", justify="left", wraplength=design.px(480)).grid(
+                 row=1, column=0, sticky="w", pady=(design.px(8), 0))
 
     if note:
         tk.Label(body, text=note, bg=BACKGROUND, fg=YELLOW, font=design.FONT_SMALL,
-                 anchor="w", justify="left", wraplength=460).grid(
-                     row=2, column=0, sticky="w", pady=(8, 0))
+                 anchor="w", justify="left", wraplength=design.px(480)).grid(
+                     row=2, column=0, sticky="w", pady=(design.px(8), 0))
 
     variables: dict[str, tk.BooleanVar] = {}
     if options:
         box = tk.Frame(body, bg=BACKGROUND)
-        box.grid(row=3, column=0, sticky="w", pady=(14, 0))
+        box.grid(row=3, column=0, sticky="w", pady=(design.px(14), 0))
         for index, (key, label, default) in enumerate(options):
             variable = tk.BooleanVar(value=default)
             variables[key] = variable
+            result[key] = bool(default)     # fallback if the window is killed
             tk.Checkbutton(box, text=label, variable=variable, bg=BACKGROUND, fg=TEXT,
                            font=design.FONT_SMALL, activebackground=BACKGROUND,
                            activeforeground=TEXT, selectcolor=FIELD, bd=0,
                            highlightthickness=0, anchor="w").grid(
-                               row=index, column=0, sticky="w")
+                               row=index, column=0, sticky="w", pady=(0, design.px(4)))
 
     buttons = tk.Frame(body, bg=BACKGROUND)
-    buttons.grid(row=4, column=0, sticky="e", pady=(20, 0))
+    buttons.grid(row=4, column=0, sticky="e", pady=(design.px(20), 0))
 
     def close(confirmed: bool) -> None:
         state["confirmed"] = confirmed
+        # Read the variables while the window still exists: after destroy()
+        # they belong to a dead widget tree.
+        result.update({key: bool(variable.get())
+                       for key, variable in variables.items()})
         window.destroy()
 
     RoundButton(buttons, cancel_text, lambda: close(False), style="normal",
-                height=34).pack(side="left")
+                height=36).pack(side="left")
     RoundButton(buttons, ok_text, lambda: close(True), style="apply",
-                height=34).pack(side="left", padx=(10, 0))
+                height=36).pack(side="left", padx=(design.px(10), 0))
 
     window.bind("<Escape>", lambda _event: close(False))
     window.protocol("WM_DELETE_WINDOW", lambda: close(False))
@@ -84,6 +89,4 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
     window.grab_set()
     window.wait_window()
 
-    for key, variable in variables.items():
-        result[key] = bool(variable.get())
     return state["confirmed"], result

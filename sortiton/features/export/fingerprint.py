@@ -163,6 +163,7 @@ def compute_fingerprints(recs, root: Path, secs: int,
     failed_paths = []
     pool = ThreadPoolExecutor(max_workers=workers)
     futures = [pool.submit(work, item) for item in todo]
+    cancelled = False
     try:
         for n, future in enumerate(as_completed(futures), 1):
             cancel.check()
@@ -175,9 +176,12 @@ def compute_fingerprints(recs, root: Path, secs: int,
                 failed_paths.append((recs[i]["path"], error or "unbekannter Fehler"))
             output.progress(n, len(todo), i18n.t("export.fp.progress"))
     except Cancelled:
-        pool.shutdown(wait=False, cancel_futures=True)
+        cancelled = True
+        for future in futures:
+            future.cancel()
         raise
-    pool.shutdown()
+    finally:
+        pool.shutdown(wait=not cancelled, cancel_futures=cancelled)
     if todo or cache_changed:
         tmp_path = None
         try:

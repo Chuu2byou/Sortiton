@@ -81,7 +81,7 @@ _EN: dict[str, str] = {
     "export.error.threshold": "  ERROR: --fp-threshold must be between 0.0 and 1.0.",
     "export.error.no_files": "  ERROR: no audio files found.",
     "export.error.tools": "  ERROR: neither mutagen nor ffprobe is available.",
-    "cli.export.report_lang": "report language: empty = UI language, en or de",
+    "cli.export.report_lang": "report language (default: the interface language)",
     "export.fp.progress": "computing …",
 
     # fixes feature (apply single tag corrections from a CSV, step 3.4)
@@ -528,8 +528,12 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.hint.fixes": ("Applies single tag corrections from a CSV (the export "
                        "prompt asks for exactly this shape). Only rows whose "
                        "current value still matches are written."),
+    "gui.hint.rename": ("Renames files from their tags. The preview shows the new "
+                        "names first - nothing is changed before “Rename”."),
     "gui.hint.fetch": ("Downloads audio with yt-dlp. Only download content you "
                        "have the rights to."),
+    "gui.hint.tools": ("Helper tools that run on their own: export reports, apply "
+                       "corrections from a CSV, or fetch audio."),
     "gui.confirm.tags.title": "Really write the tags?",
     "gui.confirm.tags.text": ("{changes} changes in {files} files:\n"
                               "artist, album artist, title, album and genre.\n\n"
@@ -572,6 +576,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.status.running": "running…",
     "gui.status.failed": "failed (rc={rc})",
     "gui.status.cancelled": "cancelled",
+    "gui.status.cancelling": "cancelling - closing when done",
     "gui.status.progress": "{current} / {total} · {text}",
     "gui.job.tags": "Tag cleanup",
     "gui.job.rename": "Rename",
@@ -613,21 +618,46 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.language.en": "EN",
     "gui.dialog.busy.title": "Please wait",
     "gui.dialog.busy.text": "A task is still running. Wait until it is done.",
+    "gui.dialog.close.title": "A task is still running",
+    "gui.dialog.close.text": ("A task is still running. Cancel it and close the window "
+                              "when it has stopped?"),
 
     # cards, sections and result view
     "gui.button.settings": "Settings",
     "gui.button.choose_folder": "Choose folder",
+    "gui.button.choose_file": "Choose file …",
     "gui.button.refresh": "Refresh",
     "gui.button.preview_create": "Create preview",
     "gui.button.details": "Show details",
     "gui.button.back": "Back",
     "gui.button.close": "Close",
     "gui.button.open_backup": "Open backup",
+    "gui.button.fine_tuning": "Fine-tuning …",
     "gui.section.music_folder": "Music folder",
+    "gui.section.folders": "Folders",
     "gui.section.options": "Options",
     "gui.section.active_rules": "Active cleanup",
     "gui.section.preview": "Preview",
     "gui.section.result": "Result",
+    "gui.result.none": "No run yet – the counters of the last run appear here.",
+    "gui.choice.report_lang.ui": "Same as the interface",
+    "gui.choice.report_lang.en": "English",
+    "gui.choice.report_lang.de": "German",
+    "gui.tool.export": "Export",
+    "gui.tool.export.run": "Start export",
+    "gui.tool.fixes": "Fixes",
+    "gui.tool.fixes.run": "Write corrections",
+    "gui.tool.fetch": "Fetch",
+    "gui.tool.fetch.run": "Start download",
+    "gui.tools.section.files": "Folder & files",
+    "gui.tools.section.report": "Report contents",
+    "gui.tools.section.download": "Download",
+    "gui.tools.section.advanced": "Duplicates & speed",
+    "gui.tools.badge.readonly": "read only",
+    "gui.tools.badge.writes": "writes files",
+    "gui.tools.readonly_note": "Reads only – nothing is changed.",
+    "gui.tools.fine_tuning_hint": ("Report length, duplicate check and reader count "
+                                   "are set up in the settings."),
     "gui.label.last_entries": "Latest entries",
     "gui.stats.unknown": "No folder scanned yet",
     "gui.stats.scanning": "Counting files …",
@@ -674,6 +704,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.log.ffprobe_missing": "  Note: ffprobe is missing - reading tags is slower (install ffmpeg).",
     "gui.settings.title": "Settings",
     "gui.settings.heading": "Settings",
+    "gui.settings.scale": "Display scale: {percent} % – SORTITON_UI_SCALE overrides it",
     "gui.settings.tools": "External tools",
     "gui.settings.tools_hint": ("Sortiton uses the best program that is available - "
                                 "nothing to set up here."),
@@ -812,7 +843,7 @@ _DE: dict[str, str] = {
     "export.error.threshold": "  FEHLER: --fp-schwelle muss zwischen 0.0 und 1.0 liegen.",
     "export.error.no_files": "  FEHLER: Keine Audiodateien gefunden.",
     "export.error.tools": "  FEHLER: weder mutagen noch ffprobe verfügbar.",
-    "cli.export.report_lang": "Berichtssprache: leer = UI-Sprache, en oder de",
+    "cli.export.report_lang": "Sprache der Berichte (Standard: wie die Oberfläche)",
     "export.fp.progress": "berechnen …",
 
     # Fixes-Feature (Einzelkorrekturen aus einer CSV anwenden, Schritt 3.4)
@@ -1263,6 +1294,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                       "Belegte Namen bekommen „ (2)“, „ (3)“ …"),
     "gui.hint.all": ("Ein Durchlauf: Tags bereinigen → Dateien umbenennen → in die Bibliothek "
                      "sortieren."),
+    "gui.hint.rename": ("Benennt Dateien nach ihren Tags um. Die Vorschau zeigt zuerst "
+                        "die neuen Namen – vor „Umbenennen“ ändert sich nichts."),
+    "gui.hint.tools": ("Hilfswerkzeuge mit eigenem Ablauf: Berichte exportieren, "
+                       "Korrekturen aus einer CSV anwenden oder Audio herunterladen."),
     "gui.hint.export": ("Nur lesend: liest den Ordner und schreibt die Berichte. "
                         "In der Bibliothek ändert sich nichts."),
     "gui.hint.fetch": ("Lädt Audio mit yt-dlp. Nur Inhalte laden, für die du die "
@@ -1312,6 +1347,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.status.running": "läuft…",
     "gui.status.failed": "fehlgeschlagen (rc={rc})",
     "gui.status.cancelled": "abgebrochen",
+    "gui.status.cancelling": "wird abgebrochen – Fenster schließt danach",
     "gui.status.progress": "{current} / {total} · {text}",
     "gui.job.tags": "Tag-Bereinigung",
     "gui.job.rename": "Umbenennen",
@@ -1353,21 +1389,46 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.language.en": "EN",
     "gui.dialog.busy.title": "Bitte warten",
     "gui.dialog.busy.text": "Es läuft noch ein Auftrag. Bitte warten, bis er fertig ist.",
+    "gui.dialog.close.title": "Ein Auftrag läuft noch",
+    "gui.dialog.close.text": ("Ein Auftrag läuft noch. Abbrechen und das Fenster "
+                              "schließen, sobald er beendet ist?"),
 
     # Karten, Bereiche und Ergebnisansicht
     "gui.button.settings": "Einstellungen",
     "gui.button.choose_folder": "Ordner auswählen",
+    "gui.button.choose_file": "Datei auswählen …",
     "gui.button.refresh": "Aktualisieren",
     "gui.button.preview_create": "Vorschau erstellen",
     "gui.button.details": "Details anzeigen",
     "gui.button.back": "Zurück",
     "gui.button.close": "Schließen",
     "gui.button.open_backup": "Backup öffnen",
+    "gui.button.fine_tuning": "Feineinstellungen …",
     "gui.section.music_folder": "Musikordner",
+    "gui.section.folders": "Ordner",
     "gui.section.options": "Optionen",
     "gui.section.active_rules": "Aktive Bereinigung",
     "gui.section.preview": "Vorschau",
     "gui.section.result": "Ergebnis",
+    "gui.result.none": "Noch kein Lauf – hier erscheinen die Zahlen des letzten Laufs.",
+    "gui.choice.report_lang.ui": "Wie die Oberfläche",
+    "gui.choice.report_lang.en": "Englisch",
+    "gui.choice.report_lang.de": "Deutsch",
+    "gui.tool.export": "Export",
+    "gui.tool.export.run": "Export starten",
+    "gui.tool.fixes": "Korrekturen",
+    "gui.tool.fixes.run": "Korrekturen schreiben",
+    "gui.tool.fetch": "Download",
+    "gui.tool.fetch.run": "Download starten",
+    "gui.tools.section.files": "Ordner & Dateien",
+    "gui.tools.section.report": "Inhalt der Berichte",
+    "gui.tools.section.download": "Download",
+    "gui.tools.section.advanced": "Duplikate & Tempo",
+    "gui.tools.badge.readonly": "nur lesend",
+    "gui.tools.badge.writes": "schreibt Dateien",
+    "gui.tools.readonly_note": "Nur lesend – es ändert sich nichts.",
+    "gui.tools.fine_tuning_hint": ("Berichtslänge, Duplikatprüfung und Leseranzahl "
+                                   "stehen in den Einstellungen."),
     "gui.label.last_entries": "Letzte Einträge",
     "gui.stats.unknown": "Noch kein Ordner analysiert",
     "gui.stats.scanning": "Dateien werden gezählt …",
@@ -1414,6 +1475,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.log.ffprobe_missing": "  Hinweis: ffprobe fehlt – Tags werden langsamer gelesen (ffmpeg installieren).",
     "gui.settings.title": "Einstellungen",
     "gui.settings.heading": "Einstellungen",
+    "gui.settings.scale": "Darstellung: {percent} % – SORTITON_UI_SCALE überschreibt sie",
     "gui.settings.tools": "Externe Programme",
     "gui.settings.tools_hint": ("Sortiton nutzt das beste verfügbare Programm – hier gibt es "
                                 "nichts einzustellen."),

@@ -23,7 +23,7 @@ from .config import (BACKUP_DIR, BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST,
                      FETCH_ARCHIVE, LOG_DIR, RULES_FILE, WRITE_WORKERS)
 from .features.fetch import cmd_fetch
 from .files import build_name, free_target, iter_audio, safe_name, same_content
-from .output import _progress, banner, last_stats, message, report_plan, report_stats
+from .output import progress, banner, last_stats, message, report_plan, report_stats
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
                     load_custom_rules, rules_summary, rules_template)
 from .tags import probe_many, write_tags
@@ -68,7 +68,7 @@ def cmd_tags(args: CmdArgs) -> int:
     message()
 
     try:
-        tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name),
+        tags_list = probe_many(files, report=lambda i, name: progress(i, total, name),
                                cancel=cancel)
     except Cancelled:
         message(i18n.t("task.cancelled"))
@@ -134,14 +134,15 @@ def cmd_tags(args: CmdArgs) -> int:
             for done, future in enumerate(as_completed(futures), start=1):
                 cancel.check()
                 future.result()
-                _progress(done, changed, i18n.t("task.progress.writing"))
+                progress(done, changed, i18n.t("task.progress.writing"))
         except Cancelled:
             for future in futures:
                 future.cancel()          # drop the writes that have not started
-            pool.shutdown(wait=True)     # let the running writes finish
             message(i18n.t("task.cancelled"))
             return 130
-        pool.shutdown()
+        finally:
+            # Writes that already run must finish before the run ends.
+            pool.shutdown(wait=True)
 
     _finish("task.tags.done", {"changed": changed, "total": total},
             changed=changed, errors=errors, applied=args.apply,
@@ -168,7 +169,7 @@ def cmd_rename(args: CmdArgs) -> int:
     files = list(iter_audio(root))
     total = len(files)
     try:
-        tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name),
+        tags_list = probe_many(files, report=lambda i, name: progress(i, total, name),
                                cancel=cancel)
     except Cancelled:
         message(i18n.t("task.cancelled"))
@@ -178,7 +179,7 @@ def cmd_rename(args: CmdArgs) -> int:
     renamed = skipped = errors = 0
 
     for index, (path, tags) in enumerate(zip(files, tags_list), start=1):
-        _progress(index, total, path.name)
+        progress(index, total, path.name)
         base = build_name(tags, path.stem, args.pattern)
         target = path.parent / f"{base}{path.suffix}"
 
@@ -236,7 +237,7 @@ def cmd_sort(args: CmdArgs) -> int:
     total = len(files)
     message()
     try:
-        tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name),
+        tags_list = probe_many(files, report=lambda i, name: progress(i, total, name),
                                cancel=cancel)
     except Cancelled:
         message(i18n.t("task.cancelled"))
@@ -301,14 +302,15 @@ def cmd_sort(args: CmdArgs) -> int:
             for done, future in enumerate(as_completed(futures), start=1):
                 cancel.check()
                 future.result()
-                _progress(done, processed, i18n.t("task.progress.sorting"))
+                progress(done, processed, i18n.t("task.progress.sorting"))
         except Cancelled:
             for future in futures:
                 future.cancel()          # drop the copies that have not started
-            pool.shutdown(wait=True)     # let the running copies finish
             message(i18n.t("task.cancelled"))
             return 130
-        pool.shutdown()
+        finally:
+            # Copies that already run must finish before the run ends.
+            pool.shutdown(wait=True)
 
     _finish("task.sort.done",
             {"done": processed, "total": total, "skipped": skipped},
@@ -468,7 +470,7 @@ def cmd_scan(args: CmdArgs) -> int:
 
     files = list(iter_audio(root))
     total = len(files)
-    tags_list = probe_many(files, report=lambda i, name: _progress(i, total, name))
+    tags_list = probe_many(files, report=lambda i, name: progress(i, total, name))
 
     albums: set[tuple[str, str]] = set()
     artists: set[str] = set()
@@ -498,17 +500,26 @@ def _shown_name(entry: dict) -> str:
 
 
 def _step_files(steps: list[dict]) -> list[Path]:
-    """The files that would change, for the optional backup before an undo."""
+    """The files that would change, for the optional backup before an undo.
+
+    ``backup`` is the path the file has *before* the undo starts: in a chain of
+    moves (sort -> rename -> tags) a step's own path may only be recreated by an
+    earlier undo step, so backing that one up would find nothing.
+    """
     files: list[Path] = []
+    seen: set[str] = set()
     for step in steps:
-        if step["op"] == "tags":
-            files.append(step["path"])
-        elif step["op"] == "copy":
-            files.append(step["target"])
-        elif step["op"] == "download":
-            files.append(step["path"])
-        else:
-            files.append(step["source"])
+        path = step.get("backup") or step.get("path") or step.get("source")
+        if path is None:
+            path = step.get("target")
+        if path is None:
+            continue
+        path = Path(path)
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        files.append(path)
     return files
 
 
@@ -542,6 +553,77 @@ def _common_root(paths: list[Path]) -> Path:
         return Path(os.path.commonpath([str(path.parent) for path in paths]))
     except (ValueError, OSError):
         return paths[0].parent
+
+
+def _undo_step(step: dict) -> str:
+    """Run one planned undo step.
+
+    Returns ``"done"``, ``"skipped"`` (the step became impossible only after
+    planning - reported, never forced) or ``"error"``. The file system is
+    checked again here, because the state may have changed since the preview.
+    """
+    try:
+        op = step["op"]
+        if op == "tags":
+            path = step["path"]
+            if not path.is_file():
+                message(i18n.t("restore.skip.missing", name=path.name))
+                return "skipped"
+            write_tags(path, step["values"])
+            journal.record_tags(path, step["current"], step["values"])
+            message(i18n.t("restore.ok.tags", name=path.name))
+            return "done"
+
+        if op == "copy":
+            copy = step["target"]
+            if not copy.is_file():
+                message(i18n.t("restore.skip.missing", name=copy.name))
+                return "skipped"
+            if not step["original"].is_file():
+                # The original vanished meanwhile: the copy is the only one
+                # left, so never delete it.
+                message(i18n.t("restore.skip.only_copy", name=copy.name))
+                return "skipped"
+            copy.unlink()
+            journal.record("rmfile", path=str(copy))
+            message(i18n.t("restore.ok.copy", name=copy.name))
+            return "done"
+
+        if op == "download":
+            # Take the archive line out too, otherwise yt-dlp would skip the
+            # track on the next run (step 4.4).
+            path = step["path"]
+            if not path.is_file():
+                message(i18n.t("restore.skip.missing", name=path.name))
+                return "skipped"
+            path.unlink()
+            _drop_archive_id(step["archive_id"])
+            journal.record("rmfile", path=str(path))
+            message(i18n.t("restore.ok.download", name=path.name))
+            return "done"
+
+        if op == "move":
+            source = step["source"]
+            target = step["target"]
+            if not source.is_file():
+                message(i18n.t("restore.skip.missing", name=source.name))
+                return "skipped"
+            if target.exists():
+                message(i18n.t("restore.skip.exists", name=target.name))
+                return "skipped"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+            journal.record_move(step["kind"], source, target, mode="move")
+            message(i18n.t("restore.ok.move", name=source.name))
+            return "done"
+    except Exception as error:
+        journal.record_failure("restore", error,
+                               source=str(step.get("source")
+                                          or step.get("path") or ""))
+        message(i18n.t("task.error.file", name=_shown_name(step), error=error))
+        return "error"
+
+    return "skipped"
 
 
 def _list_journals() -> int:
@@ -590,6 +672,7 @@ def cmd_restore(args: CmdArgs) -> int:
     message()
 
     keep_copies = bool(getattr(args, "keep_copies", False))
+    cancel = getattr(args, "cancel", NO_CANCEL)
     steps: list[dict] = []
     skipped = 0
 
@@ -599,6 +682,28 @@ def cmd_restore(args: CmdArgs) -> int:
         report_stats("restore", files=0, changed=0, skipped=0, errors=0,
                      applied=bool(args.apply))
         return 0
+
+    # Undo steps are planned against a virtual file system: in a combined run
+    # (tags -> rename -> sort) a file only returns to its old name through the
+    # undo steps planned before it. That is why a dependency like "the rename
+    # brings back the path the tag step needs" must not be checked against the
+    # file system as it is right now.
+    state: dict[Path, bool] = {}
+    origin: dict[Path, Path] = {}
+
+    def exists(path: Path) -> bool:
+        return state.get(path, path.is_file())
+
+    def now(path: Path) -> Path:
+        """Where ``path`` lies right now, before the first undo step runs."""
+        return origin.get(path, path)
+
+    def plan_move(source: Path, target: Path) -> None:
+        """Remember that undoing moves ``target`` back to ``source``."""
+        state[target] = False
+        state[source] = True
+        origin[source] = now(target)
+        origin.pop(target, None)
 
     for event in events:
         op = str(event.get("op"))
@@ -615,14 +720,14 @@ def cmd_restore(args: CmdArgs) -> int:
             if not values:
                 skipped += 1
                 continue
-            if not target.is_file():
+            if not exists(target):
                 message(i18n.t("restore.skip.missing", name=target.name))
                 skipped += 1
                 continue
             current = {str(key): str(value)
                        for key, value in (event.get("after") or {}).items()}
             steps.append({"op": "tags", "path": target, "values": values,
-                          "current": current})
+                          "current": current, "backup": now(target)})
             report_plan("tags", path=target,
                         changes={key: (current.get(key, ""), value)
                                  for key, value in values.items()})
@@ -638,17 +743,19 @@ def cmd_restore(args: CmdArgs) -> int:
                 message(i18n.t("restore.skip.keep_copy", name=copy.name))
                 skipped += 1
                 continue
-            if not copy.is_file():
+            if not exists(copy):
                 message(i18n.t("restore.skip.missing", name=copy.name))
                 skipped += 1
                 continue
-            if not original.is_file():
+            if not exists(original):
                 # Safety net: the original is gone, so the copy is the only one
                 # left. Report it instead of deleting data.
                 message(i18n.t("restore.skip.only_copy", name=copy.name))
                 skipped += 1
                 continue
-            steps.append({"op": "copy", "target": copy})
+            steps.append({"op": "copy", "target": copy, "original": original,
+                          "backup": now(copy)})
+            state[copy] = False
             report_plan("sort", source=copy, target=original)
             message(i18n.t("restore.remove_copy", name=copy.name))
             continue
@@ -660,11 +767,13 @@ def cmd_restore(args: CmdArgs) -> int:
                 message(i18n.t("restore.skip.keep_download", name=target.name))
                 skipped += 1
                 continue
-            if not target.is_file():
+            if not exists(target):
                 message(i18n.t("restore.skip.missing", name=target.name))
                 skipped += 1
                 continue
-            steps.append({"op": "download", "path": target, "archive_id": archive_id})
+            steps.append({"op": "download", "path": target, "archive_id": archive_id,
+                          "backup": now(target)})
+            state[target] = False
             report_plan("download", path=target, archive_id=archive_id)
             message(i18n.t("restore.remove_download", name=target.name))
             continue
@@ -672,16 +781,17 @@ def cmd_restore(args: CmdArgs) -> int:
         if op in ("rename", "sort"):
             source = Path(str(event.get("source", "")))
             target = Path(str(event.get("target", "")))
-            if not target.is_file():
+            if not exists(target):
                 message(i18n.t("restore.skip.missing", name=target.name))
                 skipped += 1
                 continue
-            if source.exists():
+            if exists(source):
                 message(i18n.t("restore.skip.exists", name=source.name))
                 skipped += 1
                 continue
             steps.append({"op": "move", "kind": op, "source": target,
-                          "target": source})
+                          "target": source, "backup": now(target)})
+            plan_move(source, target)
             report_plan(op, source=target, target=source)
             message(f"  {target.name}  ->  {source}")
             continue
@@ -689,7 +799,8 @@ def cmd_restore(args: CmdArgs) -> int:
         message(i18n.t("restore.skip.unknown", op=op))
         skipped += 1
 
-    changed = len(steps)
+    planned = len(steps)
+    changed = planned
     errors = 0
     backup_folder: Path | None = None
 
@@ -699,59 +810,32 @@ def cmd_restore(args: CmdArgs) -> int:
             backup_folder = _backup_files(_common_root(changed_files), changed_files)
 
         message()
-        message(i18n.t("restore.undoing", count=changed))
-        lock = threading.Lock()
+        message(i18n.t("restore.undoing", count=planned))
         done_count = 0
+        late_skipped = 0
 
-        def undo(step: dict) -> None:
-            nonlocal done_count, errors
+        # One step after the other: the reverse order is what makes a chained
+        # run undoable at all (sort -> rename -> tags), so the steps must never
+        # run in parallel.
+        for index, step in enumerate(steps, start=1):
             try:
-                if step["op"] == "tags":
-                    write_tags(step["path"], step["values"])
-                    journal.record_tags(step["path"], step["current"],
-                                        step["values"])
-                    with lock:
-                        done_count += 1
-                        message(i18n.t("restore.ok.tags", name=step["path"].name))
-                elif step["op"] == "copy":
-                    step["target"].unlink()
-                    journal.record("rmfile", path=str(step["target"]))
-                    with lock:
-                        done_count += 1
-                        message(i18n.t("restore.ok.copy", name=step["target"].name))
-                elif step["op"] == "download":
-                    # Take the archive line out too, otherwise yt-dlp would skip
-                    # the track on the next run (step 4.4).
-                    step["path"].unlink()
-                    _drop_archive_id(step["archive_id"])
-                    journal.record("rmfile", path=str(step["path"]))
-                    with lock:
-                        done_count += 1
-                        message(i18n.t("restore.ok.download", name=step["path"].name))
-                else:
-                    step["target"].parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(step["source"]), str(step["target"]))
-                    journal.record_move(step["kind"], step["source"],
-                                        step["target"], mode="move")
-                    with lock:
-                        done_count += 1
-                        message(i18n.t("restore.ok.move", name=step["source"].name))
-            except Exception as error:
-                journal.record_failure("restore", error,
-                                       source=str(step.get("source")
-                                                  or step.get("path") or ""))
-                with lock:
-                    errors += 1
-                    message(i18n.t("task.error.file", name=_shown_name(step),
-                                   error=error))
+                cancel.check()
+            except Cancelled:
+                message(i18n.t("task.cancelled"))
+                return 130
+            outcome = _undo_step(step)
+            if outcome == "done":
+                done_count += 1
+            elif outcome == "skipped":
+                late_skipped += 1
+            else:
+                errors += 1
+            progress(index, planned, i18n.t("task.progress.restore"))
 
-        # TODO: restore writes tags and moves files, but the pool is sized for
-        # copying. WRITE_WORKERS may fit better here.
-        with ThreadPoolExecutor(max_workers=COPY_WORKERS) as pool:
-            futures = [pool.submit(undo, step) for step in steps]
-            for done, future in enumerate(as_completed(futures), start=1):
-                future.result()
-                _progress(done, changed, i18n.t("task.progress.restore"))
+        # A step can turn out to be impossible only at run time (the file
+        # vanished, a name was taken meanwhile): count what really happened.
+        changed = done_count
+        skipped += late_skipped
 
     _finish("restore.done",
             {"changed": changed, "skipped": skipped, "total": len(events)},
@@ -799,7 +883,7 @@ def _backup_files(root: Path, paths: list[Path]) -> Path | None:
             copied += 1
         except OSError as error:
             message(i18n.t("task.backup.file_error", name=path.name, error=error))
-        _progress(index, len(paths), i18n.t("task.progress.backup"))
+        progress(index, len(paths), i18n.t("task.progress.backup"))
 
     message(i18n.t("task.backup.done", count=copied, path=folder))
     _prune_backups()

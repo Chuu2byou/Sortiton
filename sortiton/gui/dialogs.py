@@ -13,6 +13,10 @@ from tkinter import filedialog, messagebox
 
 from .. import i18n
 
+# No native dialog may block the GUI forever (a hung D-Bus is the usual cause).
+# Five minutes is generous enough for browsing a folder.
+_DIALOG_TIMEOUT = 300
+
 
 def _command_available(name: str) -> bool:
     return shutil.which(name) is not None
@@ -25,25 +29,59 @@ def _pick_folder(start_dir: Path) -> str | None:
         try:
             result = subprocess.run(
                 ["kdialog", "--getexistingdirectory", str(start_dir), "--title", title],
-                capture_output=True, text=True, check=False)
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
             if result.returncode == 0:
                 return result.stdout.strip() or None
             if result.returncode == 1:
                 return None          # cancelled by the user
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     if _command_available("zenity"):
         try:
             result = subprocess.run(
                 ["zenity", "--file-selection", "--directory",
                  f"--filename={start_dir}/", f"--title={title}"],
-                capture_output=True, text=True, check=False)
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
             if result.returncode == 0:
                 return result.stdout.strip() or None
             return None
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     chosen = filedialog.askdirectory(title=title, initialdir=str(start_dir), mustexist=True)
+    return chosen or None
+
+
+def _pick_file(start_dir: Path, title: str) -> str | None:
+    """Modern system file dialog: kdialog (KDE) → zenity (GNOME) → Tkinter."""
+    if _command_available("kdialog"):
+        try:
+            result = subprocess.run(
+                ["kdialog", "--getopenfilename", str(start_dir), "*", "--title", title],
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
+            if result.returncode == 0:
+                return result.stdout.strip() or None
+            if result.returncode == 1:
+                return None          # cancelled by the user
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    if _command_available("zenity"):
+        try:
+            result = subprocess.run(
+                ["zenity", "--file-selection", f"--filename={start_dir}/",
+                 f"--title={title}"],
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
+            if result.returncode == 0:
+                return result.stdout.strip() or None
+            return None
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    chosen = filedialog.askopenfilename(
+        title=title, initialdir=str(start_dir),
+        filetypes=[("CSV / text", "*.csv *.tsv *.txt"), ("All files", "*")])
     return chosen or None
 
 
@@ -53,17 +91,19 @@ def _ask_yes_no(title: str, text: str) -> bool:
         try:
             result = subprocess.run(
                 ["kdialog", "--yesno", text, "--title", title, "--defaultno"],
-                capture_output=True, text=True, check=False)
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
             return result.returncode == 0
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     if _command_available("zenity"):
         try:
             result = subprocess.run(
                 ["zenity", "--question", f"--title={title}", f"--text={text}"],
-                capture_output=True, text=True, check=False)
+                capture_output=True, text=True, check=False,
+                timeout=_DIALOG_TIMEOUT)
             return result.returncode == 0
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     return messagebox.askyesno(title, text, icon="warning", default="no")
 
@@ -72,16 +112,18 @@ def _show_error(title: str, text: str) -> None:
     if _command_available("kdialog"):
         try:
             subprocess.run(["kdialog", "--error", text, "--title", title],
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True, check=False,
+                           timeout=_DIALOG_TIMEOUT)
             return
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     if _command_available("zenity"):
         try:
             subprocess.run(["zenity", "--error", f"--title={title}", f"--text={text}"],
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True, check=False,
+                           timeout=_DIALOG_TIMEOUT)
             return
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     messagebox.showerror(title, text)
 
@@ -90,15 +132,17 @@ def _show_warning(title: str, text: str) -> None:
     if _command_available("kdialog"):
         try:
             subprocess.run(["kdialog", "--sorry", text, "--title", title],
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True, check=False,
+                           timeout=_DIALOG_TIMEOUT)
             return
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     if _command_available("zenity"):
         try:
             subprocess.run(["zenity", "--warning", f"--title={title}", f"--text={text}"],
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True, check=False,
+                           timeout=_DIALOG_TIMEOUT)
             return
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             pass
     messagebox.showwarning(title, text)

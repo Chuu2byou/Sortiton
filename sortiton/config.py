@@ -18,7 +18,8 @@ SOURCE_DIR = PACKAGE_DIR.parent
 # so both use the user's data folder instead. SORTITON_DATA_DIR moves it.
 FROZEN = bool(getattr(sys, "frozen", False))
 IN_SOURCE_TREE = not FROZEN and (SOURCE_DIR / "sortiton.py").is_file()
-DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+_XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME", "").strip()
+DATA_HOME = Path(_XDG_DATA_HOME) if _XDG_DATA_HOME else Path.home() / ".local" / "share"
 PROJECT_DIR = (SOURCE_DIR if IN_SOURCE_TREE
                else Path(os.environ.get("SORTITON_DATA_DIR") or DATA_HOME / "sortiton"))
 

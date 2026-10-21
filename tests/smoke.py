@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,6 +34,7 @@ os.environ["SORTITON_RULES"] = str(_TMP / "my_rules.ini")
 os.environ["SORTITON_LOG_DIR"] = str(_TMP / "logs")
 os.environ["SORTITON_EXPORT_DIR"] = str(_TMP / "exports")
 os.environ["SORTITON_CACHE_DIR"] = str(_TMP / "cache")
+os.environ["SORTITON_BACKUP_DIR"] = str(_TMP / "backups")
 os.environ["SORTITON_FETCH_ARCHIVE"] = str(_TMP / "fetch_archive.txt")
 os.environ.pop("SORTITON_LANG", None)
 
@@ -69,6 +71,32 @@ def test_import() -> None:
     check("__all__ is not empty", bool(ms.__all__))
     missing = [name for name in ms.__all__ if not hasattr(ms, name)]
     check("__all__ names exist", not missing, ", ".join(missing))
+
+
+def test_file_names() -> None:
+    """free_target on a case-insensitive file system (FAT32/exFAT/NTFS)."""
+    print("file names / free_target")
+    import unittest.mock as mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        own = folder / "Artist - Track.mp3"
+        own.write_bytes(b"x")
+        check("a file never blocks its own name",
+              files.free_target(own, set(), ignore=own) == own)
+
+        # On a case-insensitive file system the path exists even though only
+        # the spelling differs: that must not produce "Artist - Track (2)".
+        upper = folder / "ARTIST - TRACK.mp3"
+        with mock.patch.object(Path, "exists", return_value=True):
+            got = files.free_target(upper, set(), ignore=own)
+        check("a case-only difference is not a collision", got == upper, str(got))
+
+        other = folder / "other.mp3"
+        other.write_bytes(b"y")
+        check("a real collision still gets (2)",
+              files.free_target(other, set()) == folder / "other (2).mp3")
+
 
 
 def test_version() -> None:
@@ -159,6 +187,13 @@ def test_custom_rules() -> None:
         check("protected is not split", rules.clean_artist("Demo & Co") == "Demo & Co")
         check("protected spelling", rules.clean_artist("Foo/Bar") == "Foo / Bar")
         check("empty genre deletes", rules.clean_genre("junkgenre") == "")
+        snapshot = rules._custom_rules()
+        check("load swaps one consistent snapshot",
+              len(snapshot.artists) == 1 and len(snapshot.regex) == 1
+              and snapshot.genres.get("junkgenre") == ""
+              and len(snapshot.protected) == 2,
+              str((len(snapshot.artists), len(snapshot.regex), snapshot.genres,
+                   len(snapshot.protected))))
 
     # parse_custom_rules does the same work without the file system - the GUI
     # uses it to check a pasted LLM answer before it reaches the editor.
@@ -1484,10 +1519,13 @@ def test_cancel() -> None:
 
 
 def _restore_args(path, *, apply: bool = False, keep_copies: bool = False,
-                  list_journals: bool = False):
+                  list_journals: bool = False, backup: bool = False, cancel=None):
     """The argument set cmd_restore expects (CLI: argparse, here a namespace)."""
-    return SimpleNamespace(journal=path, apply=apply, backup=False,
+    args = SimpleNamespace(journal=path, apply=apply, backup=backup,
                            keep_copies=keep_copies, list_journals=list_journals)
+    if cancel is not None:
+        args.cancel = cancel
+    return args
 
 
 def _open_journal(work: Path, day: int):
@@ -1726,6 +1764,137 @@ def test_restore() -> None:
         check("nothing was skipped", stats.get("skipped") == 0, str(stats))
         check("no errors", stats.get("errors") == 0, str(stats))
         check("apply is reported", bool(stats.get("applied")))
+
+        # A combined run (tags -> rename -> sort/move) is undone as one chain.
+        # Planning must not drop the steps that only work after an earlier undo
+        # step has moved the file back.
+        chain = work / "chain"
+        chain.mkdir()
+        first = chain / "first.mp3"
+        second = chain / "second.mp3"
+        third = chain / "library" / "third.mp3"
+        first.write_bytes(b"\x02" * 64)
+        first.rename(second)
+        third.parent.mkdir()
+        shutil.move(str(second), str(third))
+        jrn_chain = _open_journal(work, 11)
+        journal.record_move("rename", first, second)
+        journal.record_move("sort", second, third, mode="move")
+        journal.close()
+
+        check("chain preview plans every step",
+              cmd_restore(_restore_args(jrn_chain)) == 0
+              and output.last_stats("restore").get("changed") == 2,
+              str(output.last_stats("restore")))
+        check("chain preview changes nothing", third.exists())
+        check("chain undo runs", cmd_restore(_restore_args(jrn_chain, apply=True)) == 0)
+        check("chain undo restores the first name",
+              first.read_bytes() == b"\x02" * 64
+              and not second.exists() and not third.exists(),
+              str([path.name for path in chain.rglob("*.mp3")]))
+        stats = output.last_stats("restore")
+        check("chain undo counts both steps", stats.get("changed") == 2, str(stats))
+        check("chain undo skips nothing", stats.get("skipped") == 0, str(stats))
+
+        # --backup in a chain copies the file where it lies before the undo,
+        # not at an intermediate name that does not exist yet.
+        backup_chain = work / "chain_backup"
+        backup_chain.mkdir()
+        b_first = backup_chain / "first.mp3"
+        b_second = backup_chain / "second.mp3"
+        b_third = backup_chain / "library" / "third.mp3"
+        b_first.write_bytes(b"\x03" * 64)
+        b_first.rename(b_second)
+        b_third.parent.mkdir()
+        shutil.move(str(b_second), str(b_third))
+        jrn_backup = _open_journal(work, 12)
+        journal.record_move("rename", b_first, b_second)
+        journal.record_move("sort", b_second, b_third, mode="move")
+        journal.close()
+        cmd_restore(_restore_args(jrn_backup, apply=True, backup=True))
+        folder = Path(str(output.last_stats("restore").get("backup") or ""))
+        copied = list(folder.rglob("*.mp3")) if folder.is_dir() else []
+        check("--backup of a chain copies the file",
+              len(copied) == 1 and copied[0].read_bytes() == b"\x03" * 64,
+              str(copied))
+
+        # The tags step of the same run is only possible after the renames:
+        # its path must be planned virtually, not checked on disk.
+        tag_chain = work / "chain_tags"
+        tag_chain.mkdir()
+        old_name = tag_chain / "01 - Song.flac"
+        tag_renamed = tag_chain / "Demo - Song.flac"
+        tag_sorted = tag_chain / "library" / "Demo" / "Demo - Song.flac"
+        if not _make_flac(old_name):
+            skip("undo/tags chain", "ffmpeg is missing - cannot build a test file")
+        else:
+            write_tags(old_name, {"artist": "Old Name"})
+            jrn_chain_tags = _open_journal(work, 13)
+            journal.record_tags(old_name, {"artist": "Old Name"},
+                                {"artist": "New Name"})
+            journal.record_move("rename", old_name, tag_renamed)
+            journal.record_move("sort", tag_renamed, tag_sorted, mode="move")
+            # The run itself: tags -> rename -> sort/move.
+            write_tags(old_name, {"artist": "New Name"})
+            old_name.rename(tag_renamed)
+            tag_sorted.parent.mkdir(parents=True)
+            shutil.move(str(tag_renamed), str(tag_sorted))
+            journal.close()
+
+            check("tag chain preview plans all three steps",
+                  cmd_restore(_restore_args(jrn_chain_tags)) == 0
+                  and output.last_stats("restore").get("changed") == 3,
+                  str(output.last_stats("restore")))
+            check("tag chain undo runs",
+                  cmd_restore(_restore_args(jrn_chain_tags, apply=True)) == 0)
+            check("tag chain restores the original name",
+                  old_name.exists() and not tag_renamed.exists()
+                  and not tag_sorted.exists(),
+                  str([path.name for path in tag_chain.rglob("*.flac")]))
+            check("tag chain restores the old tag",
+                  probe_tags(old_name)["artist"] == "Old Name",
+                  probe_tags(old_name)["artist"])
+            check("tag chain reports no errors",
+                  output.last_stats("restore").get("errors") == 0,
+                  str(output.last_stats("restore")))
+
+        # A name taken again between preview and apply is skipped, never
+        # overwritten - and the counters show what really happened.
+        late = work / "late"
+        late.mkdir()
+        late_old = late / "old.mp3"
+        late_new = late / "new.mp3"
+        late_old.write_bytes(b"\x04" * 8)
+        shutil.move(str(late_old), str(late_new))
+        jrn_late = _open_journal(work, 14)
+        journal.record_move("rename", late_old, late_new)
+        journal.close()
+        cmd_restore(_restore_args(jrn_late))
+        late_old.write_bytes(b"\x05" * 8)
+        cmd_restore(_restore_args(jrn_late, apply=True))
+        stats = output.last_stats("restore")
+        check("a name taken after the preview is skipped",
+              late_old.read_bytes() == b"\x05" * 8 and late_new.exists()
+              and stats.get("skipped") == 1 and stats.get("changed") == 0,
+              str(stats))
+
+        # A cancelled undo never starts its first step.
+        from sortiton.cancel import CancelToken
+        cancel_dir = work / "cancel_restore"
+        cancel_dir.mkdir()
+        c_old = cancel_dir / "old.mp3"
+        c_new = cancel_dir / "new.mp3"
+        c_old.write_bytes(b"\x06" * 8)
+        shutil.move(str(c_old), str(c_new))
+        jrn_cancel = _open_journal(work, 15)
+        journal.record_move("rename", c_old, c_new)
+        journal.close()
+        token = CancelToken()
+        token.cancel()
+        check("a cancelled undo returns 130",
+              cmd_restore(_restore_args(jrn_cancel, apply=True,
+                                        cancel=token)) == 130)
+        check("a cancelled undo changes nothing", c_new.exists() and not c_old.exists())
 
         # --keep-copies: a copy run stays where it is
         keep_dir = work / "keep"
@@ -2013,7 +2182,7 @@ def test_gui() -> None:
         check("scrollbar visibility matches content overflow",
               gui._content_scrollbar.winfo_ismapped() == content_overflows)
         check("result panel keeps its configured height",
-              gui._result_area.winfo_height() >= gui_app.RESULT_HEIGHT)
+              gui._result_area.winfo_height() >= gui._result_height)
         previous_geometry = root.geometry()
         root.geometry("900x460")
         root.update()
@@ -2105,13 +2274,38 @@ def test_gui() -> None:
         # write button and runs the (read-only) export from a single button.
         from sortiton import external
         from sortiton.features import FEATURES as feature_list
+        from sortiton.gui import tools as gui_tools
         export = feature_list[0]
-        check("tools form has a widget per option",
+        form_options = [option for _section, options in gui_tools.form_sections(export)
+                        for option in options]
+        check("tools form has a widget per run option",
               all((export.key, option.name) in gui._tool_widgets
-                  for option in export.options),
+                  for option in form_options),
               ", ".join(sorted(name for key, name in gui._tool_widgets if key == export.key)))
+        check("fine-tuning is not part of the tools form",
+              all((feature.key, option.name) not in gui._tool_widgets
+                  for feature, option in gui_tools.fine_tuning_items()))
+        check("the export keeps its fine-tuning options", bool(
+            [option for feature, option in gui_tools.fine_tuning_items()
+             if feature.key == export.key]))
         check("tools tab has no write button", "tools" not in gui._execute_buttons)
         check("tools signature can be built", gui._signature("tools")[0] == "tools")
+
+        # The fine-tuning cards live in the settings window; opening it fills
+        # the same widgets registry, so the tab and the window stay in sync.
+        gui._open_preferences()
+        root.update()
+        prefs = gui._prefs_window
+        check("settings window builds",
+              prefs is not None and bool(prefs.window.winfo_exists()))
+        check("settings has a widget per fine-tuning option",
+              all((feature.key, option.name) in gui._tool_widgets
+                  for feature, option in gui_tools.fine_tuning_items()),
+              ", ".join(sorted(name for key, name in gui._tool_widgets
+                               if key == export.key)))
+        prefs.window.destroy()
+        root.update()
+        check("settings window closes again", gui._prefs_window is None)
 
         # Step 3.4: a writing feature (fixes) turns the tools bar into the
         # normal preview/write pair; the export keeps its single button.
@@ -2138,7 +2332,22 @@ def test_gui() -> None:
         root.update()
         check("tools form is rebuilt after a language switch",
               (export.key, "folder") in gui._tool_widgets)
+
+        # Fine-tuning is stored in settings.ini (temp file in this run) and
+        # seeds a fresh variable table again - that is the restart path.
+        gui._save_fine_tuning()
+        stored = settings.read_tool_values()
+        check("fine-tuning is stored in settings.ini",
+              stored.get(f"{export.key}.examples") == "7", str(stored))
+        fresh = gui_tools.make_tool_vars()
+        gui_tools.apply_stored(fresh)
+        check("settings.ini seeds the fine-tuning",
+              fresh[export.key]["examples"].get() == "7",
+              fresh[export.key]["examples"].get())
         gui.var_tool[export.key]["examples"].set("40")
+        gui._save_fine_tuning()
+        check("fine-tuning resets cleanly",
+              settings.read_tool_values().get(f"{export.key}.examples") == "40")
 
         fixture = _load_export_helper().FIXTURE_DIR
         if not fixture.is_dir():
@@ -2199,14 +2408,124 @@ def test_gui() -> None:
             gui._llm_window.destroy()
         if gui._rules_window is not None and gui._rules_window.winfo_exists():
             gui._rules_window.destroy()
-        root.update()
+
+        # WM_DELETE_WINDOW: a running task is cancelled, not killed mid-write.
+        from sortiton.cancel import CancelToken
+        import unittest.mock as mock
+
+        check("a close handler is registered",
+              bool(root.protocol("WM_DELETE_WINDOW")))
+        gui.running = True
+        gui._cancel = CancelToken()
+        with mock.patch.object(gui_app, "_ask_yes_no", return_value=False):
+            gui._on_window_close()
+        check("closing is refused while the user says no",
+              not gui._closing and not gui._cancel.is_set())
+        with mock.patch.object(gui_app, "_ask_yes_no", return_value=True):
+            gui._on_window_close()
+        check("closing cancels a running task",
+              gui._closing and gui._cancel.is_set())
+        check("the window waits for the task to stop",
+              bool(root.winfo_exists()) and gui.running)
+
+        # Now the task ends: _finish destroys the window only afterwards.
+        def window_alive() -> bool:
+            try:
+                return bool(root.winfo_exists())
+            except tk.TclError:
+                return False
+
+        gui._finish(130)
+        try:
+            root.update()
+        except tk.TclError:
+            pass
+        check("the window is destroyed once the task stopped", not window_alive())
     finally:
-        root.destroy()
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+def test_regressions() -> None:
+    """Checks for the concurrency and writer fixes (no display needed)."""
+    print("regressions: journal, tags, comparison, dialogs")
+
+    # record() must check _file under the lock: close() clears it under the
+    # same lock. Before the fix a record() that passed the check first wrote
+    # to None and raised AttributeError.
+    import unittest.mock as mock
+    from sortiton import tags
+    from sortiton.gui import dialogs
+
+    class _NeverUsed:
+        def write(self, _text):
+            raise AssertionError("record wrote after close()")
+
+        def flush(self):
+            raise AssertionError("record flushed after close()")
+
+    original_lock, original_file = journal._lock, journal._file
+    journal._lock = threading.Lock()
+    errors: list[BaseException] = []
+
+    def record_worker() -> None:
+        try:
+            journal.record("regression")
+        except BaseException as error:      # noqa: BLE001 - the test collects it
+            errors.append(error)
+
+    try:
+        journal._lock.acquire()
+        journal._file = _NeverUsed()
+        worker = threading.Thread(target=record_worker)
+        worker.start()
+        time.sleep(0.1)                     # let it pass the (old) check
+        journal._file = None                # what close() does under the lock
+        journal._lock.release()
+        worker.join(timeout=2)
+    finally:
+        journal._lock = original_lock
+        journal._file = original_file
+    check("record() never writes after close()", not errors, repr(errors))
+
+    # Same size, different first byte: the early compare must say "different".
+    with tempfile.TemporaryDirectory() as tmp:
+        first = Path(tmp) / "a.bin"
+        second = Path(tmp) / "b.bin"
+        same = Path(tmp) / "c.bin"
+        first.write_bytes(b"A" + b"x" * 4095)
+        second.write_bytes(b"B" + b"x" * 4095)
+        same.write_bytes(first.read_bytes())
+        check("same_content rejects an early difference",
+              not files.same_content(first, second))
+        check("same_content accepts identical files", files.same_content(first, same))
+
+    # Every writer mapping must know every tag field the fixes feature writes.
+    fields = set(tags.TAG_FIELDS)
+    check("ID3 mapping is complete", fields <= set(tags._ID3_FRAMES))
+    check("ASF mapping is complete", fields <= set(tags._ASF_KEYS))
+    check("Vorbis mapping is complete", fields <= set(tags._VORBIS_KEYS))
+    check("MP4 mapping is complete",
+          fields <= set(tags._MP4_TEXT_KEYS) | set(tags._MP4_PAIR_KEYS))
+
+    # A hung native dialog falls back to Tkinter instead of blocking forever.
+    timeout = subprocess.TimeoutExpired(cmd="kdialog", timeout=1)
+    with mock.patch.object(dialogs, "_command_available", return_value=True), \
+            mock.patch.object(dialogs.subprocess, "run", side_effect=timeout) as run, \
+            mock.patch.object(dialogs.messagebox, "askyesno", return_value=True) as fallback:
+        answer = dialogs._ask_yes_no("Title", "Text")
+    check("dialog timeout falls back", answer is True and fallback.called,
+          f"answer={answer}, calls={run.call_count}")
+    check("dialog timeout is passed to subprocess",
+          run.call_count == 2 and all(call.kwargs.get("timeout") for call in run.call_args_list),
+          str(run.call_args_list))
 
 
 def main() -> int:
     settings.apply_language()
-    for test in (test_import, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
+    for test in (test_import, test_file_names, test_version, test_catalogs, test_rules, test_custom_rules, test_cli,
                  test_german_cli, test_external_tools, test_features_base, test_features_registry,
                  test_fetch, test_fetch_run, test_fetch_cancel, test_fetch_restore,
                  test_all_pipeline, test_features_isolation,
@@ -2220,7 +2539,7 @@ def main() -> int:
                  test_export_cli, test_export_cache_migration, test_cancel,
                  test_export_public_api,
                  test_console_progress, test_journal, test_logs, test_screenshot_guard,
-                 test_restore, test_fixes, test_gui):
+                 test_restore, test_fixes, test_regressions, test_gui):
         test()
     print()
     if FAILURES:

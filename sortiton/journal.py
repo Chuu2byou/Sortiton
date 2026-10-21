@@ -55,12 +55,14 @@ def journal_path_for(log_path: Path) -> Path:
 
 def is_open() -> bool:
     """True while a journal is being written."""
-    return _file is not None
+    with _lock:
+        return _file is not None
 
 
 def latest_path() -> Path | None:
     """The journal that is open right now, or None."""
-    return _path
+    with _lock:
+        return _path
 
 
 def open_for(log_path: Path) -> Path | None:
@@ -72,8 +74,9 @@ def open_for(log_path: Path) -> Path | None:
     """
     global _file, _path
 
-    if _file is not None:
-        return _path
+    with _lock:
+        if _file is not None:
+            return _path
     if not enabled():
         return None
 
@@ -85,6 +88,11 @@ def open_for(log_path: Path) -> Path | None:
         return None
 
     with _lock:
+        # Another thread may have opened the journal while this one was
+        # creating its file. One run, one journal: keep the first one.
+        if _file is not None:
+            handle.close()
+            return _path
         _file = handle
         _path = path
 
@@ -118,9 +126,6 @@ def close() -> None:
 
 def record(op: str, **data: object) -> None:
     """Append one event. Never raises, never interrupts the run."""
-    if _file is None:
-        return
-
     event = {"v": SCHEMA, "ts": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "op": op}
     event.update(data)
     try:
@@ -130,8 +135,14 @@ def record(op: str, **data: object) -> None:
 
     try:
         with _lock:
-            _file.write(line + "\n")
-            _file.flush()      # a crash keeps everything written so far
+            # The check must happen under the same lock as the write: close()
+            # clears _file under it, and checking outside would let us write to
+            # a handle that has just become None.
+            handle = _file
+            if handle is None:
+                return
+            handle.write(line + "\n")
+            handle.flush()     # a crash keeps everything written so far
     except (OSError, ValueError):
         pass
 
@@ -240,7 +251,7 @@ def latest_journal() -> Path | None:
     file. Without skipping it, ``restore --apply`` would read its own journal,
     find nothing and do nothing.
     """
-    current = _path
+    current = latest_path()
     for path in find_journals(limit=None):
         if current is None or path != current:
             return path

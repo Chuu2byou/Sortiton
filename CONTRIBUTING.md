@@ -100,7 +100,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton_gui.py` | **GUI entry point** (checks Tkinter, starts the interface) |
 | `sortiton/config.py` | Constants and paths (project folder, `logs/`, `my_rules.ini`, `settings.ini`) |
 | `sortiton/i18n.py` | Translations - every visible text lives here |
-| `sortiton/settings.py` | User settings (`settings.ini`) |
+| `sortiton/settings.py` | User settings (`settings.ini`: language, backup, fine-tuning) |
 | `sortiton/output.py` | Console/GUI output, progress, log file |
 | `sortiton/journal.py` | Run journal: what a run changed, the basis for `restore` |
 | `sortiton/rules.py` | Rule tables, `my_rules.ini`, text cleanup |
@@ -114,7 +114,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/gui/design.py` | Colours and fonts |
 | `sortiton/gui/widgets.py` | Hand-drawn widgets (buttons, chips, segments, progress bar) |
 | `sortiton/gui/panels.py` | Preview card and result panel |
-| `sortiton/gui/preferences.py` | Settings window (tag backends, language) |
+| `sortiton/gui/preferences.py` | Settings window (tag backends, fine-tuning of the tools, language) |
 | `sortiton/gui/confirm.py` | Confirmation with counts and backup switch |
 | `sortiton/gui/restore.py` | Undo window (pick a journal, check the plan, undo) |
 | `sortiton/gui/dialogs.py` | System dialogs (`kdialog` → `zenity` → Tkinter) |

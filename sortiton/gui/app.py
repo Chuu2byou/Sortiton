@@ -24,15 +24,16 @@ from ..cancel import CancelToken
 from ..features import FEATURES, get as feature_by_key
 from ..tasks import cmd_all, cmd_rename, cmd_restore, cmd_scan, cmd_sort, cmd_tags
 from . import design
-from .design import (ACCENT, BACKGROUND, BORDER, CARD, FIELD, GREEN, LOG_BG, LOG_TEXT,
-                     RED, SCROLLBAR, SCROLLBAR_ACTIVE, TEXT, TEXT_FAINT, TEXT_MUTED,
-                     YELLOW)
+from .design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD, FIELD_ACTIVE,
+                     GREEN, LOG_BG, LOG_TEXT, RED, SCROLLBAR, SCROLLBAR_ACTIVE, TEXT,
+                     TEXT_FAINT, TEXT_MUTED, YELLOW)
 from .confirm import ask_confirm
-from .dialogs import _ask_yes_no, _pick_folder, _show_error, _show_warning
+from .dialogs import _ask_yes_no, _pick_file, _pick_folder, _show_error, _show_warning
 from .panels import PreviewCard, ResultPanel, section_label
 from .preferences import PreferencesWindow
 from .restore import RestoreWindow
-from .tools import ToolsTab, make_tool_vars, tool_value
+from .tools import (ToolsTab, apply_stored, feature_run_label, fine_tuning_items,
+                    make_tool_vars, stored_values, tool_value)
 from .widgets import Pill, ProgressBar, RoundButton, Segments
 
 # Default folders: "Musik" next to the project folder (fallback ~/Musik) and the
@@ -50,8 +51,21 @@ PATTERN_DEFAULT = "%artist% - %title%"
 ROW_TABS, ROW_LINE_TOP, ROW_CONTENT, ROW_ACTIONS, ROW_RESULT = 0, 1, 2, 3, 4
 ROW_LINE_BOTTOM, ROW_FOOTER = 5, 6
 
-RESULT_HEIGHT = 176      # result area in counter mode
-LOG_HEIGHT = 320         # … and with the full log open
+#: Widest the form area gets (design pixels); wider windows centre the column.
+CONTENT_MAX_WIDTH = 1120
+
+# Base heights in design pixels; :meth:`SortitonGUI._apply_scale` turns them into
+# device pixels once the screen scale is known (the tests read them afterwards).
+_RESULT_HEIGHT_BASE = 176      # result area in counter mode
+_LOG_HEIGHT_BASE = 320         # … and with the full log open
+
+#: Longest path shown in a form field; the front is dropped beyond this.
+_MAX_PATH_CHARS = 52
+
+#: The log widget keeps at most this many lines (the history list is separate
+#: and shorter); trimming prevents an endless Text buffer on long runs.
+_LOG_MAX_LINES = 5000
+_LOG_TRIM_LINES = 1000
 
 # Tag fields shown in the preview, in that order.
 PLAN_FIELDS = ("artist", "album_artist", "title", "album", "genre",
@@ -100,8 +114,8 @@ def _pretty_path(path) -> str:
             text = "~/" + str(candidate.relative_to(home))
     except (OSError, ValueError):
         pass
-    if len(text) > 52:
-        text = "…" + text[-51:]
+    if len(text) > _MAX_PATH_CHARS:
+        text = "…" + text[-(_MAX_PATH_CHARS - 1):]
     return text
 
 
@@ -127,6 +141,7 @@ class SortitonGUI:
         self._llm_status: tk.StringVar | None = None
         self._llm_status_label: tk.Label | None = None
         self._log_history: list[str] = []
+        self._log_lines = 0          # lines currently in the Text widget
         self.pages: dict[str, tk.Frame] = {}
 
         # Preview state per tab: the aggregated plan and the signature it was
@@ -140,6 +155,8 @@ class SortitonGUI:
         # used to look the tools form up again (tests, future features).
         self._tool_widgets: dict[tuple[str, str], tk.Widget] = {}
         self._traces: list[tuple[tk.Variable, str]] = []
+        # Pending after() id of the debounced settings.ini write.
+        self._fine_tuning_job: str | None = None
         self._job_page = "tags"
         self._dirty = False
         self._scan_page: str | None = None
@@ -149,19 +166,57 @@ class SortitonGUI:
         # True as soon as the window got its size/place - a rebuild (language
         # switch) must keep it where it is instead of centring it again.
         self._placed = False
+        # Set when the user asked to close while a task runs: the window then
+        # waits for the task to stop instead of killing its worker thread.
+        self._closing = False
 
         self.has_ffprobe = shutil.which("ffprobe") is not None
         self.has_mutagen = config.MUTAGEN_AVAILABLE
 
+        # Scale first: fonts (points) and every px() call below depend on it.
+        design.configure(root)
         design.load_fonts(root)
+        self._apply_scale()
         self._make_vars()
         self._install_output_hooks()
+        # All fixed rows follow the width of the centred form column.
+        self.root.bind("<Configure>", self._align_fixed_rows, add="+")
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_all()
         self._queue_pump()
         self._log_rules(i18n.t("gui.rules.prefix"))
         if not self.has_ffprobe:
             self._log_line(i18n.t("gui.log.ffprobe_missing"))
         self._refresh_folder_stats("tags")
+
+    def _apply_scale(self) -> None:
+        """Scale the layout heights once the screen scale is known."""
+        self._result_height = design.px(_RESULT_HEIGHT_BASE)
+        self._log_height = design.px(_LOG_HEIGHT_BASE)
+
+    def _content_inset(self) -> int:
+        """Left/right inset that lines the fixed rows up with the form column."""
+        base = design.px(22)
+        width = self.root.winfo_width()
+        spare = max(width - 2 * base - design.px(13) - design.px(CONTENT_MAX_WIDTH), 0)
+        return base + spare // 2
+
+    def _align_fixed_rows(self, event=None) -> None:
+        """Give tabs, action bar, result and footer the same centred column."""
+        if event is not None and event.widget is not self.root:
+            return
+        frames = getattr(self, "_fixed_rows", [])
+        if not frames:
+            return
+        inset = self._content_inset()
+        if inset == getattr(self, "_last_inset", None):
+            return
+        self._last_inset = inset
+        for frame in frames:
+            try:
+                frame.grid_configure(padx=inset)
+            except tk.TclError:
+                pass
 
     def _make_vars(self) -> None:
         """Create every StringVar once - they survive a language switch."""
@@ -185,6 +240,50 @@ class SortitonGUI:
         self.var_tool = make_tool_vars()
         self.var_tool_choice = tk.StringVar(value=FEATURES[0].key if FEATURES else "")
         self.status_var = tk.StringVar(value="")
+        self._seed_tool_folders()
+        # Fine-tuning lives in the settings window but in these variables: load
+        # the stored values once and write them back whenever they change.
+        apply_stored(self.var_tool)
+        self._watch_fine_tuning()
+
+    def _seed_tool_folders(self) -> None:
+        """Prefill empty tool folders with the music folder - that is the usual case."""
+        for feature in FEATURES:
+            for option in feature.options:
+                if option.kind != "folder" or option.name not in ("folder", "target"):
+                    continue
+                variable = self.var_tool[feature.key][option.name]
+                if not str(variable.get()).strip():
+                    variable.set(str(DEFAULT_FOLDER))
+
+    def _watch_fine_tuning(self) -> None:
+        """Store fine-tuning changes in settings.ini (debounced to one write).
+
+        The traces live outside ``self._traces``: that list is rebuilt for the
+        preview invalidation on every language switch, these must survive.
+        """
+        for feature, option in fine_tuning_items():
+            self.var_tool[feature.key][option.name].trace_add("write",
+                                                              self._fine_tuning_changed)
+
+    def _fine_tuning_changed(self, *_args) -> None:
+        """Wait a moment before writing - a spinbox fires on every digit."""
+        if self._fine_tuning_job is not None:
+            try:
+                self.root.after_cancel(self._fine_tuning_job)
+            except tk.TclError:
+                pass
+        self._fine_tuning_job = self.root.after(400, self._save_fine_tuning)
+
+    def _save_fine_tuning(self) -> None:
+        """Write the current fine-tuning values to the [tools] section."""
+        if self._fine_tuning_job is not None:
+            try:
+                self.root.after_cancel(self._fine_tuning_job)
+            except tk.TclError:
+                pass
+        self._fine_tuning_job = None
+        settings.save_tool_values(stored_values(self.var_tool))
 
     def _install_output_hooks(self) -> None:
         """Route everything the tasks report into the queue.
@@ -217,6 +316,7 @@ class SortitonGUI:
         self._tool_widgets = {}
         self._prefs_window = None
         self._llm_window = None
+        self._last_inset = None
         # Keep the current size and position: only the very first build places
         # the window, otherwise a rebuild would recentre it (on two monitors
         # that is exactly the gap between the screens).
@@ -225,8 +325,12 @@ class SortitonGUI:
         self._set_style()
         self._load_icon()
         self._build_tabs()
+        self._bind_shortcuts()
         self._build_result_area()
         self._build_footer()
+        self._fixed_rows = [self._tabs_bar, self._actions_area, self._result_area,
+                            self._footer]
+        self._align_fixed_rows()
         self._watch_inputs()
         self._show_page(self.var_page.get())
         self._replay_log()
@@ -243,31 +347,64 @@ class SortitonGUI:
         used when the window is only rebuilt for another language.
         """
         self.root.title(i18n.t("gui.window.title"))
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
         if not keep_geometry:
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            width = min(1040, max(min(640, screen_width - 40), int(screen_width * 0.86)))
-            height = min(900, max(min(420, screen_height - 40), int(screen_height * 0.86)))
+            width = max(min(design.px(1080), int(screen_width * 0.88),
+                            screen_width - design.px(24)), design.px(640))
+            height = max(min(design.px(920), int(screen_height * 0.88),
+                             screen_height - design.px(24)), design.px(420))
             x = max((screen_width - width) // 2, 0)
             y = max((screen_height - height) // 2, 0)
             self.root.geometry(f"{width}x{height}+{x}+{y}")
-        self.root.minsize(min(640, self.root.winfo_screenwidth() - 40),
-                          min(420, self.root.winfo_screenheight() - 40))
+        self.root.minsize(min(design.px(680), screen_width - design.px(24)),
+                          min(design.px(460), screen_height - design.px(48)))
         self.root.configure(bg=BACKGROUND)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(ROW_CONTENT, weight=1)
-        self.root.rowconfigure(ROW_RESULT, weight=0, minsize=RESULT_HEIGHT)
+        self.root.rowconfigure(ROW_RESULT, weight=0, minsize=self._result_height)
+
+    def _apply_minsize(self) -> None:
+        """Never let the tabs or the settings button get clipped."""
+        bar = getattr(self, "_tabs_bar", None)
+        tabs = getattr(self, "_tabs", None)
+        settings = getattr(self, "_settings_button", None)
+        if bar is None or tabs is None:
+            return
+        needed = tabs.winfo_reqwidth() + design.px(44)
+        if settings is not None:
+            needed += settings.winfo_reqwidth() + design.px(12)
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        width = min(max(design.px(680), needed), screen_width - design.px(24))
+        self.root.minsize(width, min(design.px(460), screen_height - design.px(48)))
 
     def _set_style(self) -> None:
         style = ttk.Style(self.root)
         style.theme_use("clam")
         for orientation in ("Vertical", "Horizontal"):
             name = f"Dark.{orientation}.TScrollbar"
-            style.configure(name, gripcount=0,
+            style.configure(name, gripcount=0, width=design.px(13),
                             background=SCROLLBAR, darkcolor=SCROLLBAR,
                             lightcolor=SCROLLBAR, troughcolor=LOG_BG, bordercolor=LOG_BG,
-                            arrowcolor=TEXT_MUTED, arrowsize=13)
+                            arrowcolor=TEXT_MUTED, arrowsize=design.px(15))
             style.map(name, background=[("active", SCROLLBAR_ACTIVE)])
+        # Read-only comboboxes (tool choices) follow the dark theme too.
+        style.configure("TCombobox", fieldbackground=FIELD, background=FIELD,
+                        foreground=TEXT, arrowcolor=TEXT_MUTED, bordercolor=BORDER,
+                        lightcolor=FIELD, darkcolor=FIELD, padding=design.px(5),
+                        arrowsize=design.px(15))
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", FIELD)],
+                  foreground=[("readonly", TEXT), ("disabled", TEXT_MUTED)],
+                  background=[("readonly", FIELD), ("active", FIELD_ACTIVE)],
+                  selectbackground=[("readonly", FIELD)],
+                  selectforeground=[("readonly", TEXT)])
+        self.root.option_add("*TCombobox*Listbox.background", FIELD)
+        self.root.option_add("*TCombobox*Listbox.foreground", TEXT)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", ACCENT_TEXT)
+        self.root.option_add("*TCombobox*Listbox.font", design.FONT)
 
     def _load_icon(self) -> None:
         """Load the window icon (assets/icon.png, else keep the Tk default)."""
@@ -292,9 +429,9 @@ class SortitonGUI:
                 pass
             self._prefs_window = None
 
-        # The window reads external.TOOLS itself, so it stays generic.
-        self._prefs_window = PreferencesWindow(self.root, self.var_language,
-                                               self._language_changed)
+        # The window edits the same variables the tools tab reads, so it only
+        # needs the app - not a copy of the language handler or the form vars.
+        self._prefs_window = PreferencesWindow(self)
         self._prefs_window.window.bind("<Destroy>", self._prefs_closed, add="+")
 
     def _prefs_closed(self, event) -> None:
@@ -317,22 +454,29 @@ class SortitonGUI:
 
     def _build_tabs(self) -> None:
         bar = tk.Frame(self.root, bg=BACKGROUND)
-        bar.grid(row=ROW_TABS, column=0, sticky="ew", padx=22, pady=(16, 0))
+        bar.grid(row=ROW_TABS, column=0, sticky="ew", padx=design.px(22),
+                 pady=(design.px(16), 0))
         bar.columnconfigure(0, weight=1)
+        self._tabs_bar = bar
         tabs = Segments(bar,
                         [("tags", i18n.t("gui.tab.tags")), ("rename", i18n.t("gui.tab.rename")),
                          ("sort", i18n.t("gui.tab.sort")), ("all", i18n.t("gui.tab.all")),
                          ("tools", i18n.t("gui.tab.tools"))],
-                        self.var_page, command=self._show_page, height=40, stretch=True)
+                        self.var_page, command=self._show_page, height=42, stretch=True)
         tabs.grid(row=0, column=0, sticky="ew")
-        RoundButton(bar, "⚙  " + i18n.t("gui.button.settings"), self._open_preferences,
-                    style="normal", height=32).grid(row=0, column=1, sticky="e", padx=(12, 0))
+        self._tabs = tabs
+        self._settings_button = RoundButton(bar, "⚙  " + i18n.t("gui.button.settings"),
+                                            self._open_preferences, style="normal",
+                                            height=36)
+        self._settings_button.grid(row=0, column=1, sticky="e", padx=(design.px(12), 0))
+        self._apply_minsize()
 
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_TOP, column=0,
-                                                      sticky="ew", pady=(14, 0))
+                                                      sticky="ew", pady=(design.px(14), 0))
 
         viewport = tk.Frame(self.root, bg=BACKGROUND)
-        viewport.grid(row=ROW_CONTENT, column=0, sticky="nsew", padx=22, pady=(14, 4))
+        viewport.grid(row=ROW_CONTENT, column=0, sticky="nsew", padx=design.px(22),
+                      pady=(design.px(14), design.px(4)))
         viewport.columnconfigure(0, weight=1)
         viewport.rowconfigure(0, weight=1)
         canvas = tk.Canvas(viewport, bg=BACKGROUND, highlightthickness=0, bd=0)
@@ -354,8 +498,8 @@ class SortitonGUI:
         self.root.bind_all("<Button-5>", self._scroll_content)
 
         self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
-        self._actions_area.grid(row=ROW_ACTIONS, column=0, sticky="ew", padx=22,
-                                pady=(0, 6))
+        self._actions_area.grid(row=ROW_ACTIONS, column=0, sticky="ew", padx=design.px(22),
+                                pady=(0, design.px(6)))
         self._actions_area.columnconfigure(0, weight=1)
 
         self.pages = {
@@ -369,8 +513,17 @@ class SortitonGUI:
             page.grid(row=0, column=0, sticky="nsew")
         self._show_page(self.var_page.get())
 
+    def _bind_shortcuts(self) -> None:
+        """Ctrl+1 … Ctrl+5 pick a page, right where the tabs are."""
+        for index, page in enumerate(("tags", "rename", "sort", "all", "tools"), start=1):
+            self.root.bind(f"<Control-Key-{index}>",
+                           lambda _event, name=page: self._show_page(name))
+
     def _resize_content_canvas(self, event, content_window: int) -> None:
-        self._content_canvas.itemconfigure(content_window, width=event.width)
+        """Fill the viewport up to a readable width and centre the content."""
+        width = min(event.width, design.px(1120))
+        self._content_canvas.itemconfigure(content_window, width=width)
+        self._content_canvas.coords(content_window, max((event.width - width) // 2, 0), 0)
         self.root.after_idle(self._update_content_scrollbar)
 
     def _update_content_scrollbar(self) -> None:
@@ -387,6 +540,7 @@ class SortitonGUI:
             self._content_scrollbar.grid_remove()
 
     def _show_page(self, value: str) -> None:
+        self.var_page.set(value)
         for name, page in self.pages.items():
             if name == value:
                 page.grid()
@@ -397,6 +551,11 @@ class SortitonGUI:
                 frame.grid()
             else:
                 frame.grid_remove()
+        # A new page starts at its top; the scrollbar follows the new height.
+        canvas = getattr(self, "_content_canvas", None)
+        if canvas is not None:
+            canvas.yview_moveto(0)
+            self.root.after_idle(self._update_content_scrollbar)
 
     def _scroll_content(self, event) -> str | None:
         """Scroll the central viewport only while the pointer is over it."""
@@ -420,13 +579,29 @@ class SortitonGUI:
         page.columnconfigure(0, weight=1)
         return page
 
+    def _page_header(self, page: tk.Frame, row: int, title: str, hint: str) -> None:
+        """Big page title plus one sentence: what this page does."""
+        header = tk.Frame(page, bg=BACKGROUND)
+        header.grid(row=row, column=0, sticky="ew", pady=(0, design.px(16)))
+        header.columnconfigure(0, weight=1)
+        tk.Label(header, text=title, bg=BACKGROUND, fg=TEXT,
+                 font=design.FONT_TITLE, anchor="w").grid(row=0, column=0, sticky="w")
+        hint_label = tk.Label(header, text=hint, bg=BACKGROUND, fg=TEXT_MUTED,
+                              font=design.FONT, anchor="w", justify="left",
+                              wraplength=design.px(880))
+        hint_label.grid(row=1, column=0, sticky="w", pady=(design.px(4), 0))
+        header.bind("<Configure>",
+                    lambda event: hint_label.configure(
+                        wraplength=max(event.width - design.px(4), design.px(200))))
+
     def _page_tags(self, parent: tk.Frame) -> tk.Frame:
         """Folder -> active rules -> preview -> actions."""
         page = self._new_page(parent)
-        self._folder_card(page, 0, "tags", [(i18n.t("gui.label.music_folder"),
+        self._page_header(page, 0, i18n.t("gui.tab.tags"), i18n.t("gui.hint.tags"))
+        self._folder_card(page, 1, "tags", [(i18n.t("gui.label.music_folder"),
                                              self.var_tags_folder)])
-        self._rules_card(page, 1)
-        self._preview_card(page, 2, "tags")
+        self._rules_card(page, 2)
+        self._preview_card(page, 3, "tags")
         self._actions("tags", preview=lambda: self._run_tags(False),
                       execute=lambda: self._run_tags(True),
                       execute_text=i18n.t("gui.button.write_tags"))
@@ -434,12 +609,13 @@ class SortitonGUI:
 
     def _page_rename(self, parent: tk.Frame) -> tk.Frame:
         page = self._new_page(parent)
-        self._folder_card(page, 0, "rename", [(i18n.t("gui.label.music_folder"),
+        self._page_header(page, 0, i18n.t("gui.tab.rename"), i18n.t("gui.hint.rename"))
+        self._folder_card(page, 1, "rename", [(i18n.t("gui.label.music_folder"),
                                                self.var_ren_folder)])
-        options = self._card(page, 1, i18n.t("gui.section.options"))
+        options = self._card(page, 2, i18n.t("gui.section.options"))
         self._pattern_row(options, 0, self.var_ren_pattern)
         self._hint(options, 2, i18n.t("gui.hint.rename_placeholders"))
-        self._preview_card(page, 2, "rename")
+        self._preview_card(page, 3, "rename")
         self._actions("rename", preview=lambda: self._run_rename(False),
                       execute=lambda: self._run_rename(True),
                       execute_text=i18n.t("gui.button.rename"))
@@ -447,15 +623,15 @@ class SortitonGUI:
 
     def _page_sort(self, parent: tk.Frame) -> tk.Frame:
         page = self._new_page(parent)
-        self._folder_card(page, 0, "sort", [(i18n.t("gui.label.source_folder"),
+        self._page_header(page, 0, i18n.t("gui.tab.sort"), i18n.t("gui.hint.sort"))
+        self._folder_card(page, 1, "sort", [(i18n.t("gui.label.source_folder"),
                                              self.var_source),
                                             (i18n.t("gui.label.target_folder"),
                                              self.var_target)])
-        options = self._card(page, 1, i18n.t("gui.section.options"))
+        options = self._card(page, 2, i18n.t("gui.section.options"))
         self._pattern_row(options, 0, self.var_sort_pattern)
         self._mode_row(options, 2, self.var_sort_mode)
-        self._hint(options, 4, i18n.t("gui.hint.sort"))
-        self._preview_card(page, 2, "sort")
+        self._preview_card(page, 3, "sort")
         self._actions("sort", preview=lambda: self._run_sort(False),
                       execute=lambda: self._run_sort(True),
                       execute_text=i18n.t("gui.button.sort"))
@@ -463,15 +639,15 @@ class SortitonGUI:
 
     def _page_all(self, parent: tk.Frame) -> tk.Frame:
         page = self._new_page(parent)
-        self._folder_card(page, 0, "all", [(i18n.t("gui.label.source_folder"),
+        self._page_header(page, 0, i18n.t("gui.tab.all"), i18n.t("gui.hint.all"))
+        self._folder_card(page, 1, "all", [(i18n.t("gui.label.source_folder"),
                                             self.var_all_source),
                                            (i18n.t("gui.label.target_folder"),
                                             self.var_all_target)])
-        options = self._card(page, 1, i18n.t("gui.section.options"))
+        options = self._card(page, 2, i18n.t("gui.section.options"))
         self._pattern_row(options, 0, self.var_all_pattern)
         self._mode_row(options, 2, self.var_all_mode)
-        self._hint(options, 4, i18n.t("gui.hint.all"))
-        self._preview_card(page, 2, "all")
+        self._preview_card(page, 3, "all")
         self._actions("all", preview=lambda: self._run_all(False),
                       execute=lambda: self._run_all(True),
                       execute_text=i18n.t("gui.button.run_all"))
@@ -485,9 +661,10 @@ class SortitonGUI:
         The preview card is hidden while a read-only feature is selected.
         """
         page = self._new_page(parent)
-        self._preview_card(page, 1, "tools")
+        self._page_header(page, 0, i18n.t("gui.tab.tools"), i18n.t("gui.hint.tools"))
         tools_view = ToolsTab(self, page)
-        tools_view.grid(row=0, column=0, sticky="nsew")
+        tools_view.grid(row=1, column=0, sticky="nsew")
+        self._preview_card(page, 2, "tools")
         self._tools_actions()
         return page
 
@@ -512,10 +689,11 @@ class SortitonGUI:
         if feature is not None and feature.writes:
             self._actions("tools", preview=lambda: self._run_tools(False),
                           execute=lambda: self._run_tools(True),
-                          execute_text=i18n.t("gui.button.write_fixes"))
+                          execute_text=feature_run_label(feature))
         else:
             self._actions_single("tools", lambda: self._run_tools(False),
-                                 i18n.t("gui.button.run_tool"))
+                                 feature_run_label(feature),
+                                 note=i18n.t("gui.tools.readonly_note"))
         self._tools_buttons = self.action_buttons[before:]
 
         card = self._previews.get("tools")
@@ -536,28 +714,29 @@ class SortitonGUI:
         """
         outer = tk.Frame(parent, bg=CARD, highlightthickness=1,
                          highlightbackground=BORDER, bd=0)
-        outer.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        outer.grid(row=row, column=0, sticky="ew", pady=(0, design.px(14)))
         outer.columnconfigure(0, weight=1)
         inner = tk.Frame(outer, bg=CARD)
-        inner.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
+        inner.grid(row=0, column=0, sticky="ew", padx=design.px(18),
+                   pady=design.px(15))
         inner.columnconfigure(0, weight=1)
         if not title:
             return inner
         section_label(inner, title).grid(row=0, column=0, sticky="w")
         body = tk.Frame(inner, bg=CARD)
-        body.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        body.grid(row=1, column=0, sticky="ew", pady=(design.px(12), 0))
         body.columnconfigure(0, weight=1)
         return body
 
     def _folder_card(self, page: tk.Frame, row: int, key: str,
                      rows: list[tuple[str, tk.StringVar]]) -> None:
         """Folder card: path fields, picker, refresh and the statistics."""
-        body = self._card(page, row, i18n.t("gui.section.music_folder"))
+        body = self._card(page, row, i18n.t("gui.section.folders"))
         for index, (label, variable) in enumerate(rows):
             self._folder_row(body, index * 3, label, variable)
 
         footer = tk.Frame(body, bg=CARD)
-        footer.grid(row=len(rows) * 3, column=0, sticky="ew", pady=(10, 0))
+        footer.grid(row=len(rows) * 3, column=0, sticky="ew", pady=(design.px(10), 0))
         footer.columnconfigure(0, weight=1)
         stats = tk.Label(footer, text=i18n.t("gui.stats.unknown"), bg=CARD, fg=TEXT_MUTED,
                          font=design.FONT_SMALL, anchor="w")
@@ -578,16 +757,17 @@ class SortitonGUI:
                     variable: tk.StringVar) -> tk.Entry:
         """Label + path field + folder picker; returns the path field."""
         tk.Label(card, text=label, bg=CARD, fg=TEXT_MUTED, font=design.FONT_SMALL).grid(
-            row=row, column=0, sticky="w", pady=(0 if row == 0 else 12, 5))
+            row=row, column=0, sticky="w",
+            pady=(0 if row == 0 else design.px(12), design.px(5)))
         line = tk.Frame(card, bg=CARD)
         line.grid(row=row + 1, column=0, sticky="ew")
         line.columnconfigure(0, weight=1)
 
         entry = self._path_entry(line, variable)
-        entry.grid(row=0, column=0, sticky="ew", ipady=7)
+        entry.grid(row=0, column=0, sticky="ew", ipady=design.px(7))
         RoundButton(line, i18n.t("gui.button.choose_folder"),
                     lambda: self._choose_folder(variable),
-                    style="normal").grid(row=0, column=1, padx=(10, 0))
+                    style="normal").grid(row=0, column=1, padx=(design.px(10), 0))
         return entry
 
     def _rules_card(self, page: tk.Frame, row: int) -> None:
@@ -605,27 +785,33 @@ class SortitonGUI:
 
     def _preview_card(self, page: tk.Frame, row: int, key: str) -> None:
         card = PreviewCard(page, i18n.t("gui.section.preview"))
-        card.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        card.grid(row=row, column=0, sticky="ew", pady=(0, design.px(14)))
         self._previews[key] = card
 
     def _pattern_row(self, card: tk.Frame, row: int, variable: tk.StringVar) -> None:
         """Label + pattern field (e.g. %artist% - %title%)."""
         tk.Label(card, text=i18n.t("gui.label.pattern"), bg=CARD, fg=TEXT_MUTED,
-                 font=design.FONT_SMALL).grid(row=row, column=0, sticky="w", pady=(0, 5))
+                 font=design.FONT_SMALL).grid(row=row, column=0, sticky="w",
+                                              pady=(0, design.px(5)))
         self._path_entry(card, variable).grid(row=row + 1, column=0, sticky="ew",
-                                             ipady=7)
+                                              ipady=design.px(7))
 
     def _mode_row(self, card: tk.Frame, row: int, variable: tk.StringVar) -> None:
         """Label + copy/move switch."""
         tk.Label(card, text=i18n.t("gui.label.mode"), bg=CARD, fg=TEXT_MUTED,
-                 font=design.FONT_SMALL).grid(row=row, column=0, sticky="w", pady=(12, 5))
+                 font=design.FONT_SMALL).grid(row=row, column=0, sticky="w",
+                                              pady=(design.px(12), design.px(5)))
         Segments(card, [("copy", i18n.t("gui.mode.copy")), ("move", i18n.t("gui.mode.move"))],
-                 variable, height=34, surface=FIELD).grid(row=row + 1, column=0, sticky="w")
+                 variable, height=36, surface=FIELD).grid(row=row + 1, column=0, sticky="w")
 
     def _hint(self, card: tk.Frame, row: int, text: str) -> None:
-        tk.Label(card, text=text, bg=CARD, fg=TEXT_MUTED, font=design.FONT_SMALL,
-                 justify="left", anchor="w", wraplength=660).grid(
-            row=row, column=0, sticky="w", pady=(8, 0))
+        label = tk.Label(card, text=text, bg=CARD, fg=TEXT_MUTED, font=design.FONT_SMALL,
+                         justify="left", anchor="w", wraplength=design.px(660))
+        label.grid(row=row, column=0, sticky="w", pady=(design.px(8), 0))
+        card.bind("<Configure>",
+                  lambda event: label.configure(
+                      wraplength=max(event.width - design.px(4), design.px(160))),
+                  add="+")
 
     def _choose_folder(self, variable: tk.StringVar) -> None:
         start = variable.get().strip()
@@ -633,6 +819,17 @@ class SortitonGUI:
         if not start_dir.is_dir():
             start_dir = Path.home()
         chosen = _pick_folder(start_dir)
+        if chosen:
+            variable.set(chosen)
+
+    def _choose_file(self, variable: tk.StringVar) -> None:
+        """Pick a file (the CSV of the fixes feature) instead of typing it."""
+        start = variable.get().strip()
+        candidate = Path(start).expanduser() if start else Path.home()
+        start_dir = candidate.parent if candidate.suffix else candidate
+        if not start_dir.is_dir():
+            start_dir = Path.home()
+        chosen = _pick_file(start_dir, i18n.t("gui.button.choose_file"))
         if chosen:
             variable.set(chosen)
 
@@ -650,22 +847,23 @@ class SortitonGUI:
                             style="primary")
         first.pack(side="left")
         second = RoundButton(frame, execute_text, execute, style="apply")
-        second.pack(side="left", padx=(10, 0))
+        second.pack(side="left", padx=(design.px(10), 0))
 
         note = tk.Label(frame, text="", bg=BACKGROUND, fg=TEXT_FAINT,
                         font=design.FONT_SMALL)
-        note.pack(side="left", padx=(14, 0))
+        note.pack(side="left", padx=(design.px(14), 0))
 
         self.action_buttons += [first, second]
         self._execute_buttons[key] = second
         self._preview_notes[key] = note
 
-    def _actions_single(self, key: str, run, text: str) -> None:
+    def _actions_single(self, key: str, run, text: str, note: str = "") -> None:
         """Action bar with a single button - for a page without preview/write.
 
         The button joins ``action_buttons`` so a running job disables it like
         every other action; there is deliberately no entry in
-        ``_execute_buttons`` (nothing to gate on a preview).
+        ``_execute_buttons`` (nothing to gate on a preview). ``note`` explains
+        right next to the button what it will do.
         """
         frame = tk.Frame(self._actions_area, bg=BACKGROUND)
         frame.grid(row=0, column=0, sticky="w")
@@ -674,6 +872,10 @@ class SortitonGUI:
         button = RoundButton(frame, text, run, style="primary")
         button.pack(side="left")
         self.action_buttons.append(button)
+        if note:
+            tk.Label(frame, text=note, bg=BACKGROUND, fg=TEXT_FAINT,
+                     font=design.FONT_SMALL).pack(side="left",
+                                                  padx=(design.px(14), 0))
 
     def _build_result_area(self) -> None:
         """One area, two views: the result counters or the full log.
@@ -681,8 +883,9 @@ class SortitonGUI:
         Both live in the same grid cell, so ``self.logbox`` always exists (a
         language switch rebuilds it instead of losing it).
         """
-        self._result_area = tk.Frame(self.root, bg=BACKGROUND, height=RESULT_HEIGHT)
-        self._result_area.grid(row=ROW_RESULT, column=0, sticky="nsew", padx=22, pady=(4, 6))
+        self._result_area = tk.Frame(self.root, bg=BACKGROUND, height=self._result_height)
+        self._result_area.grid(row=ROW_RESULT, column=0, sticky="nsew", padx=design.px(22),
+                               pady=(design.px(4), design.px(6)))
         self._result_area.columnconfigure(0, weight=1)
         self._result_area.rowconfigure(0, weight=1)
         self._result_area.grid_propagate(False)
@@ -700,14 +903,15 @@ class SortitonGUI:
         view.rowconfigure(1, weight=1)
 
         header = tk.Frame(view, bg=LOG_BG)
-        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+        header.grid(row=0, column=0, sticky="ew", padx=design.px(12),
+                    pady=(design.px(10), design.px(6)))
         header.columnconfigure(1, weight=1)
         tk.Label(header, text=i18n.t("gui.label.log").upper(), bg=LOG_BG, fg=TEXT_FAINT,
                  font=design.FONT_LABEL).grid(row=0, column=0, sticky="w")
         RoundButton(header, i18n.t("gui.button.back"), self._show_result_view,
-                    style="quiet", height=26).grid(row=0, column=2, sticky="e")
+                    style="quiet", height=28).grid(row=0, column=2, sticky="e")
         RoundButton(header, i18n.t("gui.button.clear"), self._clear_log, style="quiet",
-                    height=26).grid(row=0, column=3, sticky="e", padx=(8, 0))
+                    height=28).grid(row=0, column=3, sticky="e", padx=(design.px(8), 0))
 
         frame = tk.Frame(view, bg=LOG_BG)
         frame.grid(row=1, column=0, sticky="nsew")
@@ -717,7 +921,8 @@ class SortitonGUI:
         self.logbox = tk.Text(frame, wrap="word", state="disabled", height=6, bg=LOG_BG,
                               fg=LOG_TEXT, insertbackground=TEXT, selectbackground=ACCENT,
                               relief="flat", bd=0, highlightthickness=0, font=design.FONT_MONO,
-                              padx=12, pady=10, spacing1=1, spacing3=1)
+                              padx=design.px(12), pady=design.px(10), spacing1=1,
+                              spacing3=1)
         scroll = ttk.Scrollbar(frame, orient="vertical", command=self.logbox.yview,
                                style="Dark.Vertical.TScrollbar")
         self.logbox.configure(yscrollcommand=scroll.set)
@@ -728,13 +933,14 @@ class SortitonGUI:
         self.logbox.tag_configure("ok", foreground=GREEN)
         self.logbox.tag_configure("info", foreground=ACCENT)
         self.logbox.tag_configure("dim", foreground=TEXT_MUTED)
+        self._log_lines = 0          # fresh widget after a rebuild
 
     def _show_log_view(self) -> None:
         """Switch the result area to the full log and let it take the space."""
         self.result_panel.grid_remove()
         self._log_view.grid(row=0, column=0, sticky="nsew")
         self._log_shown = True
-        self._resize_result_area(LOG_HEIGHT, weight=1)
+        self._resize_result_area(self._log_height, weight=1)
         self.logbox.see("end")
 
     def _show_result_view(self) -> None:
@@ -742,7 +948,7 @@ class SortitonGUI:
         self._log_view.grid_remove()
         self.result_panel.grid(row=0, column=0, sticky="nsew")
         self._log_shown = False
-        self._resize_result_area(RESULT_HEIGHT, weight=0)
+        self._resize_result_area(self._result_height, weight=0)
         self._refresh_recent()
 
     def _resize_result_area(self, height: int, weight: int) -> None:
@@ -776,6 +982,10 @@ class SortitonGUI:
             self.logbox.insert("end", line + "\n", marker)
         else:
             self.logbox.insert("end", line + "\n")
+        self._log_lines += 1
+        if self._log_lines > _LOG_MAX_LINES:
+            self.logbox.delete("1.0", f"{_LOG_TRIM_LINES + 1}.0")
+            self._log_lines -= _LOG_TRIM_LINES
         self.logbox.see("end")
         self.logbox.configure(state="disabled")
 
@@ -785,6 +995,7 @@ class SortitonGUI:
 
     def _clear_log(self) -> None:
         self._log_history = []
+        self._log_lines = 0
         self.logbox.configure(state="normal")
         self.logbox.delete("1.0", "end")
         self.logbox.configure(state="disabled")
@@ -795,33 +1006,44 @@ class SortitonGUI:
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_BOTTOM, column=0,
                                                       sticky="ew")
         footer = tk.Frame(self.root, bg=BACKGROUND)
-        footer.grid(row=ROW_FOOTER, column=0, sticky="ew", padx=22, pady=(8, 14))
-        footer.columnconfigure(3, weight=1)
+        footer.grid(row=ROW_FOOTER, column=0, sticky="ew", padx=design.px(22),
+                    pady=(design.px(8), design.px(14)))
+        footer.columnconfigure(2, weight=1)
+        self._footer = footer
 
-        self._state_dot = tk.Canvas(footer, width=12, height=12, bg=BACKGROUND,
-                                    highlightthickness=0, bd=0)
+        self._state_dot = tk.Canvas(footer, width=design.px(12), height=design.px(12),
+                                    bg=BACKGROUND, highlightthickness=0, bd=0)
         self._state_dot.grid(row=0, column=0, sticky="w")
         self._set_state(TEXT_MUTED)
 
         tk.Label(footer, textvariable=self.status_var, bg=BACKGROUND, fg=TEXT_MUTED,
-                 font=design.FONT_SMALL).grid(row=0, column=1, sticky="w", padx=(8, 0))
-        self.progress = ProgressBar(footer, width=200)
-        self.progress.grid(row=0, column=2, sticky="w", padx=(16, 8))
+                 font=design.FONT_SMALL).grid(row=0, column=1, sticky="w",
+                                              padx=(design.px(8), 0))
+        # The bar stretches (and gives way) instead of pushing the buttons out.
+        progress_holder = tk.Frame(footer, bg=BACKGROUND)
+        progress_holder.grid(row=0, column=2, sticky="ew",
+                             padx=(design.px(16), design.px(8)))
+        progress_holder.columnconfigure(0, weight=1)
+        self.progress = ProgressBar(progress_holder, width=180)
+        self.progress.grid(row=0, column=0, sticky="ew")
         self.progress_label = tk.Label(footer, text="", bg=BACKGROUND, fg=TEXT_FAINT,
                                        font=design.FONT_SMALL)
-        self.progress_label.grid(row=0, column=3, sticky="w")
+        self.progress_label.grid(row=0, column=3, sticky="w",
+                                 padx=(0, design.px(8)))
 
         self._cancel_button = RoundButton(footer, i18n.t("gui.button.cancel"),
                                           self._cancel_run, style="normal", height=30)
-        self._cancel_button.grid(row=0, column=4, sticky="e", padx=(0, 6))
+        self._cancel_button.grid(row=0, column=4, sticky="e", padx=(0, design.px(6)))
         self._cancel_button.grid_remove()
 
         RoundButton(footer, i18n.t("gui.button.undo"), self._open_restore,
                     style="normal", height=30).grid(row=0, column=5, sticky="e")
         RoundButton(footer, i18n.t("gui.button.open_logs"), self._open_logs,
-                    style="quiet", height=30).grid(row=0, column=6, sticky="e", padx=(6, 0))
+                    style="quiet", height=30).grid(row=0, column=6, sticky="e",
+                                                    padx=(design.px(6), 0))
         RoundButton(footer, i18n.t("gui.button.open_folder"), self._open_last,
-                    style="quiet", height=30).grid(row=0, column=7, sticky="e", padx=(6, 0))
+                    style="quiet", height=30).grid(row=0, column=7, sticky="e",
+                                                    padx=(design.px(6), 0))
 
     def _set_state(self, colour: str) -> None:
         """Colour the small dot in the status bar (idle / busy / problem)."""
@@ -840,15 +1062,15 @@ class SortitonGUI:
         if export_dir:
             RoundButton(self.result_panel.header_right, i18n.t("gui.button.open_export"),
                         self._open_last, style="quiet", height=28).pack(
-                            side="right", padx=(0, 8))
+                            side="right", padx=(0, design.px(8)))
             RoundButton(self.result_panel.header_right, i18n.t("gui.button.copy_prompt"),
                         self._copy_prompt, style="quiet", height=28).pack(
-                            side="right", padx=(0, 8))
+                            side="right", padx=(0, design.px(8)))
         if backup:
             self._last_backup = Path(backup)
             RoundButton(self.result_panel.header_right, i18n.t("gui.button.open_backup"),
                         self._open_backup, style="quiet", height=28).pack(
-                            side="right", padx=(0, 8))
+                            side="right", padx=(0, design.px(8)))
 
     def _copy_prompt(self) -> None:
         """Put ``00_prompt.md`` of the last export on the clipboard.
@@ -868,8 +1090,11 @@ class SortitonGUI:
 
     def _xdg_open(self, path: Path) -> None:
         """Hand a file or folder to the desktop - no output, no waiting."""
-        subprocess.Popen(["xdg-open", str(path)],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.Popen(["xdg-open", str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass          # no xdg-open on minimal installs / servers
 
     def _open_last(self) -> None:
         if self.last_path and self.last_path.is_dir():
@@ -1433,6 +1658,31 @@ class SortitonGUI:
         else:
             self._set_state(RED)
             self.status_var.set(i18n.t("gui.status.failed", rc=rc))
+        if self._closing:
+            # The worker is done, so it is safe to destroy the window now.
+            # after_idle: this runs from the queue pump, which must be able to
+            # finish its current tick first.
+            self.root.after_idle(self.root.destroy)
+
+    def _on_window_close(self) -> None:
+        """Close the window - but let a running task stop first.
+
+        The worker threads are daemons: destroying the window mid-write would
+        kill them inside ``shutil.move`` or ``write_tags``. A running task is
+        therefore cancelled and the window closes when it has finished.
+        """
+        if self._closing:
+            return
+        if not self.running:
+            self.root.destroy()
+            return
+        if not _ask_yes_no(i18n.t("gui.dialog.close.title"),
+                           i18n.t("gui.dialog.close.text")):
+            return
+        self._closing = True
+        self._cancel_run()
+        self._set_buttons(False)
+        self.status_var.set(i18n.t("gui.status.cancelling"))
 
     def _cancel_run(self) -> None:
         """Ask the running command to stop at its next check point."""
@@ -1448,7 +1698,12 @@ class SortitonGUI:
                 self._dispatch(kind, value)
         except queue.Empty:
             pass
-        self.root.after(80, self._queue_pump)
+        if self._closing and not self.running:
+            return
+        try:
+            self.root.after(80, self._queue_pump)
+        except tk.TclError:
+            pass          # the window is gone
 
     def _dispatch(self, kind: str, value) -> None:
         """Handle one message from a worker thread (also used by the tests)."""
@@ -1510,15 +1765,16 @@ class SortitonGUI:
         shown = 0
         for key, count in own:
             if count:
-                Pill(pills, i18n.t(key, count=count), GREEN).pack(side="left", padx=(0, 8))
+                Pill(pills, i18n.t(key, count=count), GREEN).pack(side="left",
+                                                                 padx=(0, design.px(8)))
                 shown += 1
         if not shown:
             tk.Label(pills, text=i18n.t("gui.pill.none"), bg=CARD, fg=TEXT_MUTED,
-                     font=design.FONT_SMALL).pack(side="left", padx=(0, 8))
+                     font=design.FONT_SMALL).pack(side="left", padx=(0, design.px(8)))
 
         builtin = status["builtin_artists"] + status["builtin_genres"]
         Pill(pills, i18n.t("gui.pill.builtin", count=builtin),
-             YELLOW if warnings else TEXT_MUTED).pack(side="left", padx=(0, 8))
+             YELLOW if warnings else TEXT_MUTED).pack(side="left", padx=(0, design.px(8)))
         if warnings:
             Pill(pills, i18n.t("gui.pill.warnings", count=warnings),
                  YELLOW).pack(side="left")
@@ -1548,32 +1804,35 @@ class SortitonGUI:
         window.title(i18n.t("gui.rules.editor.title"))
         window.configure(bg=BACKGROUND)
         window.transient(self.root)
-        width, height = 840, 620
+        width, height = design.px(860), design.px(640)
         x = max(self.root.winfo_rootx() + (self.root.winfo_width() - width) // 2, 0)
         y = max(self.root.winfo_rooty() + (self.root.winfo_height() - height) // 2, 0)
         window.geometry(f"{width}x{height}+{x}+{y}")
-        window.minsize(640, 440)
+        window.minsize(design.px(640), design.px(440))
         window.columnconfigure(0, weight=1)
         window.rowconfigure(1, weight=1)
 
         header = tk.Frame(window, bg=BACKGROUND)
-        header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
+        header.grid(row=0, column=0, sticky="ew", padx=design.px(20),
+                    pady=(design.px(16), design.px(8)))
         tk.Label(header, text=i18n.t("gui.rules.editor.heading"), font=design.FONT_SECTION,
                  bg=BACKGROUND, fg=TEXT).grid(row=0, column=0, sticky="w")
         tk.Label(header, text=i18n.t("gui.rules.editor.hint", path=config.RULES_FILE),
                  font=design.FONT_SMALL, bg=BACKGROUND, fg=TEXT_MUTED,
-                 wraplength=780, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 0))
+                 wraplength=design.px(800), justify="left").grid(
+                     row=1, column=0, sticky="w", pady=(design.px(2), 0))
 
         frame = tk.Frame(window, bg=LOG_BG, highlightthickness=1,
                          highlightbackground=BORDER, bd=0)
-        frame.grid(row=1, column=0, sticky="nsew", padx=20)
+        frame.grid(row=1, column=0, sticky="nsew", padx=design.px(20))
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
 
         self._rules_text = tk.Text(frame, wrap="none", undo=True, bg=LOG_BG, fg=LOG_TEXT,
                                    insertbackground=TEXT, selectbackground=ACCENT,
                                    relief="flat", bd=0, highlightthickness=0,
-                                   font=(design.FONT_MONO[0], 10), padx=12, pady=10)
+                                   font=design.FONT_MONO, padx=design.px(12),
+                                   pady=design.px(10))
         y_scroll = ttk.Scrollbar(frame, orient="vertical", command=self._rules_text.yview,
                                  style="Dark.Vertical.TScrollbar")
         x_scroll = ttk.Scrollbar(frame, orient="horizontal", command=self._rules_text.xview,
@@ -1596,7 +1855,8 @@ class SortitonGUI:
         self._rules_text.insert("1.0", content)
 
         footer = tk.Frame(window, bg=BACKGROUND)
-        footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 16))
+        footer.grid(row=2, column=0, sticky="ew", padx=design.px(20),
+                    pady=(design.px(10), design.px(16)))
         footer.columnconfigure(0, weight=1)
         self._rules_status = tk.StringVar(value="")
         self._rules_status_label = tk.Label(footer, textvariable=self._rules_status,
@@ -1607,17 +1867,17 @@ class SortitonGUI:
             self._set_rules_status(i18n.t("gui.rules.status.prefilled"), YELLOW)
 
         buttons = tk.Frame(footer, bg=BACKGROUND)
-        buttons.grid(row=1, column=0, sticky="e", pady=(10, 0))
+        buttons.grid(row=1, column=0, sticky="e", pady=(design.px(10), 0))
         RoundButton(buttons, i18n.t("gui.button.insert_template"), self._insert_template,
-                    style="quiet", height=32).pack(side="left")
+                    style="quiet", height=34).pack(side="left")
         RoundButton(buttons, i18n.t("gui.button.builtin_rules"), self._insert_builtin,
-                    style="quiet", height=32).pack(side="left", padx=(8, 0))
+                    style="quiet", height=34).pack(side="left", padx=(design.px(8), 0))
         RoundButton(buttons, i18n.t("gui.button.system_editor"), self._open_system_editor,
-                    style="quiet", height=32).pack(side="left", padx=(8, 0))
+                    style="quiet", height=34).pack(side="left", padx=(design.px(8), 0))
         RoundButton(buttons, i18n.t("gui.button.cancel"), window.destroy,
-                    style="normal", height=32).pack(side="left", padx=(8, 0))
+                    style="normal", height=34).pack(side="left", padx=(design.px(8), 0))
         RoundButton(buttons, i18n.t("gui.button.save"), self._save_rules,
-                    style="primary", height=32).pack(side="left", padx=(8, 0))
+                    style="primary", height=34).pack(side="left", padx=(design.px(8), 0))
 
         window.bind("<Escape>", lambda _e: window.destroy())
         window.bind("<Control-s>", lambda _e: self._save_rules())
@@ -1659,29 +1919,31 @@ class SortitonGUI:
         window.title(i18n.t("gui.llm.title"))
         window.configure(bg=BACKGROUND)
         window.transient(self.root)
-        width, height = 760, 500
+        width, height = design.px(780), design.px(520)
         x = max(self.root.winfo_rootx() + (self.root.winfo_width() - width) // 2, 0)
         y = max(self.root.winfo_rooty() + (self.root.winfo_height() - height) // 2, 0)
         window.geometry(f"{width}x{height}+{x}+{y}")
-        window.minsize(560, 340)
+        window.minsize(design.px(560), design.px(340))
         window.columnconfigure(0, weight=1)
         window.rowconfigure(1, weight=1)
 
         header = tk.Frame(window, bg=BACKGROUND)
-        header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
+        header.grid(row=0, column=0, sticky="ew", padx=design.px(20),
+                    pady=(design.px(16), design.px(8)))
         tk.Label(header, text=i18n.t("gui.llm.hint"), font=design.FONT_SMALL,
-                 bg=BACKGROUND, fg=TEXT_MUTED, wraplength=700, justify="left").grid(
-                     row=0, column=0, sticky="w")
+                 bg=BACKGROUND, fg=TEXT_MUTED, wraplength=design.px(720),
+                 justify="left").grid(row=0, column=0, sticky="w")
 
         frame = tk.Frame(window, bg=LOG_BG, highlightthickness=1,
                          highlightbackground=BORDER, bd=0)
-        frame.grid(row=1, column=0, sticky="nsew", padx=20)
+        frame.grid(row=1, column=0, sticky="nsew", padx=design.px(20))
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
         self._llm_text = tk.Text(frame, wrap="none", undo=True, bg=LOG_BG, fg=LOG_TEXT,
                                  insertbackground=TEXT, selectbackground=ACCENT,
                                  relief="flat", bd=0, highlightthickness=0,
-                                 font=(design.FONT_MONO[0], 10), padx=12, pady=10)
+                                 font=design.FONT_MONO, padx=design.px(12),
+                                 pady=design.px(10))
         y_scroll = ttk.Scrollbar(frame, orient="vertical", command=self._llm_text.yview,
                                  style="Dark.Vertical.TScrollbar")
         x_scroll = ttk.Scrollbar(frame, orient="horizontal", command=self._llm_text.xview,
@@ -1692,21 +1954,22 @@ class SortitonGUI:
         x_scroll.grid(row=1, column=0, sticky="ew")
 
         footer = tk.Frame(window, bg=BACKGROUND)
-        footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 16))
+        footer.grid(row=2, column=0, sticky="ew", padx=design.px(20),
+                    pady=(design.px(10), design.px(16)))
         footer.columnconfigure(0, weight=1)
         self._llm_status = tk.StringVar(value="")
         self._llm_status_label = tk.Label(footer, textvariable=self._llm_status,
                                           bg=BACKGROUND, fg=TEXT_MUTED,
-                                          font=design.FONT_SMALL, wraplength=700,
-                                          justify="left")
+                                          font=design.FONT_SMALL,
+                                          wraplength=design.px(720), justify="left")
         self._llm_status_label.grid(row=0, column=0, sticky="w")
 
         buttons = tk.Frame(footer, bg=BACKGROUND)
-        buttons.grid(row=1, column=0, sticky="e", pady=(10, 0))
+        buttons.grid(row=1, column=0, sticky="e", pady=(design.px(10), 0))
         RoundButton(buttons, i18n.t("gui.button.cancel"), window.destroy,
-                    style="normal", height=32).pack(side="left")
+                    style="normal", height=34).pack(side="left")
         RoundButton(buttons, i18n.t("gui.button.apply_rules"), self._llm_rules_apply,
-                    style="primary", height=32).pack(side="left", padx=(8, 0))
+                    style="primary", height=34).pack(side="left", padx=(design.px(8), 0))
 
         window.bind("<Escape>", lambda _e: window.destroy())
         window.bind("<Control-Return>", lambda _e: self._llm_rules_apply())

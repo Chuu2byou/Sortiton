@@ -5,7 +5,7 @@ Pure path/name layer - knows neither tags nor rules.
 
 from __future__ import annotations
 
-import hashlib
+import filecmp
 import os
 import re
 from pathlib import Path
@@ -85,16 +85,25 @@ def free_path(path: Path) -> Path:
     raise RuntimeError(i18n.t("file.error.no_free_name", path=path))
 
 
+def _key(path: Path) -> str:
+    """Comparison key for path names.
+
+    FAT32, exFAT and NTFS (the usual USB stick / memory card) treat names
+    case-insensitively, so ``used`` and the ``ignore`` comparison have to do
+    the same - otherwise a file blocks its own target name.
+    """
+    return str(path).casefold()
+
+
 def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     """Return a free target path, never overwriting it (" (2)", " (3)", ...).
 
     ``ignore`` counts as free, so a file never blocks its own target name.
     """
-    key = str(dst).lower()
+    key = _key(dst)
+    ignore_key = _key(ignore) if ignore is not None else None
 
-    # TODO: the ignore comparison is case sensitive while `used` is lowercased,
-    # so on a case insensitive filesystem a file still blocks its own name.
-    if ignore is not None and str(dst) == str(ignore):
+    if ignore_key is not None and key == ignore_key:
         used.add(key)
         return dst
 
@@ -106,8 +115,8 @@ def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     number = 2
     while number <= 9999:
         candidate = dst.with_name(f"{base} ({number}){dst.suffix}")
-        k = str(candidate).lower()
-        taken = k in used or (candidate.exists() and str(candidate) != str(ignore))
+        k = _key(candidate)
+        taken = k in used or (candidate.exists() and k != ignore_key)
         if not taken:
             used.add(k)
             return candidate
@@ -116,26 +125,17 @@ def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     raise RuntimeError(i18n.t("file.error.no_free_name", path=dst))
 
 
-def _file_hash(path: Path) -> str:
-    """SHA256 of a file, read in 1 MiB blocks.
-
-    Only a fingerprint for comparing two files, not a security hash - but SHA1
-    is what security scanners report (bandit B324), and SHA256 costs nothing
-    measurable here. ``usedforsecurity=False`` would not help: it needs 3.9.
-    """
-    h = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
 def same_content(a: Path, b: Path) -> bool:
-    """True if both files are identical (same size + same SHA256)."""
+    """True if both files are identical (same size + byte-for-byte compare).
+
+    ``filecmp`` reads in blocks and stops at the first difference, so a large
+    pair that differs early costs almost nothing (a full SHA256 of both would
+    always read everything).
+    """
     try:
         if a.stat().st_size != b.stat().st_size:
             return False
-        return _file_hash(a) == _file_hash(b)
+        return filecmp.cmp(a, b, shallow=False)
     except OSError:
         return False
 

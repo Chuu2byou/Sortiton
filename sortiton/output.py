@@ -17,6 +17,7 @@ _progress_sink = None
 _plan_sink = None
 _stats_sink = None
 _last_stats: dict[str, dict] = {}
+_stats_lock = threading.Lock()   # report_stats() runs in worker threads
 
 _log_file = None
 _log_path: Path | None = None
@@ -60,10 +61,6 @@ def progress(current: int, total: int, text: str = "") -> None:
     _emit(_progress_sink, current, total, str(text))
 
 
-# Older modules (tasks.py) still import the former private name; keep it working.
-_progress = progress
-
-
 def set_plan_sink(sink) -> None:
     """Report planned changes: sink(kind, data). None = off.
 
@@ -87,13 +84,16 @@ def set_stats_sink(sink) -> None:
 
 def report_stats(kind: str, **values) -> None:
     """Publish the counters of a run; they are kept per kind for :func:`last_stats`."""
-    _last_stats[kind] = dict(values)
-    _emit(_stats_sink, kind, dict(values))
+    snapshot = dict(values)
+    with _stats_lock:
+        _last_stats[kind] = snapshot
+    _emit(_stats_sink, kind, dict(snapshot))
 
 
 def last_stats(kind: str) -> dict:
     """Counters of the most recent ``kind`` run; empty if there was none."""
-    return dict(_last_stats.get(kind, {}))
+    with _stats_lock:
+        return dict(_last_stats.get(kind, {}))
 
 
 def latest_log_file() -> Path | None:

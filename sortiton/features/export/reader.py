@@ -132,6 +132,7 @@ def scan(root, workers, cancel=None):
     pool = ThreadPoolExecutor(max_workers=workers)
     futures = {pool.submit(read_file, root, path): index
                for index, path in enumerate(files)}
+    cancelled = False
     try:
         for done, future in enumerate(as_completed(futures), start=1):
             cancel.check()
@@ -139,7 +140,10 @@ def scan(root, workers, cancel=None):
             results[index] = future.result()
             output.progress(done, total, files[index].name)
     except Cancelled:
-        pool.shutdown(wait=False, cancel_futures=True)
+        cancelled = True
+        for future in futures:
+            future.cancel()
         raise
-    pool.shutdown()
+    finally:
+        pool.shutdown(wait=not cancelled, cancel_futures=cancelled)
     return results

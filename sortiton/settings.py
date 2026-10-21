@@ -1,4 +1,4 @@
-"""User settings (settings.ini) - the UI language and the backup switch."""
+"""User settings (settings.ini) - language, backup switch and fine-tuning."""
 
 from __future__ import annotations
 
@@ -12,6 +12,9 @@ SECTION = "general"
 KEY_LANGUAGE = "language"
 KEY_BACKUP = "backup"
 
+#: Fine-tuning of the helper tools: keys look like ``export.chunk_chars``.
+SECTION_TOOLS = "tools"
+
 
 def _parser() -> configparser.ConfigParser:
     parser = configparser.ConfigParser()
@@ -20,6 +23,17 @@ def _parser() -> configparser.ConfigParser:
     except (OSError, configparser.Error):
         pass
     return parser
+
+
+def _write(parser: configparser.ConfigParser) -> bool:
+    """Write the parser back to settings.ini. False if that failed."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with SETTINGS_FILE.open("w", encoding="utf-8") as datei:
+            parser.write(datei)
+    except OSError:
+        return False
+    return True
 
 
 def read_value(key: str, default: str = "") -> str:
@@ -36,13 +50,26 @@ def write_value(key: str, value: str) -> bool:
     if not parser.has_section(SECTION):
         parser.add_section(SECTION)
     parser.set(SECTION, key, value)
-    try:
-        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with SETTINGS_FILE.open("w", encoding="utf-8") as datei:
-            parser.write(datei)
-    except OSError:
-        return False
-    return True
+    return _write(parser)
+
+
+def read_tool_values() -> dict[str, str]:
+    """All stored tool options from the [tools] section (empty if there is none)."""
+    parser = _parser()
+    if not parser.has_section(SECTION_TOOLS):
+        return {}
+    return {key: value for key, value in parser.items(SECTION_TOOLS)}
+
+
+def save_tool_values(values: dict[str, str]) -> bool:
+    """Replace the [tools] section with ``values``. False if it could not be written."""
+    parser = _parser()
+    if parser.has_section(SECTION_TOOLS):
+        parser.remove_section(SECTION_TOOLS)
+    parser.add_section(SECTION_TOOLS)
+    for key, value in values.items():
+        parser.set(SECTION_TOOLS, key, value)
+    return _write(parser)
 
 
 def resolve_language() -> str:

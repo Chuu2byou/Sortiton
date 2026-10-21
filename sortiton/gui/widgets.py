@@ -1,6 +1,8 @@
 """Hand-drawn widgets - no extra packages.
 
-RoundButton, Pill (status chip), Segments (tab/switcher) and ProgressBar.
+RoundButton, Pill (status chip), Segments (tab/switcher), Switch (on/off) and
+ProgressBar. Every pixel value goes through :func:`design.px`, so the widgets
+keep their proportions at any screen scaling.
 """
 
 from __future__ import annotations
@@ -75,18 +77,26 @@ class RoundButton(tk.Canvas):
         self._command: Callable[[], None] | None = command
         self._parent_bg = _bg_of(parent)
         self._text = text
-        self._radius = radius
+        self._radius = design.px(radius)
         self._enabled = True
         self._hover = False
         self._pressed = False
-        width = tkfont.Font(font=design.FONT_BUTTON).measure(text) + 30
-        super().__init__(parent, width=width, height=height, bg=self._parent_bg,
-                         highlightthickness=0, bd=0, cursor="hand2")
+        width = tkfont.Font(font=design.FONT_BUTTON).measure(text) + design.px(30)
+        super().__init__(parent, width=width, height=design.px(height), bg=self._parent_bg,
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=1)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
         self.bind("<ButtonPress-1>", self._on_press)
         self.bind("<ButtonRelease-1>", self._on_release)
+        # Same as a click, so the buttons work without a mouse.
+        self.bind("<Return>", self._on_key)
+        self.bind("<space>", self._on_key)
         self._draw()
+
+    def _on_key(self, _event) -> str:
+        if self._enabled and self._command is not None:
+            self._command()
+        return "break"
 
     def _on_enter(self, _event) -> None:
         if self._enabled:
@@ -155,10 +165,22 @@ class Pill(tk.Canvas):
         self._colour = colour
         self._dot = dot
         self._parent_bg = _bg_of(parent)
-        width = tkfont.Font(font=design.FONT_SMALL).measure(text) + (34 if dot else 20)
-        super().__init__(parent, width=width, height=24, bg=self._parent_bg,
+        width = self._width_for(text)
+        super().__init__(parent, width=width, height=design.px(26), bg=self._parent_bg,
                          highlightthickness=0, bd=0)
         self._text = text
+        self._draw()
+
+    def _width_for(self, text: str) -> int:
+        padding = design.px(34) if self._dot else design.px(20)
+        return tkfont.Font(font=design.FONT_SMALL).measure(text) + padding
+
+    def set_text(self, text: str, colour: str | None = None) -> None:
+        """Change the label (and optionally the dot colour) in place."""
+        self._text = text
+        if colour is not None:
+            self._colour = colour
+        self.configure(width=self._width_for(text))
         self._draw()
 
     def _draw(self) -> None:
@@ -167,11 +189,12 @@ class Pill(tk.Canvas):
         height = self.winfo_reqheight()
         _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, height / 2,
                        fill=CARD, outline=BORDER)
-        x = 11
+        x = design.px(11)
         if self._dot:
-            self.create_oval(x - 3, height / 2 - 3, x + 3, height / 2 + 3,
-                             fill=self._colour, outline="")
-            x += 13
+            radius = design.px(3)
+            self.create_oval(x - radius, height / 2 - radius, x + radius,
+                             height / 2 + radius, fill=self._colour, outline="")
+            x += design.px(13)
         self.create_text(x, height / 2, text=self._text, fill=TEXT,
                          font=design.FONT_SMALL, anchor="w")
 
@@ -189,9 +212,9 @@ class Segments(tk.Canvas):
         self._variable = variable
         self._command: Callable[[str], None] | None = command
         self._font = font or design.FONT_BUTTON
-        self._radius = radius
+        self._radius = design.px(radius)
         self._surface = surface
-        self._inner = 2
+        self._inner = design.px(2)
         self._hover_index: int | None = None
         self._items: list[tuple[str, str]] = []
         self._widths: list[int] = []
@@ -233,10 +256,10 @@ class Segments(tk.Canvas):
         """Replace the segments (used for the language switch)."""
         self._items = list(items)
         measurer = tkfont.Font(font=self._font)
-        self._widths = [measurer.measure(text) + 36 for _, text in self._items]
+        self._widths = [measurer.measure(text) + design.px(36) for _, text in self._items]
         self.configure(width=sum(self._widths) + 2 * self._inner)
         if height is not None:
-            self.configure(height=height)
+            self.configure(height=design.px(height))
         self._hover_index = None
         self._draw()
 
@@ -305,11 +328,11 @@ class ProgressBar(tk.Canvas):
 
     def __init__(self, parent: tk.Misc, width: int = 230, height: int = 8,
                  radius: int = 4) -> None:
-        super().__init__(parent, width=width, height=height, bg=_bg_of(parent),
+        self._width = design.px(width)
+        self._height = design.px(height)
+        self._radius = design.px(radius)
+        super().__init__(parent, width=self._width, height=self._height, bg=_bg_of(parent),
                          highlightthickness=0, bd=0)
-        self._width = width
-        self._height = height
-        self._radius = radius
         self._value = 0.0
         self._max = 1.0
         self._indeterminate = False
@@ -318,7 +341,13 @@ class ProgressBar(tk.Canvas):
         self._job: str | None = None
         self._alive = True
         self.bind("<Destroy>", self._on_destroy)
+        self.bind("<Configure>", lambda _event: self._draw())
         self._draw()
+
+    def _current_width(self) -> int:
+        """Use the real width, so the bar can shrink in a narrow footer."""
+        width = self.winfo_width()
+        return width if width > 1 else self._width
 
     def _on_destroy(self, event) -> None:
         """Stop the animation when the widget goes away (language rebuild)."""
@@ -361,27 +390,94 @@ class ProgressBar(tk.Canvas):
         if not self._alive:
             self._job = None
             return
-        pill_width = self._width * 0.32
-        self._pos += 11 * self._direction
+        width = self._current_width()
+        pill_width = width * 0.32
+        self._pos += design.px(11) * self._direction
         if self._pos <= 0:
             self._pos = 0.0
             self._direction = 1.0
-        elif self._pos >= self._width - pill_width:
-            self._pos = self._width - pill_width
+        elif self._pos >= width - pill_width:
+            self._pos = width - pill_width
             self._direction = -1.0
         self._draw()
-        self._job = self.after(16, self._tick)
+        self._job = self.after(33, self._tick)
 
     def _draw(self) -> None:
         self.delete("all")
-        _rounded_shape(self, 0, 0, self._width, self._height, self._radius,
+        width = self._current_width()
+        _rounded_shape(self, 0, 0, width, self._height, self._radius,
                        fill=FIELD, outline="")
         if self._indeterminate:
-            pill_width = self._width * 0.32
+            pill_width = width * 0.32
             _rounded_shape(self, self._pos, 0, self._pos + pill_width, self._height,
                            self._radius, fill=ACCENT, outline="")
         elif self._value > 0:
             ratio = min(self._value / self._max, 1.0)
-            filled = max(self._width * ratio, self._height)
+            filled = max(width * ratio, self._height)
             _rounded_shape(self, 0, 0, filled, self._height, self._radius,
                            fill=ACCENT, outline="")
+
+
+class Switch(tk.Canvas):
+    """On/off switch bound to a ``BooleanVar`` - clearer than a tiny checkbox."""
+
+    def __init__(self, parent: tk.Misc, variable: tk.BooleanVar, width: int = 46,
+                 height: int = 26, command: Callable[[bool], None] | None = None) -> None:
+        self._variable = variable
+        self._command = command
+        self._switch_width = design.px(width)
+        self._switch_height = design.px(height)
+        self._trace = variable.trace_add("write", self._on_change)
+        super().__init__(parent, width=self._switch_width, height=self._switch_height,
+                         bg=_bg_of(parent), highlightthickness=0, bd=0, cursor="hand2",
+                         takefocus=1)
+        self.bind("<Button-1>", self.toggle)
+        self.bind("<space>", self.toggle)
+        self.bind("<Return>", self.toggle)
+        self.bind("<Destroy>", self._on_destroy)
+        self._draw()
+
+    def toggle(self, _event=None) -> str:
+        """Flip the variable (click, Space or Return)."""
+        self._variable.set(not bool(self._variable.get()))
+        if self._command is not None:
+            self._command(bool(self._variable.get()))
+        return "break"
+
+    def _on_change(self, *_args) -> None:
+        try:
+            self._draw()
+        except tk.TclError:
+            pass
+
+    def _on_destroy(self, event) -> None:
+        """Drop the variable trace so a rebuild does not draw on a dead canvas."""
+        if event.widget is not self:
+            return
+        if self._trace:
+            try:
+                self._variable.trace_remove("write", self._trace)
+            except (tk.TclError, ValueError):
+                pass
+            self._trace = ""
+
+    def _draw(self) -> None:
+        self.delete("all")
+        width = self._switch_width
+        height = self._switch_height
+        on = bool(self._variable.get())
+        track = ACCENT if on else FIELD_ACTIVE
+        line_start = height / 2
+        line_end = width - height / 2
+        line_width = max(1, height - 1)
+        if not on:
+            self.create_line(line_start, height / 2, line_end, height / 2,
+                             fill=BORDER, width=line_width, capstyle=tk.ROUND)
+            line_width = max(1, line_width - design.px(2))
+        self.create_line(line_start, height / 2, line_end, height / 2,
+                         fill=track, width=line_width, capstyle=tk.ROUND)
+        radius = height / 2 - design.px(3)
+        centre = (width - height / 2) if on else (height / 2)
+        self.create_oval(centre - radius, height / 2 - radius,
+                         centre + radius, height / 2 + radius,
+                         fill="#ffffff", outline="")
