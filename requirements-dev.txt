@@ -7,6 +7,10 @@
 
 pylint>=3.0
 
+# Test runner for the pytest modules in tests/ (tests/smoke.py stays as a
+# thin wrapper around the same suite).
+pytest>=8
+
 # Freezes the program for the release files (tools/build_app.sh); never needed
 # to run Sortiton.
 pyinstaller>=6.0

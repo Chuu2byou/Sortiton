@@ -3,7 +3,7 @@
 #
 #   tools/checks.sh
 #
-# Syntax, imports, the smoke test, pylint, a short CLI run and the security
+# Syntax, imports, the pytest suite, pylint, a short CLI run and the security
 # tools. The optional steps (xvfb-run for the GUI, npx for the Markdown) run
 # when their tool is installed; when one is missing the script names the
 # package that brings it instead of failing.
@@ -91,7 +91,12 @@ PY
 
 run "syntax (compileall)" python3 -m compileall -q $(py_files)
 run "imports" python3 -c "import sortiton, sortiton.cli, sortiton.gui.app"
-run "smoke test (tests/smoke.py)" python3 tests/smoke.py
+if have_module pytest; then
+    # No display: the GUI test skips itself, everything else runs.
+    run "pytest (no display)" python3 -m pytest -q
+else
+    skip "pytest" "not installed - run: pip install -r requirements-dev.txt"
+fi
 run "cli: --help" python3 sortiton.py --help
 run "cli: rules --builtin" python3 sortiton.py rules --builtin
 run "cli: export --help" python3 sortiton.py export --help
@@ -128,10 +133,10 @@ else
     skip "detect-secrets" "not installed - run: pip install -r requirements-dev.txt"
 fi
 
-if have xvfb-run; then
-    run "gui checks (xvfb-run)" xvfb-run -a python3 tests/smoke.py
+if have xvfb-run && have_module pytest; then
+    run "pytest gui (xvfb-run)" xvfb-run -a python3 -m pytest -q
 else
-    skip "gui checks (xvfb-run)" "xvfb-run not installed - Arch: sudo pacman -S xorg-server-xvfb"
+    skip "pytest gui (xvfb-run)" "xvfb-run or pytest missing - Arch: sudo pacman -S xorg-server-xvfb"
 fi
 
 if have npx; then

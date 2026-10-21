@@ -45,6 +45,13 @@ jobs:
     # The export tests compare against the mutagen path; requirements.txt pins it.
     - name: Install runtime dependencies (mutagen)
       run: python -m pip install -r requirements.txt
-    - name: Run the smoke test with a virtual display
+    - name: Install test dependencies
+      run: python -m pip install -r requirements-dev.txt
+    # Transition period: the smoke wrapper and the pytest suite run side by
+    # side. Both need the virtual display for the GUI checks.
+    - name: Run the smoke wrapper with a virtual display
       run: |
         xvfb-run -a python3 tests/smoke.py
+    - name: Run pytest with a virtual display
+      run: |
+        xvfb-run -a python3 -m pytest

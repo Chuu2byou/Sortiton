@@ -30,8 +30,8 @@ tools/build_app.sh             # freeze the program (tar.gz, --appimage)
 ```bash
 python3 -m compileall -q $(git ls-files '*.py')   # syntax
 python3 -c "import sortiton, sortiton.cli, sortiton.gui.app"
-python3 tests/smoke.py
-xvfb-run -a python3 tests/smoke.py                # with a display: GUI too
+python3 -m pytest                                 # GUI test skips without display
+xvfb-run -a python3 -m pytest                     # with a display: GUI too
 python3 sortiton.py --help
 python3 sortiton.py rules --builtin
 python3 sortiton.py export --help
@@ -43,8 +43,8 @@ detect-secrets scan  # exit is always 0; checks.sh inspects the report instead
 npx markdownlint-cli2 README.md CONTRIBUTING.md
 ```
 
-Without a display the GUI part of the smoke test is skipped, and the closing
-line says so.
+Without a display the GUI test is skipped and pytest reports it. `tests/smoke.py`
+still works as a thin wrapper around the same suite.
 
 Notes:
 
@@ -55,8 +55,9 @@ Notes:
 - `.pylintrc` disables warnings, conventions and refactorings (errors only), so
   naming and dead code are not checked.
 - Markdown prose stays at 80 columns; tables and code blocks are exempt.
-- CI: `.github/workflows/pylint.yml` runs Pylint on Python 3.14 and smoke tests
-  on Python 3.12 / 3.13 / 3.14.
+- CI: `.github/workflows/pylint.yml` runs Pylint on Python 3.14 and the pytest
+  suite on Python 3.12 / 3.13 / 3.14 (during the transition also the smoke
+  wrapper).
 - Security: `.github/workflows/security.yml` runs bandit at medium severity and
   above, pip-audit over both requirement files and detect-secrets. No CodeQL -
   code scanning is not available for private repositories, so the tools report
@@ -67,7 +68,7 @@ Notes:
 
 The export feature is pinned to a reference output of the old standalone
 script. The fixture library lives in `tests/fixtures/export_library/`, the
-reference in `tests/golden/export/`; `tests/smoke.py::test_export_golden`
+reference in `tests/golden/export/`; `tests/test_export.py::test_export_golden`
 runs the feature on the fixture and compares every file byte for byte after
 normalising the two machine-dependent lines (source folder, timestamp).
 
@@ -119,11 +120,12 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/gui/restore.py` | Undo window (pick a journal, check the plan, undo) |
 | `sortiton/gui/dialogs.py` | System dialogs (`kdialog` → `zenity` → Tkinter) |
 | `sortiton/gui/app.py` | Window, cards, tasks, language switch |
-| `tools/checks.sh` | Runs every check (syntax, imports, smoke test, pylint, security, CLI) |
+| `tools/checks.sh` | Runs every check (syntax, imports, pytest, pylint, security, CLI) |
 | `tools/build_app.sh` | Freezes the program for the release (tar.gz, `--appimage`) |
 | `packaging/` | AppImage glue: `AppRun` and the `.desktop` entry |
 | `tools/screenshot.sh` | Takes the README screenshot on a synthetic demo library |
-| `tests/smoke.py` | Smoke test (imports, translations, rules, CLI, GUI) |
+| `tests/test_*.py` | Pytest modules (public API, rules, CLI, features, export, journal, regressions, GUI) |
+| `tests/smoke.py` | Compatibility wrapper that runs the pytest suite |
 | `my_rules.ini` | Your own rules (read automatically) |
 | `assets/` | Icons in three colours: `icon*.svg` (source) and `icon*.png`; copy one over `assets/icon.png` to switch, plus the screenshot |
 | `requirements.txt` | Optional Python dependency (`mutagen`) |
@@ -149,7 +151,7 @@ The scripts in the main folder are entry points; the logic lives in the
 - Target Python 3.12 or newer; the minimum supported version is declared in
   `pyproject.toml`.
 - Every visible text lives in `sortiton/i18n.py`, in `_EN` **and** `_DE` (keep
-  the lines aligned); `tests/smoke.py` enforces both catalogs and every
+  the lines aligned); `tests/test_public_api.py` enforces both catalogs and every
   `i18n.t("literal")`.
 - Never print directly: all output goes through `output.message()`, progress via
   `report_plan()`, `report_stats()` and `_progress()`. The GUI attaches itself
@@ -161,7 +163,7 @@ The scripts in the main folder are entry points; the logic lives in the
 - A preview is the default and `--apply` writes; existing files stay untouched
   (`sortiton/files.py::free_path()` appends `(2)`, `(3)`, …).
 - `sortiton/__init__.py::__all__` is the stable interface; new public names
-  belong there (`tests/smoke.py::test_import` checks every name).
+  belong there (`tests/test_public_api.py::test_import` checks every name).
 
 ## Releasing
 

@@ -237,7 +237,7 @@ Bug reports and pull requests go through the issue tracker.
 Before submitting a patch, run both of the following:
 
 ```bash
-tools/checks.sh       # syntax, imports, smoke test, pylint, CLI
+tools/checks.sh       # syntax, imports, pytest, pylint, CLI
 tools/build_app.sh    # freeze the program (tar.gz, --appimage)
 ```
 

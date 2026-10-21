@@ -43,6 +43,14 @@ Releases = "https://github.com/Chuu2byou/Sortiton/releases"
 sortiton = "sortiton.cli:main"
 sortiton-gui = "sortiton.gui.launch:main"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gui: needs a display (runs under xvfb-run)",
+    "external: needs ffmpeg/ffprobe/yt-dlp/fpcalc",
+    "slow: golden/export tests",
+]
+
 [tool.setuptools]
 # Explicit: the entry scripts sortiton.py and sortiton_gui.py sit next to the
 # package and must not be installed as modules of the same name.
