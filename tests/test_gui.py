@@ -352,3 +352,88 @@ def test_gui() -> None:
             root.destroy()
         except tk.TclError:
             pass
+
+
+def test_gui_aux_windows_follow_language() -> None:
+    """Language switch reopens Toplevels in the new language, keeping content."""
+    import tkinter as tk
+    import unittest.mock as mock
+
+    from sortiton.gui.app import SortitonGUI
+    import sortiton.gui.app as gui_app
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = tk.Tk()
+        gui = None
+        try:
+            with mock.patch.object(gui_app.config, "MUTAGEN_AVAILABLE", False):
+                gui = SortitonGUI(root)
+            root.update()
+
+            # Automatic folder statistics must not start a slow ffprobe scan.
+            gui.var_tags_folder.set(tmp)
+            gui._refresh_folder_stats("tags", manual=False)
+            check("startup statistics do not scan without mutagen",
+                  gui._scan_page is None)
+            check("the label asks for a manual refresh",
+                  gui._stats_labels["tags"].cget("text")
+                  == i18n.t("gui.stats.press_refresh"),
+                  gui._stats_labels["tags"].cget("text"))
+
+            gui._rules_editor()
+            gui._set_editor_text("# keep this text\n")
+            gui._llm_rules_import()
+            gui._llm_text.insert("1.0", "pasted answer")
+            root.update()
+            gui._open_restore()
+            root.update()
+            check("the restore window is open", gui._restore_window is not None)
+            gui._open_preferences()
+            root.update()
+            old_prefs = gui._prefs_window
+            check("the settings window is open", old_prefs is not None)
+
+            gui._language_changed("de")
+            root.update()
+
+            check("the rules editor uses the new language",
+                  gui._rules_window is not None
+                  and gui._rules_window.title() == i18n.t("gui.rules.editor.title"),
+                  gui._rules_window.title() if gui._rules_window else "-")
+            check("the rules text survived",
+                  gui._rules_text is not None
+                  and "# keep this text" in gui._rules_text.get("1.0", "end-1c"))
+            check("the LLM dialog uses the new language",
+                  gui._llm_window is not None
+                  and gui._llm_window.title() == i18n.t("gui.llm.title"),
+                  gui._llm_window.title() if gui._llm_window else "-")
+            check("the pasted LLM text survived",
+                  gui._llm_text is not None
+                  and "pasted answer" in gui._llm_text.get("1.0", "end-1c"))
+            check("the restore window uses the new language",
+                  gui._restore_window is not None
+                  and gui._restore_window.title() == i18n.t("gui.restore.title"),
+                  gui._restore_window.title() if gui._restore_window else "-")
+            check("the settings window was rebuilt with the new language",
+                  gui._prefs_window is not None
+                  and gui._prefs_window is not old_prefs
+                  and gui._prefs_window.window.title() == i18n.t("gui.settings.title"),
+                  gui._prefs_window.window.title() if gui._prefs_window else "-")
+        finally:
+            if getattr(gui, "_prefs_window", None) is not None:
+                try:
+                    gui._prefs_window.window.destroy()
+                except tk.TclError:
+                    pass
+            for window in (getattr(gui, "_llm_window", None),
+                           getattr(gui, "_rules_window", None),
+                           getattr(gui, "_restore_window", None)):
+                try:
+                    if window is not None:
+                        window.destroy()
+                except tk.TclError:
+                    pass
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass

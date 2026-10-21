@@ -108,7 +108,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._log_rules(i18n.t("gui.rules.prefix"))
         if not self.has_ffprobe:
             self._log_line(i18n.t("gui.log.ffprobe_missing"))
-        self._refresh_folder_stats("tags")
+        self._refresh_folder_stats("tags", manual=False)
 
     def _apply_scale(self) -> None:
         """Scale the layout heights once the screen scale is known."""

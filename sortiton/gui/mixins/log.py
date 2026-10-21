@@ -277,7 +277,7 @@ class LogMixin:
         if self._last_backup and self._last_backup.is_dir():
             self._xdg_open(self._last_backup)
 
-    def _open_restore(self) -> None:
+    def _open_restore(self, preselect: Path | None = None) -> None:
         """Undo window: pick a journal, check the plan, then undo the run."""
         if self.running:
             return
@@ -290,7 +290,8 @@ class LogMixin:
             except tk.TclError:
                 pass
             self._restore_window = None
-        window = RestoreWindow(self.root, self._run_restore, self.var_backup)
+        window = RestoreWindow(self.root, self._run_restore, self.var_backup,
+                               preselect=preselect)
         self._restore_window = window
         window.bind("<Destroy>", self._restore_closed, add="+")
 

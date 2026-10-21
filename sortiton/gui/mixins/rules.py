@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...fileops import atomic_write_text
 from ..common import (
     ACCENT,
     BACKGROUND,
@@ -70,7 +71,7 @@ class RulesMixin:
             Pill(pills, i18n.t("gui.pill.warnings", count=warnings),
                  YELLOW).pack(side="left")
 
-    def _rules_editor(self, prefill: str | None = None) -> None:
+    def _rules_editor(self, prefill: str | None = None, restored: bool = False) -> None:
         """Small editor window for my_rules.ini.
 
         ``prefill`` (the INI block of a pasted LLM answer) wins over the file
@@ -147,7 +148,7 @@ class RulesMixin:
                 content = config.RULES_FILE.read_text(encoding="utf-8-sig")
             except (OSError, UnicodeDecodeError):
                 content = ""
-        if not content.strip():
+        if not content.strip() and prefill is None:
             content = rules.rules_template()
         self._rules_text.insert("1.0", content)
 
@@ -160,7 +161,7 @@ class RulesMixin:
                                             bg=BACKGROUND, fg=TEXT_MUTED,
                                             font=design.FONT_SMALL)
         self._rules_status_label.grid(row=0, column=0, sticky="w")
-        if prefill is not None:
+        if prefill is not None and not restored:
             self._set_rules_status(i18n.t("gui.rules.status.prefilled"), YELLOW)
 
         buttons = tk.Frame(footer, bg=BACKGROUND)
@@ -328,7 +329,7 @@ class RulesMixin:
             return
         content = text.get("1.0", "end-1c").rstrip() + "\n"
         try:
-            config.RULES_FILE.write_text(content, encoding="utf-8")
+            atomic_write_text(config.RULES_FILE, content)
         except OSError as error:
             _show_error(i18n.t("gui.dialog.save_failed.title"),
                         i18n.t("gui.dialog.save_failed.text", error=error))

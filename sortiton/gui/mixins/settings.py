@@ -118,6 +118,12 @@ class SettingsMixin:
             self.var_language.set(i18n.get_language())
             return
         reopen = self._prefs_window is not None
+        if reopen and self._prefs_window is not None:
+            try:
+                self._prefs_window.window.destroy()
+            except tk.TclError:
+                pass
+            self._prefs_window = None
         i18n.set_language(code)
         settings.save_language(code)
         self._build_all()

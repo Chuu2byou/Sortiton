@@ -124,6 +124,72 @@ class LayoutMixin:
             self._render_preview(page)
         self.status_var.set(i18n.t("gui.status.running") if self.running
                             else i18n.t("gui.status.ready"))
+        self._rebuild_aux_windows()
+
+    def _rebuild_aux_windows(self) -> None:
+        """Reopen auxiliary windows so they use the newly selected language.
+
+        The main window is rebuilt from scratch on a language switch. Toplevels
+        are not children of the destroyed frames, so they would otherwise keep
+        the old texts. Their content (and the selected journal) is preserved;
+        only the chrome is recreated.
+        """
+        rules_open = False
+        rules_text = ""
+        if self._rules_window is not None:
+            try:
+                rules_open = bool(self._rules_window.winfo_exists())
+                if rules_open and self._rules_text is not None:
+                    rules_text = self._rules_text.get("1.0", "end-1c")
+            except tk.TclError:
+                rules_open = False
+            try:
+                self._rules_window.destroy()
+            except tk.TclError:
+                pass
+            self._rules_window = None
+            self._rules_text = None
+            self._rules_status = None
+            self._rules_status_label = None
+        if rules_open:
+            self._rules_editor(prefill=rules_text, restored=True)
+
+        llm_open = False
+        llm_text = ""
+        if self._llm_window is not None:
+            try:
+                llm_open = bool(self._llm_window.winfo_exists())
+                if llm_open and self._llm_text is not None:
+                    llm_text = self._llm_text.get("1.0", "end-1c")
+            except tk.TclError:
+                llm_open = False
+            try:
+                self._llm_window.destroy()
+            except tk.TclError:
+                pass
+            self._llm_window = None
+            self._llm_text = None
+            self._llm_status = None
+            self._llm_status_label = None
+        if llm_open:
+            self._llm_rules_import()
+            if self._llm_text is not None and llm_text:
+                self._llm_text.insert("1.0", llm_text)
+
+        restore_window = self._restore_window
+        if restore_window is not None:
+            chosen = getattr(restore_window, "_chosen", None)
+            try:
+                restore_open = bool(restore_window.winfo_exists())
+            except tk.TclError:
+                restore_open = False
+            if restore_open:
+                try:
+                    restore_window.destroy()
+                except tk.TclError:
+                    pass
+                self._restore_window = None
+                self._open_restore(preselect=chosen)
 
     def _build_window(self, keep_geometry: bool = False) -> None:
         """Set up the root window.

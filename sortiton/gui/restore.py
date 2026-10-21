@@ -93,11 +93,12 @@ class RestoreWindow(tk.Toplevel):
     """Pick a journal, look at the plan, undo the run."""
 
     def __init__(self, parent: tk.Misc, on_run: RunHook,
-                 backup: tk.BooleanVar) -> None:
+                 backup: tk.BooleanVar, preselect: Path | None = None) -> None:
         super().__init__(parent)
         self._on_run = on_run
         self._backup = backup
         self._journals = journal.find_journals()
+        self._preselect = Path(preselect) if preselect is not None else None
         self._chosen: Path | None = None
         self._events: dict[Path, list[dict]] = {}
         self._entries: list[tuple[Path, int, str]] = []
@@ -220,6 +221,14 @@ class RestoreWindow(tk.Toplevel):
             self._list.insert("end", entry + (f"  ({counts})" if counts else ""))
 
         self._list.selection_set(0)
+        if self._preselect is not None:
+            try:
+                selected = self._journals.index(self._preselect)
+            except ValueError:
+                selected = 0
+            self._list.selection_clear(0, "end")
+            self._list.selection_set(selected)
+            self._list.see(selected)
         self._pick()
 
     def _selected(self) -> Path | None:
