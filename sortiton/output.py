@@ -96,6 +96,18 @@ def last_stats(kind: str) -> dict:
         return dict(_last_stats.get(kind, {}))
 
 
+def clear_stats(*kinds: str) -> None:
+    """Forget old counters before a combined run reads them again.
+
+    ``cmd_all`` sums the ``last_stats`` of its stages. Without this reset a
+    stage that did not report (for example a preview fetch without tools) would
+    contribute the counters of an earlier run.
+    """
+    with _stats_lock:
+        for kind in kinds:
+            _last_stats.pop(kind, None)
+
+
 def latest_log_file() -> Path | None:
     """Newest log file, or None."""
     return _log_path
@@ -178,9 +190,15 @@ def _prune_old_logs(keep: int = LOG_KEEP) -> None:
     Journals have a smaller limit of their own (:mod:`sortiton.journal`); this
     is the safety net that leaves no orphaned journal behind.
     """
+    def recent(path: Path) -> tuple[int, str]:
+        try:
+            return path.stat().st_mtime_ns, path.name
+        except OSError:
+            return 0, path.name
+
     try:
         logs = sorted(LOG_DIR.glob(f"{LOG_PREFIX}_*.log"),
-                      key=lambda p: p.name, reverse=True)
+                      key=recent, reverse=True)
         for old in logs[keep:]:
             old.unlink(missing_ok=True)
             old.with_suffix(JOURNAL_SUFFIX).unlink(missing_ok=True)

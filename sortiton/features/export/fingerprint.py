@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from array import array
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -220,15 +221,37 @@ def _similarity(a, b, off):
     return 1.0 - bits / (32.0 * n)
 
 
+def _build_index(fps: dict[int, list[int]]) -> dict[int, array]:
+    """Inverted index with a hard cap per sub-fingerprint.
+
+    Values that occur in more than :data:`FP_MAX_POSTINGS` files are noise and
+    are removed completely. ``array("Q")`` stores the packed positions as
+    machine integers instead of Python objects, which keeps a large library's
+    index small.
+    """
+    index: dict[int, array] = {}
+    over = set()
+    for fid, fp in fps.items():
+        for pos, value in enumerate(fp):
+            if not value or pos > FP_POS_MASK or value in over:
+                continue
+            postings = index.get(value)
+            if postings is None:
+                postings = array("Q")
+                index[value] = postings
+            elif len(postings) >= FP_MAX_POSTINGS:
+                del index[value]
+                over.add(value)
+                continue
+            postings.append((fid << FP_POS_BITS) | pos)
+    return index
+
+
 def fingerprint_groups(recs, fps: dict[int, list[int]],
                        threshold: float) -> tuple[list[tuple[list[int], float]], int]:
     """Inverted-index approach: only pairs with many equal sub-fingerprints at the
     same offset are compared closely (no n*n comparison)."""
-    index = defaultdict(list)
-    for fid, fp in fps.items():
-        for pos, v in enumerate(fp):
-            if v and pos <= FP_POS_MASK:
-                index[v].append((fid << FP_POS_BITS) | pos)
+    index = _build_index(fps)
     pairs = {}
     for fid, fp in fps.items():
         votes = Counter()
@@ -236,7 +259,7 @@ def fingerprint_groups(recs, fps: dict[int, list[int]],
             if pos > FP_POS_MASK:
                 break
             post = index.get(v)
-            if not post or len(post) > FP_MAX_POSTINGS:
+            if not post:
                 continue
             for code in post:
                 other = code >> FP_POS_BITS

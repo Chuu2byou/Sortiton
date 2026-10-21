@@ -12,20 +12,29 @@ import re
 from urllib.parse import urlsplit
 
 _URL_RE = re.compile(r"https?://\S+")
+#: A scheme-less URL as yt-dlp accepts it: host.tld/... (optionally after "--x=").
+_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?::\d+)?(?:/.*)?$")
 
 
 def url(value: str) -> str:
-    """``https://host/…`` for an HTTP(S) URL, unchanged for anything else."""
+    """``https://host/…`` for a URL; unchanged for anything else."""
     text = str(value)
     try:
         parts = urlsplit(text)
     except ValueError:
         return text
-    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
-        return text
-    # netloc may still contain "user:password@" - keep only the host part.
-    netloc = parts.netloc.rsplit("@", 1)[-1]
-    return f"{parts.scheme}://{netloc}/…"
+    if parts.scheme.lower() in {"http", "https"} and parts.netloc:
+        # netloc may still contain "user:password@" - keep only the host part.
+        netloc = parts.netloc.rsplit("@", 1)[-1]
+        return f"{parts.scheme}://{netloc}/…"
+    # yt-dlp also accepts "youtu.be/watch?v=…" without a scheme. Keep the host
+    # and path but drop the query, which is where session tokens usually live.
+    if "?" in text and "://" not in text:
+        head = text.partition("?")[0]
+        candidate = head.rsplit("=", 1)[-1]
+        if _HOST_RE.match(candidate):
+            return head + "?…"
+    return text
 
 
 def text(value: str) -> str:
@@ -34,5 +43,5 @@ def text(value: str) -> str:
 
 
 def command(argv) -> list[str]:
-    """Redact the URL-shaped arguments of a command line."""
-    return [url(str(argument)) for argument in argv]
+    """Redact URL-shaped arguments, including ``--option=URL`` forms."""
+    return [url(text(str(argument))) for argument in argv]

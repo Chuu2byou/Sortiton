@@ -152,6 +152,8 @@ FEATURE = Feature(
         Option("confirm", "bool", False, "cli.fetch.confirm", flags=("--confirm",)),
     ),
     requires=(Requirement((external.YT_DLP,)),
-              Requirement((external.FFMPEG,))),
+              # ffmpeg is only needed for the download/post-processing stage;
+              # a preview asks yt-dlp and must keep working without it.
+              Requirement((external.FFMPEG,), when="apply")),
     writes=True,
 )

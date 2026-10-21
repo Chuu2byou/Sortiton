@@ -37,6 +37,12 @@ _ARTIST_FIXES_COMPILED: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(pattern), replacement) for pattern, replacement in ARTIST_FIXES
 )
 
+#: User regexes are local input, but a pathological pattern must not hang a run.
+#: Long patterns and nested/alternating quantifiers are rejected at load time;
+#: matching is skipped for absurdly long tag values.
+MAX_CUSTOM_REGEX_LENGTH = 500
+MAX_CUSTOM_REGEX_INPUT = 512
+
 # Compatibility mirrors of the active custom rules (the GUI reads them).
 # Internally the workers use one immutable snapshot (_custom_rules()), so a
 # reload while a run is active can never mix two rule sets.
@@ -170,6 +176,63 @@ def _set_custom_rules(rules: CustomRules) -> None:
     CUSTOM_PROTECTED = list(rules.protected)
 
 
+def _regex_risk(pattern: str) -> bool:
+    """Reject the classic catastrophic-backtracking shapes.
+
+    A repeated group that itself contains a repetition (``(a+)+``) or an
+    alternation (``(a|aa)+``) can backtrack exponentially. The check uses the
+    parser of the standard library; if that private API changes, the pattern is
+    allowed and only the input length cap remains.
+    """
+    try:
+        # pylint: disable=import-outside-toplevel,protected-access,no-member
+        from re import _constants as constants
+        from re import _parser as parser
+        tree = parser.parse(pattern, 0)
+    except (ImportError, re.error):
+        return False
+
+    repeats = {getattr(constants, "MAX_REPEAT", None),
+               getattr(constants, "MIN_REPEAT", None)}
+    possessive = getattr(constants, "POSSESSIVE_REPEAT", None)
+    if possessive is not None:
+        repeats.add(possessive)
+    repeats.discard(None)
+    branch_op = getattr(constants, "BRANCH", None)
+    subpattern_op = getattr(constants, "SUBPATTERN", None)
+    groupref_op = getattr(constants, "GROUPREF_EXISTS", None)
+    assert_ops = (getattr(constants, "ASSERT", None),
+                  getattr(constants, "ASSERT_NOT", None))
+
+    def walk(items, inside_repeat: bool) -> bool:
+        for op, argument in items:
+            if op in repeats:
+                body = argument[2]
+                if inside_repeat or any(child_op is branch_op
+                                        for child_op, _ in body):
+                    return True
+                if walk(body, True):
+                    return True
+            elif op is subpattern_op:
+                if walk(argument[3], inside_repeat):
+                    return True
+            elif op is branch_op:
+                if inside_repeat:
+                    return True
+                for branch in argument[1]:
+                    if walk(branch, inside_repeat):
+                        return True
+            elif op is groupref_op:
+                if walk(argument[2], inside_repeat) or walk(argument[3], inside_repeat):
+                    return True
+            elif op in assert_ops:
+                if walk(argument[1], inside_repeat):
+                    return True
+        return False
+
+    return walk(tree, False)
+
+
 # First ```ini fenced block of an LLM answer; without a closing fence the rest
 # of the answer counts (models sometimes truncate).
 _INI_BLOCK = re.compile(r"```[ \t]*ini[ \t]*\r?\n(.*?)(?:```|\Z)",
@@ -247,6 +310,12 @@ def parse_custom_rules(text: str,
                 continue
             if new is None:
                 warnings.append(i18n.t("rules.warn.regex_no_equals", rule=pattern))
+                continue
+            if len(pattern) > MAX_CUSTOM_REGEX_LENGTH:
+                warnings.append(i18n.t("rules.warn.regex_too_long", rule=pattern))
+                continue
+            if _regex_risk(pattern):
+                warnings.append(i18n.t("rules.warn.regex_unsafe", rule=pattern))
                 continue
             try:
                 checker = re.compile(pattern)
@@ -401,8 +470,9 @@ def clean_artist(value: str, custom: CustomRules | None = None) -> str:
     # Custom rules: literals first, then regex - they run after the built-ins.
     for pattern, replacement in custom.artists:
         new = pattern.sub(lambda _m, e=replacement: e, new)
-    for pattern, replacement in custom.regex:
-        new = pattern.sub(replacement, new)
+    if len(new) <= MAX_CUSTOM_REGEX_INPUT:
+        for pattern, replacement in custom.regex:
+            new = pattern.sub(replacement, new)
 
     # Normalise separators.
     new = re.sub(r"\s*/\s*", "; ", new)
