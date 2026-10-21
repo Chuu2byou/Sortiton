@@ -77,6 +77,7 @@ def test_gui() -> None:
 
     from sortiton.gui import app as gui_app
     from sortiton.gui.app import SortitonGUI
+    from sortiton.gui.mixins import run as gui_run
     try:
         gui = SortitonGUI(root)
         root.update()
@@ -322,11 +323,11 @@ def test_gui() -> None:
               bool(root.protocol("WM_DELETE_WINDOW")))
         gui.running = True
         gui._cancel = CancelToken()
-        with mock.patch.object(gui_app, "_ask_yes_no", return_value=False):
+        with mock.patch.object(gui_run, "_ask_yes_no", return_value=False):
             gui._on_window_close()
         check("closing is refused while the user says no",
               not gui._closing and not gui._cancel.is_set())
-        with mock.patch.object(gui_app, "_ask_yes_no", return_value=True):
+        with mock.patch.object(gui_run, "_ask_yes_no", return_value=True):
             gui._on_window_close()
         check("closing cancels a running task",
               gui._closing and gui._cancel.is_set())

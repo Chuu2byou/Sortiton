@@ -119,7 +119,9 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/gui/confirm.py` | Confirmation with counts and backup switch |
 | `sortiton/gui/restore.py` | Undo window (pick a journal, check the plan, undo) |
 | `sortiton/gui/dialogs.py` | System dialogs (`kdialog` → `zenity` → Tkinter) |
-| `sortiton/gui/app.py` | Window, cards, tasks, language switch |
+| `sortiton/gui/app.py` | Composition root: `SortitonGUI`, `__init__`, window startup |
+| `sortiton/gui/common.py` | Shared GUI imports, layout constants and formatters |
+| `sortiton/gui/mixins/` | Layout, log view, task runs, rules editor and settings mixins |
 | `tools/checks.sh` | Runs every check (syntax, imports, pytest, pylint, security, CLI) |
 | `tools/build_app.sh` | Freezes the program for the release (tar.gz, `--appimage`) |
 | `packaging/` | AppImage glue: `AppRun` and the `.desktop` entry |
@@ -129,7 +131,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | `my_rules.ini` | Your own rules (read automatically) |
 | `assets/` | Icons in three colours: `icon*.svg` (source) and `icon*.png`; copy one over `assets/icon.png` to switch, plus the screenshot |
 | `requirements.txt` | Optional Python dependency (`mutagen`) |
-| `requirements-dev.txt` | Development tools (`pylint`, `pyinstaller`, `bandit`, `pip-audit`, `detect-secrets`) - not needed to run Sortiton |
+| `requirements-dev.txt` | Development tools (`pytest`, `pylint`, `pyinstaller`, `bandit`, `pip-audit`, `detect-secrets`) - not needed to run Sortiton |
 | `.pylintrc` | Pylint configuration for the CI (errors only) |
 | `.markdownlint.jsonc` | markdownlint configuration (allows the `<img>` app icon) |
 | `CONTRIBUTING.md` | This file |
