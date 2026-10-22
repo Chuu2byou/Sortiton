@@ -88,18 +88,7 @@ def _fmt_duration(value) -> str:
 
 def _pretty_path(path) -> str:
     """Shorten a path for display: the home directory becomes ``~``, very long paths lose their front (keeps the field readable, screenshots free of paths)."""
-    text = str(path or "").strip()
-    if not text:
-        return text
-    try:
-        home = Path.home()
-        candidate = Path(text).expanduser()
-        if candidate == home:
-            text = "~"
-        elif home in candidate.parents:
-            text = "~/" + str(candidate.relative_to(home))
-    except (OSError, ValueError):
-        pass
+    text = config.display_path(path)
     if len(text) > _MAX_PATH_CHARS:
         text = "…" + text[-(_MAX_PATH_CHARS - 1):]
     return text

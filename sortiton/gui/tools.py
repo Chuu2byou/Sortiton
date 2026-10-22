@@ -269,7 +269,7 @@ class OptionForm:
         variable = self.app.var_tool[feature.key][option.name]
         if feature.key == "export" and option.name == "output":
             label = i18n.t("gui.export.output",
-                           path=config.EXPORT_DIR.expanduser().resolve())
+                           path=config.display_path(config.EXPORT_DIR))
         else:
             label = i18n.t(option.help_key) if option.help_key else option.name
         wrap = self._wide if span == 2 else self._narrow

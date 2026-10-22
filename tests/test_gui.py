@@ -238,7 +238,7 @@ def test_gui() -> None:
         output_field = gui._tool_widgets[(export.key, "output")]
         check("export output hint shows the configured path",
               any(isinstance(child, tk.Label)
-                  and str(config.EXPORT_DIR.expanduser().resolve()) in child.cget("text")
+                  and config.display_path(config.EXPORT_DIR) in child.cget("text")
                   for child in output_field.master.winfo_children()))
         check("fine-tuning is not part of the tools form",
               all((feature.key, option.name) not in gui._tool_widgets

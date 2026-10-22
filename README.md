@@ -124,9 +124,9 @@ one `tracks_partNN.tsv` per chunk. `--fingerprint` adds `03_duplikate.md` and
 needs `fpcalc`; `--jsonl` adds `alle_tags.jsonl` with the raw tags.
 
 The export only reads the library - it never changes a file, so there is no
-`--apply`. The reports go to `SORTITON_EXPORT_DIR` (default `exports/` in the
-project folder), the fingerprint cache to `SORTITON_CACHE_DIR` (default
-`cache/`).
+`--apply`. The reports go to `SORTITON_EXPORT_DIR` (default `Sortiton/` inside
+the user's download folder, i.e. `~/Downloads/Sortiton`), the fingerprint cache
+to `SORTITON_CACHE_DIR` (default `cache/`).
 
 ## Download audio (`fetch`)
 
