@@ -745,7 +745,7 @@ class RunMixin(GuiBase):
         return True
 
     def _target_ok(self, target: str) -> bool:
-        """Sorting and the all-in-one run need a target folder."""
+        """Validate the target for sorting and the all-in-one run."""
         if target:
             return True
         _show_warning(i18n.t("gui.dialog.target_missing.title"),

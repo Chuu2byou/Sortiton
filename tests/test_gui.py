@@ -180,7 +180,6 @@ def test_gui() -> None:
         check("action locked again when an input changed",
               not gui._execute_buttons["tags"].enabled)
 
-        # Target folder and mode changes also invalidate the preview
         gui._plans["tags"]["signature"] = gui._signature("tags")
         gui._render_preview("tags")
         root.update()

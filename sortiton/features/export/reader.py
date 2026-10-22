@@ -73,8 +73,7 @@ def read_file(root, path):
     try:
         rec["size"] = path.stat().st_size
         info = read_info(path)
-        # Der Sentinel bleibt sprachneutral ("unreadable"); erst der Bericht
-        # übersetzt ihn, damit auch alle_tags.jsonl sprachunabhängig bleibt.
+        # Keep the sentinel language-neutral; translate it only in the report.
         rec["error"] = info.error
     except Exception as e:  # noqa: BLE001
         rec["error"] = f"{type(e).__name__}: {e}"

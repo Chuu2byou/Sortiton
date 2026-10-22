@@ -208,18 +208,6 @@ sortiton restore                   # preview the undo
 sortiton restore --apply           # perform the undo
 ```
 
-A step whose original name is occupied again is skipped, never overwritten.
-For a run that copied files, the copies are deleted and the originals remain.
-Downloads werden nur gelöscht, wenn ihr Inhalt noch dem SHA-256-Fingerabdruck
-im Journal entspricht. Veränderte Dateien und ältere Download-Einträge ohne
-Fingerabdruck bleiben ebenso wie ihre Archiv-IDs erhalten.
-As with other commands, nothing changes without `--apply`. `restore` writes its
-own journal, so an undo remains traceable. `SORTITON_JOURNAL=false`
-disables the journal.
-
-Tags are read with mutagen if installed (about 1.8 ms per file) and written in
-place; ffprobe/ffmpeg is the fallback. Reading, writing, and copying run in parallel.
-
 ## Environment variables
 
 | Variable | Meaning |

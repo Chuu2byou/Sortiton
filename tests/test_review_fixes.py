@@ -119,7 +119,7 @@ def test_download_keeps_partial_results() -> None:
         saved: list[Path] = []
 
         def fake_stream(_argv, _cancel, handle):
-            # The file has to exist: only provably new files reach the journal.
+            # Only newly created files enter the journal.
             target.write_bytes(b"audio")
             handle("SORTITON_FILE\t" + str(target))
             return 1, "boom"
@@ -171,7 +171,7 @@ def test_fetch_url_is_redacted_in_logs() -> None:
     """A token in the URL path or query must not end up in the log."""
     from sortiton import redact
 
-    # Fixture, not a credential: the password part is what the check removes.
+    # Redaction test fixture; not a real credential.
     auth = "user:pass"  # pragma: allowlist secret
     secret = f"https://{auth}@example.org/watch/session-token?token=abc#frag"
     hidden = redact.url(secret)
@@ -727,7 +727,6 @@ def test_tags_with_target_copy_and_move() -> None:
     from sortiton import tasks
 
     tags = {"artist": "Artist ", "album_artist": "", "album": "Album", "title": "Track", "genre": ""}
-    # Test copy
     with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
         track = Path(src) / "track.mp3"
         track.write_bytes(b"audio-data")
@@ -740,7 +739,6 @@ def test_tags_with_target_copy_and_move() -> None:
         check("file copied to library", expected_dst.exists())
         check("original kept on copy", track.exists())
 
-    # Test move
     with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
         track = Path(src) / "track.mp3"
         track.write_bytes(b"audio-data")
@@ -789,7 +787,6 @@ def test_rename_with_target_copy_and_move() -> None:
     from sortiton import tasks
 
     tags = {"artist": "Artist", "album_artist": "", "album": "Album", "title": "Song", "genre": ""}
-    # Test copy
     with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
         track = Path(src) / "old.mp3"
         track.write_bytes(b"audio-data")
@@ -803,7 +800,6 @@ def test_rename_with_target_copy_and_move() -> None:
         renamed_src = Path(src) / "Artist - Song.mp3"
         check("source renamed and kept on copy", renamed_src.exists())
 
-    # Test move
     with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
         track = Path(src) / "old.mp3"
         track.write_bytes(b"audio-data")

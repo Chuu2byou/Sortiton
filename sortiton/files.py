@@ -142,8 +142,7 @@ def same_content(a: Path, b: Path) -> bool:
 def iter_audio(root: Path, extensions: set[str] = AUDIO_EXTENSIONS):
     """Yield every audio file below ``root`` (hidden entries are ignored)."""
     for folder, subfolders, files in os.walk(root):
-        # Sortiert, damit die Reihenfolge (und damit "(2)" bei Namensgleichheit)
-        # bei jedem Lauf gleich ist - os.walk liefert sie sonst in Plattenordnung.
+        # Sort traversal for reproducible collision suffixes.
         subfolders[:] = sorted((d for d in subfolders if not d.startswith(".")),
                                key=str.casefold)
         for name in sorted(files):

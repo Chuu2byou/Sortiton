@@ -1,10 +1,4 @@
-"""Translation catalogs: no silent duplicates, no unreachable keys.
-
-``test_public_api.test_catalogs`` checks that EN and DE have the same keys and
-that every ``i18n.t("...")`` literal exists. This module covers what that check
-cannot see: keys that are written twice in the same dict (the second one wins
-silently) and keys that are built at runtime from a variable.
-"""
+"""Check translation catalogs for duplicate and missing keys."""
 
 from __future__ import annotations
 
@@ -13,11 +7,10 @@ import re
 
 from _support import BASE, Path, check, i18n
 
-# ``i18n.t_in(lang, "...")`` with a literal key - the language argument comes
-# first, so ``KEY_RE`` from _support does not match these.
+# Match literal keys passed to ``i18n.t_in(lang, ...)``.
 _T_IN_RE = re.compile(r"""t_in\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*["']([A-Za-z0-9_.-]+)["']""")
 
-# Keys that no call site spells out: they come from a code the code computes.
+# Keys with dynamically generated codes.
 _DATE_SAMPLES = (
     ("", "empty"),
     ("1998", "year"),
@@ -37,11 +30,7 @@ _SOURCE = (BASE / "sortiton" / "i18n.py").read_text(encoding="utf-8")
 
 
 def _literal_key_counts(source: str = _SOURCE) -> dict[str, dict[str, int]]:
-    """Keys as they are *written* in i18n.py, with their multiplicity.
-
-    ``i18n.catalog()`` returns the finished dict, so a key that appears twice is
-    invisible there - only the syntax tree still knows about both.
-    """
+    """Count literal keys in each translation catalog."""
     counts: dict[str, dict[str, int]] = {}
     for node in ast.parse(source).body:
         name = ""
@@ -72,7 +61,6 @@ def test_catalog_has_no_duplicate_keys() -> None:
     """A key written twice loses its first translation without any error."""
     counts = _literal_key_counts()
     check("both catalogs were parsed", set(counts) == {"_EN", "_DE"}, str(sorted(counts)))
-    # A detector that finds no keys at all would pass the loop below.
     check("both catalogs were read completely",
           all(len(counts[name]) > 100 for name in ("_EN", "_DE")),
           str({name: len(counts[name]) for name in counts}))
@@ -113,7 +101,6 @@ def test_dynamic_keys_exist_in_both_languages() -> None:
     keys += [f"export.report.fp.bucket.{bucket}" for bucket in _FP_BUCKETS]
     keys += [f"export.report.date.{code}" for _text, code in _DATE_SAMPLES]
 
-    # The samples have to reach every code, otherwise the check below is blind.
     reached = {date_fmt(text) for text, _code in _DATE_SAMPLES}
     check("the date samples cover the expected codes", reached == {code for _t, code
                                                                   in _DATE_SAMPLES},

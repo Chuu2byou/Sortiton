@@ -146,8 +146,7 @@ def compute_fingerprints(recs, root: Path, secs: int,
     cache_key = f"len{secs}"
     active_paths = {r["path"] for r in recs}
     cache_size = len(cache)
-    # Fremde oder kaputte Einträge (kein dict, falsche Typen) fliegen raus,
-    # statt später als Dictionary benutzt zu werden.
+    # Discard invalid or stale cache entries.
     cache = {path: value for path, value in cache.items()
              if path in active_paths and _cache_entry(value, cache_key) is not None}
     cache_changed = len(cache) != cache_size

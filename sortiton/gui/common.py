@@ -1,9 +1,4 @@
-"""Shared imports, constants and formatters for the GUI modules.
-
-Re-Export-Hub: die GUI-Module holen ihre Abhängigkeiten hier, damit jede Datei
-nur eine Import-Quelle hat. Ein großer Teil der Importe wird deshalb in dieser
-Datei selbst nicht benutzt - pylint soll sie hier nicht als tot melden.
-"""
+"""Shared imports and GUI helpers."""
 
 # pylint: disable=unused-import
 

@@ -164,14 +164,13 @@ def cmd_export(args: CmdArgs) -> int:
         if not recs:
             output.message(i18n.t("export.error.no_files"))
             if created_here:
-                # Ein selbst angelegter, leerer Ordner bleibt nicht zurück.
+                # Remove an empty directory created by this run.
                 try:
                     outdir.rmdir()
                 except OSError:
                     pass
             return 1
-        # Ab hier gehört der Ordner uns: alte Berichte aus dem Manifest
-        # entfernen und das neue Manifest mit jedem erzeugten Bericht fortsetzen.
+        # Clear owned reports and continue the output manifest.
         _clear_reports(outdir)
         out = _Output(outdir)
 

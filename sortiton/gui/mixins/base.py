@@ -1,10 +1,4 @@
-"""Shared members of the GUI mixins.
-
-The window is assembled from five mixins (see :mod:`sortiton.gui.app`): each of
-them reads state another one creates - variables, widgets, caches. A type
-checker cannot see that, so the borrowed members are declared once here.
-Nothing of this class exists at runtime; it only carries annotations.
-"""
+"""Shared type annotations for the GUI mixins."""
 
 from __future__ import annotations
 
@@ -22,10 +16,10 @@ from ..common import (
 
 
 class GuiBase:
-    """Contract between the mixins that make up the main window."""
+    """Type contract for the GUI mixins."""
 
     if TYPE_CHECKING:
-        # Window and worker plumbing, set up in SortitonGUI.__init__.
+        # Window and worker state.
         root: tk.Tk
         queue: queue.Queue[Any]
         running: bool
@@ -33,8 +27,7 @@ class GuiBase:
         has_ffprobe: bool
         has_mutagen: bool
 
-        # Variables, created once in SettingsMixin._make_vars so that they
-        # survive a language switch.
+        # Settings that persist across language changes.
         var_page: tk.StringVar
         var_language: tk.StringVar
         var_backup: tk.BooleanVar
@@ -57,7 +50,7 @@ class GuiBase:
         var_all_pattern: tk.StringVar
         status_var: tk.StringVar
 
-        # Widgets and caches built by LayoutMixin and LogMixin.
+        # GUI widgets and caches.
         pages: dict[str, tk.Frame]
         action_buttons: list[RoundButton]
         result_panel: ResultPanel
@@ -75,8 +68,7 @@ class GuiBase:
         _plans: dict[str, dict]
         _traces: list[tuple[tk.Variable, str]]
 
-        # Methods one mixin calls on another - the signatures have to match
-        # the implementations, otherwise the override is reported as broken.
+        # Mixin methods with implementation-matching signatures.
         def _build_all(self) -> None: ...
         def _build_footer(self) -> None: ...
         def _build_result_area(self) -> None: ...

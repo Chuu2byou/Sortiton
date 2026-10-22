@@ -19,8 +19,7 @@ PATTERN_DEFAULT = "%artist% - %title%"
 
 READ_COMMANDS = frozenset({"tags", "rename", "sort", "scan", "all"})
 WRITE_COMMANDS = frozenset({"restore"})
-#: Kommandos, die mit ``--apply`` Tags schreiben - dafür braucht es mutagen
-#: oder ffmpeg, nicht nur einen Leser.
+#: Commands that write tags and require mutagen or ffmpeg.
 TAG_WRITE_COMMANDS = frozenset({"tags", "all"})
 
 _PROGRESS_INTERVAL = 0.1

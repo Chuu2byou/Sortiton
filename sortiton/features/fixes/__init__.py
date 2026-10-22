@@ -142,8 +142,7 @@ def cmd_fixes(args: CmdArgs) -> int:
             changed = done
 
     if not actions and not skipped and errors:
-        # Auch ein Lauf, in dem jede Zeile ein Fehler ist, endet mit dem
-        # gewohnten Abschlussblock statt nur mit Einzelmeldungen.
+        # Emit the summary block even when every row fails.
         _finish(0, 0, len(rows), errors, args)
         _report(rows, 0, 0, errors, args, backup_folder)
         return 1
@@ -173,7 +172,7 @@ def _prepare(rows: list[parse.FixRow], root: Path | None
             problems.append((row.line, key, {"path": row.path}))
             continue
         if path is None:
-            # Nicht auflösbarer Pfad: derselbe Fehler wie bei fehlender Datei.
+            # Treat unresolved paths like missing files.
             problems.append((row.line, "fixes.error.missing_file", {"path": row.path}))
             continue
         if path.suffix.lower() not in AUDIO_EXTENSIONS:

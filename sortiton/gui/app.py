@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-# pylint: disable=unused-import  # Re-Export: Tests und Mixins greifen über
-# ``sortiton.gui.app`` auf diese Helfer zu (z. B. ``_pretty_path``).
+# pylint: disable=unused-import  # Re-exported for tests and mixins.
 from .common import (
     CancelToken,
     Path,

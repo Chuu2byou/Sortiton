@@ -1,14 +1,4 @@
-"""Shared helpers for the pytest suite.
-
-``conftest.py`` sets the ``SORTITON_*`` environment variables before this module
-imports :mod:`sortiton`; the split test modules import the helpers they use from
-here. ``check()`` keeps the wording of the old smoke runner but raises, so a
-failing condition fails the test instead of being collected at the end.
-
-Re-Export-Hub der Testsuite: die Testmodule holen ihre Importe hier, damit jede
-Datei nur eine Quelle hat. Die meisten Namen werden deshalb in dieser Datei
-selbst nicht benutzt - pylint soll sie hier nicht als tot melden.
-"""
+"""Shared imports and helpers for the test suite."""
 
 # pylint: disable=unused-import
 

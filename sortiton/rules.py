@@ -424,9 +424,7 @@ def clean_artist(value: str, custom: CustomRules | None = None) -> str:
     new = re.sub(r"  +", " ", new)
     new = new.strip()
 
-    # Einzelfall aus der Praxis, bewusst fest verdrahtet: falsch gesplittete
-    # Interpretennamen ergeben genau diese Kette. Die Regel steht deshalb auch
-    # in der eingebauten Übersicht (``rules --builtin``).
+    # Correct a known artist-name split; also listed in --builtin.
     if new == "Orchestr; a; Plays":
         new = "Orchestra Plays"
 
