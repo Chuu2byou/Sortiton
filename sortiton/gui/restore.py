@@ -11,7 +11,7 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
-from typing import Callable
+from typing import Callable, cast
 
 from .. import i18n, journal
 from . import design
@@ -84,7 +84,7 @@ class RestoreWindow(tk.Toplevel):
 
         self.title(i18n.t("gui.restore.title"))
         self.configure(bg=BACKGROUND)
-        self.transient(parent)
+        self.transient(cast(tk.Wm, parent.winfo_toplevel()))
         width, height = 900, 560
         x = max(parent.winfo_rootx() + (parent.winfo_width() - width) // 2, 0)
         y = max(parent.winfo_rooty() + (parent.winfo_height() - height) // 2, 0)
