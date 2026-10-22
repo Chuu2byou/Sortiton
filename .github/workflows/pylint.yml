@@ -17,7 +17,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pylint
+        # pylint plus every module the analysed code imports: without pytest
+        # and mutagen each file in tests/ and tools/ reports E0401
+        # (import-error) and pylint exits with 2. requirements-dev.txt is not
+        # used on purpose - it also pulls in pyinstaller and the security
+        # tools, which the analysis does not need.
+        pip install pylint pytest -r requirements.txt
     - name: Analysing the code with pylint
       run: |
         # Two calls on purpose - in one, astroid resolves "sortiton" to the
@@ -40,7 +45,14 @@ jobs:
     # xvfb for the GUI part.
     - name: Install system packages
       run: |
-        sudo apt-get update
+        # The runner image carries a packages.microsoft.com repository that
+        # answers "403 Forbidden" every now and then. "apt-get update" then
+        # aborts with exit code 100 and "no longer signed" - and the job dies
+        # before anything is installed. Nothing here needs that repository, so
+        # drop it first; ffmpeg, python3-tk and xvfb all come from Ubuntu.
+        grep -rls 'packages.microsoft.com' /etc/apt/sources.list.d/ \
+          | sudo xargs -r rm -f
+        sudo apt-get update -o Acquire::Retries=3
         sudo apt-get install -y ffmpeg python3-tk xvfb
     # The export tests compare against the mutagen path; requirements.txt pins it.
     - name: Install runtime dependencies (mutagen)
