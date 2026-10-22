@@ -1,17 +1,4 @@
-"""yt-dlp process handling for the fetch feature (preview and download).
-
-The feature never parses yt-dlp's human-readable log: it asks for machine
-output with ``--print`` and ``--progress-template`` (see the yt-dlp README,
-"Embedding yt-dlp"), so a change of wording cannot break the parsing. Each line
-carries a marker (:data:`META_MARK`, :data:`PROGRESS_MARK`, :data:`FILE_MARK`);
-everything else is ignored.
-
-The process runs line by line, so the progress reaches
-:func:`sortiton.output.progress` and a :class:`~sortiton.cancel.CancelToken` can
-terminate it. Nothing here downloads on its own: :func:`download` is only called
-after the feature checked ``--apply`` *and* ``--confirm`` (or the GUI asked its
-dialog).
-"""
+"""yt-dlp process handling for the fetch feature (preview and download)."""
 
 from __future__ import annotations
 
@@ -24,31 +11,23 @@ from typing import NamedTuple
 from ... import i18n, output
 from ...cancel import NO_CANCEL, Cancelled
 
-# Machine-readable markers. Distinct, ASCII-only markers keep a localized log
-# line from ever looking like our data.
 META_MARK = "SORTITON_META"
 PROGRESS_MARK = "SORTITON_PROGRESS"
 FILE_MARK = "SORTITON_FILE"
 SEP = "\t"
 
-POLL_SECS = 0.2          # short wait, so a cancel is noticed quickly
-TERM_GRACE_SECS = 5.0    # then the process is killed
-LOG_TAIL = 5             # log lines kept for an error message
+POLL_SECS = 0.2
+TERM_GRACE_SECS = 5.0
+LOG_TAIL = 5
 
-#: The value yt-dlp writes when a field is unknown (``--output-na-placeholder``).
 NA_VALUES = {"", "NA", "None", "none"}
 
-#: ``--print`` template of the preview: one line per entry, tab separated.
-#: ``--print`` implies ``--quiet`` and, at the video stage, ``--simulate``, so
-#: the preview never downloads.
 PREVIEW_PRINT = f"{META_MARK}{SEP}%(webpage_url)s{SEP}%(title)s{SEP}%(duration)s"
 
-#: Machine progress line of the download stage (bytes; total may be an estimate).
 PROGRESS_TEMPLATE = (f"download:{PROGRESS_MARK}{SEP}%(progress.downloaded_bytes)s"
                      f"{SEP}%(progress.total_bytes)s"
                      f"{SEP}%(progress.total_bytes_estimate)s")
 
-#: Final file name after post-processing, printed once the file has been moved.
 DOWNLOAD_PRINT = f"after_move:{FILE_MARK}{SEP}%(filepath)s"
 
 
@@ -93,14 +72,7 @@ def _archive_lines(path: Path) -> list[str]:
 
 
 def _stream(argv: list[str], cancel, on_line) -> tuple[int | None, str]:
-    """Run ``argv`` and call ``on_line`` for every output line.
-
-    stdout and stderr are merged, so the progress lines and the ``--print``
-    output arrive on one stream; the markers filter out the rest. The process is
-    polled in short steps so a :class:`~sortiton.cancel.CancelToken` can
-    terminate it. Returns ``(returncode, error)``; on a cancelled token
-    :class:`~sortiton.cancel.Cancelled` is raised and ``error`` is unused.
-    """
+    """Run ``argv`` and call ``on_line`` for every output line."""
     cancel = cancel or NO_CANCEL
     try:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
@@ -146,12 +118,7 @@ def _stream(argv: list[str], cancel, on_line) -> tuple[int | None, str]:
 
 
 def preview(url: str, *, playlist: bool, cancel=None) -> tuple[list[Entry], str]:
-    """Return what yt-dlp would download, without downloading anything.
-
-    Runs ``yt-dlp --simulate`` and parses the ``--print`` lines. Returns
-    ``(entries, "")`` on success and ``([], error)`` on failure; the caller
-    reports the error.
-    """
+    """Return what yt-dlp would download, without downloading anything."""
     argv = ["yt-dlp", "--simulate", "--no-warnings", "--print", PREVIEW_PRINT]
     argv += _playlist_args(playlist)
     argv.append(url)
@@ -175,26 +142,12 @@ def preview(url: str, *, playlist: bool, cancel=None) -> tuple[list[Entry], str]
 def download(url: str, target: Path, *, audio_format: str, playlist: bool,
              archive: Path | None = None,
              cancel=None, on_saved=None) -> tuple[list[Saved], str]:
-    """Download ``url`` as audio into ``target``; return the finished files.
-
-    ``archive`` is yt-dlp's download archive (``--download-archive``): when it
-    is given, an already recorded track is skipped and every finished file is
-    recorded there. Each returned :class:`Saved` carries the archive id of its
-    file (empty when no archive is used), so a restore can delete the file and
-    drop its archive line again (step 4.4).
-
-    ``--no-overwrites`` keeps yt-dlp from replacing an existing file, matching
-    the project rule that nothing is ever overwritten. Returns ``(files, "")``
-    on success and ``(files, error)`` on failure; the list also contains the
-    files of a playlist that finished before the error or the cancellation, so
-    the caller can journal (and later undo) them. ``on_saved`` is called once
-    per completed file, before the function returns or raises.
-    """
+    """Download ``url`` as audio into ``target``; return the finished files."""
     if archive is not None:
         try:
             archive.parent.mkdir(parents=True, exist_ok=True)
         except OSError:
-            pass                     # yt-dlp reports the real problem below
+            pass
     before = _archive_lines(archive) if archive is not None else []
 
     argv = ["yt-dlp", "--no-simulate", "--newline", "--no-warnings",
@@ -225,8 +178,6 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
         """Finished files so far, with the archive ids that belong to them."""
         if archive is None:
             return [Saved(path, "") for path in paths]
-        # yt-dlp appends one archive line per finished file, in the order of the
-        # after_move prints; the new lines are exactly this run's archive ids.
         new_ids = _archive_lines(archive)[len(before):]
         return [Saved(path, new_ids[index] if index < len(new_ids) else "")
                 for index, path in enumerate(paths)]
@@ -239,8 +190,6 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
     try:
         rc, error = _stream(argv, cancel, handle)
     except Cancelled:
-        # Keep what finished before the cancel: the caller journals it, so a
-        # half-done playlist stays undoable.
         deliver(collect())
         raise
 

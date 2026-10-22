@@ -1,21 +1,4 @@
-"""The run journal: machine-readable record of what a run changed.
-
-The log file (see :mod:`sortiton.output`) is for humans - file names without
-their folder, wording in the interface language. Undo cannot be built on that,
-so every change is appended here as one JSON object per line.
-
-Created and pruned together with the log file of the same run::
-
-    logs/sortiton_2026-09-24_19-03-19.log       # for humans
-    logs/sortiton_2026-09-24_19-03-19.jsonl     # for restore
-    logs/latest_journal.jsonl -> sortiton_…_19-03-19.jsonl
-
-Unknown operations and unknown fields are ignored while reading, so a restore
-from an older version keeps working. New operations are additive: they do not
-bump :data:`SCHEMA`, because a build that does not know an operation simply
-skips it. Written only while changes are applied; a preview leaves no file
-behind.
-"""
+"""The run journal: machine-readable record of what a run changed."""
 
 from __future__ import annotations
 
@@ -33,12 +16,11 @@ from .files import open_new
 
 SCHEMA = 1
 
-# Operations a restore can undo.
 UNDOABLE = ("tags", "rename", "sort", "copy", "download")
 
-_file = None                 # open file handle while a run is in progress
-_path: Path | None = None    # its path
-_lock = threading.Lock()     # writes come from several worker threads
+_file = None
+_path: Path | None = None
+_lock = threading.Lock()
 _write_error_reported = False
 
 
@@ -68,12 +50,7 @@ def latest_path() -> Path | None:
 
 
 def open_for(log_path: Path) -> Path | None:
-    """Start the journal for a run. Returns the path, or None if impossible.
-
-    Does nothing when a journal is already open: one run, one journal. A
-    combined run (tags -> rename -> sort) therefore writes a single file, which
-    is exactly what undo needs.
-    """
+    """Start the journal for a run."""
     global _file, _path, _write_error_reported
 
     with _lock:
@@ -90,10 +67,6 @@ def open_for(log_path: Path) -> Path | None:
         return None
 
     with _lock:
-        # Another thread may have opened the journal while this one was
-        # creating its file. One run, one journal: keep the first one and
-        # remove the file this thread created (otherwise it stays behind as an
-        # empty, misleading journal).
         if _file is not None:
             handle.close()
             try:
@@ -110,17 +83,13 @@ def open_for(log_path: Path) -> Path | None:
     try:
         cwd = os.getcwd()
     except OSError:
-        cwd = "?"      # the working directory was removed while we ran
+        cwd = "?"
     record("run", status="start", argv=redact.command(sys.argv), cwd=cwd)
     return path
 
 
 def close() -> None:
-    """Close the journal of this run.
-
-    Clearing the path as well matters: as long as it is set, :func:`latest_journal`
-    treats that file as "the run that is going on" and skips it.
-    """
+    """Close the journal of this run."""
     global _file, _path
 
     with _lock:
@@ -154,14 +123,11 @@ def record(op: str, **data: object) -> None:
 
     try:
         with _lock:
-            # The check must happen under the same lock as the write: close()
-            # clears _file under it, and checking outside would let us write to
-            # a handle that has just become None.
             handle = _file
             if handle is None:
                 return
             handle.write(line + "\n")
-            handle.flush()     # a crash keeps everything written so far
+            handle.flush()
     except (OSError, ValueError) as error:
         _report_write_error(error)
 
@@ -180,11 +146,7 @@ def record_move(op: str, source: Path, target: Path, mode: str = "") -> None:
 
 
 def record_download(path: Path, url: str, archive_id: str = "") -> None:
-    """Remember a finished download.
-
-    ``archive_id`` is yt-dlp's download-archive line for the file (empty when
-    no archive was used); a restore deletes the file and drops that line.
-    """
+    """Remember a finished download."""
     record("download", path=str(path), url=url, archive_id=archive_id)
 
 
@@ -229,12 +191,7 @@ def schema_version(path: Path) -> int:
 
 
 def plan_restore(path: Path) -> list[dict]:
-    """Events of ``path`` in the order they have to be undone.
-
-    Newest first: a combined run writes tags -> rename -> sort, so undoing it
-    has to happen the other way round. Failed and unknown events stay in the
-    list - the caller reports them instead of hiding them.
-    """
+    """Events of ``path`` in the order they have to be undone."""
     return list(reversed([event for event in read_journal(path)
                           if event.get("op") != "run"]))
 
@@ -253,14 +210,7 @@ def _op_order(op: str) -> tuple[int, str]:
 
 
 def find_journals(limit: int | None = JOURNAL_KEEP) -> list[Path]:
-    """Available journals, newest first.
-
-    The name alone is not enough: two runs can start in the same second, and
-    the second one then gets a " (2)" suffix. Lexicographically the base name
-    sorts *after* its suffix, which would report the older run as newer. The
-    modification time (with the name as a tie-breaker) keeps them in the order
-    they were really written.
-    """
+    """Available journals, newest first."""
     def key(path: Path) -> tuple[int, str]:
         try:
             return path.stat().st_mtime_ns, path.name
@@ -276,13 +226,7 @@ def find_journals(limit: int | None = JOURNAL_KEEP) -> list[Path]:
 
 
 def latest_journal() -> Path | None:
-    """The newest journal of an **earlier** run.
-
-    The journal that is currently open is skipped: while a run is going on, the
-    ``latest_journal.jsonl`` link already points at that run's own, still empty
-    file. Without skipping it, ``restore --apply`` would read its own journal,
-    find nothing and do nothing.
-    """
+    """The newest journal of an **earlier** run."""
     current = latest_path()
     for path in find_journals(limit=None):
         if current is None or path != current:

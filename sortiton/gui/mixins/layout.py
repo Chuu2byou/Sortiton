@@ -69,13 +69,7 @@ class LayoutMixin:
                 pass
 
     def _build_all(self) -> None:
-        """Build (or rebuild) the whole window - used for the language switch.
-
-        Toplevels are left alone: the rules editor and the undo window may hold
-        unsaved work, and destroying them just because the language changed
-        would throw it away. Only the preferences window is closed (it is
-        reopened right after the rebuild).
-        """
+        """Build (or rebuild) the whole window - used for the language switch."""
         for variable, identifier in self._traces:
             try:
                 variable.trace_remove("write", identifier)
@@ -102,9 +96,6 @@ class LayoutMixin:
         self._stats_labels = {}
         self._tool_widgets = {}
         self._last_inset = None
-        # Keep the current size and position: only the very first build places
-        # the window, otherwise a rebuild would recentre it (on two monitors
-        # that is exactly the gap between the screens).
         self._build_window(keep_geometry=self._placed)
         self._placed = True
         self._set_style()
@@ -127,13 +118,7 @@ class LayoutMixin:
         self._rebuild_aux_windows()
 
     def _rebuild_aux_windows(self) -> None:
-        """Reopen auxiliary windows so they use the newly selected language.
-
-        The main window is rebuilt from scratch on a language switch. Toplevels
-        are not children of the destroyed frames, so they would otherwise keep
-        the old texts. Their content (and the selected journal) is preserved;
-        only the chrome is recreated.
-        """
+        """Reopen auxiliary windows so they use the newly selected language."""
         rules_open = False
         rules_text = ""
         if self._rules_window is not None:
@@ -192,11 +177,7 @@ class LayoutMixin:
                 self._open_restore(preselect=chosen)
 
     def _build_window(self, keep_geometry: bool = False) -> None:
-        """Set up the root window.
-
-        ``keep_geometry`` leaves size, position and state (maximised …) alone -
-        used when the window is only rebuilt for another language.
-        """
+        """Set up the root window."""
         self.root.title(i18n.t("gui.window.title"))
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
@@ -240,7 +221,6 @@ class LayoutMixin:
                             lightcolor=SCROLLBAR, troughcolor=LOG_BG, bordercolor=LOG_BG,
                             arrowcolor=TEXT_MUTED, arrowsize=design.px(15))
             style.map(name, background=[("active", SCROLLBAR_ACTIVE)])
-        # Read-only comboboxes (tool choices) follow the dark theme too.
         style.configure("TCombobox", fieldbackground=FIELD, background=FIELD,
                         foreground=TEXT, arrowcolor=TEXT_MUTED, bordercolor=BORDER,
                         lightcolor=FIELD, darkcolor=FIELD, padding=design.px(5),
@@ -367,7 +347,6 @@ class LayoutMixin:
                 frame.grid()
             else:
                 frame.grid_remove()
-        # A new page starts at its top; the scrollbar follows the new height.
         canvas = getattr(self, "_content_canvas", None)
         if canvas is not None:
             canvas.yview_moveto(0)
@@ -470,12 +449,7 @@ class LayoutMixin:
         return page
 
     def _page_tools(self, parent: tk.Frame) -> tk.Frame:
-        """Tools tab: one form per registered feature, with a matching action bar.
-
-        A read-only feature (the export) keeps a single run button; a writing
-        feature gets the normal preview/write pair with the write confirmation.
-        The preview card is hidden while a read-only feature is selected.
-        """
+        """Tools tab: one form per registered feature, with a matching action bar."""
         page = self._new_page(parent)
         self._page_header(page, 0, i18n.t("gui.tab.tools"), i18n.t("gui.hint.tools"))
         tools_view = ToolsTab(self, page)
@@ -485,11 +459,7 @@ class LayoutMixin:
         return page
 
     def _tools_actions(self) -> None:
-        """Rebuild the tools action bar for the selected feature.
-
-        Called while building the page and again whenever the feature picker
-        changes, so the buttons always match the form on screen.
-        """
+        """Rebuild the tools action bar for the selected feature."""
         old = self._action_frames.pop("tools", None)
         if old is not None:
             for button in self._tools_buttons:
@@ -520,14 +490,10 @@ class LayoutMixin:
                 card.grid_remove()
         if self.var_page.get() == "tools":
             self._action_frames["tools"].grid()
-        # Keep the write button gated: a feature switch invalidates the preview.
         self._render_preview("tools")
 
     def _card(self, parent: tk.Frame, row: int, title: str = "") -> tk.Frame:
-        """Panel with a subtle border and an optional section title.
-
-        Returns the frame that rows are placed in.
-        """
+        """Panel with a subtle border and an optional section title."""
         outer = tk.Frame(parent, bg=CARD, highlightthickness=1,
                          highlightbackground=BORDER, bd=0)
         outer.grid(row=row, column=0, sticky="ew", pady=(0, design.px(14)))
@@ -650,11 +616,7 @@ class LayoutMixin:
             variable.set(chosen)
 
     def _actions(self, key: str, preview, execute, execute_text: str) -> None:
-        """Preview as the primary action, the changing one clearly separated.
-
-        The changing button stays disabled until a preview for exactly these
-        inputs has run.
-        """
+        """Preview as the primary action, the changing one clearly separated."""
         frame = tk.Frame(self._actions_area, bg=BACKGROUND)
         frame.grid(row=0, column=0, sticky="w")
         self._action_frames[key] = frame
@@ -674,13 +636,7 @@ class LayoutMixin:
         self._preview_notes[key] = note
 
     def _actions_single(self, key: str, run, text: str, note: str = "") -> None:
-        """Action bar with a single button - for a page without preview/write.
-
-        The button joins ``action_buttons`` so a running job disables it like
-        every other action; there is deliberately no entry in
-        ``_execute_buttons`` (nothing to gate on a preview). ``note`` explains
-        right next to the button what it will do.
-        """
+        """Action bar with a single button - for a page without preview/write."""
         frame = tk.Frame(self._actions_area, bg=BACKGROUND)
         frame.grid(row=0, column=0, sticky="w")
         self._action_frames[key] = frame

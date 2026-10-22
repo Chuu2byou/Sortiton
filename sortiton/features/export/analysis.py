@@ -1,8 +1,4 @@
-"""Analysis of the read records: variants, folders vs. tags, style, tracks.
-
-Pure text work on the records that :mod:`sortiton.features.export.reader`
-produced - no file access, no output.
-"""
+"""Analysis of the read records: variants, folders vs. tags, style, tracks."""
 
 from __future__ import annotations
 
@@ -17,28 +13,25 @@ from .reader import SEP
 
 _DROP = re.compile(r"[\s\-\u2010-\u2015_'’‘`\"“”]+")
 _LOOSE = re.compile(r"[\W_]+")
-THRESH = {"mp3": 128, "oggopus": 80, "opus": 80}  # kbps, otherwise 96
-TRUNC_MIN = 25  # minimum length for detecting truncated folder names
-MAX_FILENAME_BYTES = 240  # length limit for file names (file system truncation)
-TRACK_DENSE_MIN = 3  # minimum number of tracks for dense sequences
-TRACK_DENSE_RATIO = 0.60  # minimum share of present tracks for gap detection
-TRACK_MAX_EXPECTED = 200  # upper bound for a plausible album total
+THRESH = {"mp3": 128, "oggopus": 80, "opus": 80}
+TRUNC_MIN = 25
+MAX_FILENAME_BYTES = 240
+TRACK_DENSE_MIN = 3
+TRACK_DENSE_RATIO = 0.60
+TRACK_MAX_EXPECTED = 200
 
 LOSSY = {"mp3", "oggvorbis", "oggopus", "mp4", "aac", "asf", "musepackfile",
          "opus", "vorbis", "wmav2"}
 JUNK_RE = re.compile(
     r"(?i)(official\s*(music\s*)?(video|audio)|lyric\s*video|www\.|\.com\b|"
     r"\bhq\b|\bhd\b(?!\s*-\s*\S)|320\s*kbps|free\s*download)")
-VA_NAMES = {"variousartists", "various", "va"}  # for sampler detection
+VA_NAMES = {"variousartists", "various", "va"}
 
 
 @functools.lru_cache(maxsize=8192)
 def norm(s):
-    """Comparison key for tag variants: without case, Latin accents, spaces,
-    hyphens (all kinds), underscore, quotes. Kana dakuten stay; pure symbol
-    titles do not collide."""
+    """Comparison key for tag variants: without case, Latin accents, spaces, hyphens (all kinds), underscore, quotes."""
     s = unicodedata.normalize("NFKD", s.casefold())
-    # Remove accents/diacritics, but keep kana dakuten (U+3099, U+309A).
     s = "".join(
         c for c in s
         if not (unicodedata.category(c).startswith("M") and ord(c) not in (0x3099, 0x309A))
@@ -47,8 +40,7 @@ def norm(s):
 
 
 def loose(s):
-    """Very rough (letters/digits only) for file/folder names in which the file
-    system replaced characters like : / ? * | with _."""
+    """Very rough (letters/digits only) for file/folder names in which the file system replaced characters like : / ?"""
     return _LOOSE.sub("", unicodedata.normalize("NFKC", s.casefold()))
 
 
@@ -68,12 +60,7 @@ def track_num(s):
 
 
 def track_analysis(recs):
-    """Check track numbers per album, conservatively.
-
-    Missing tags are handled apart from real number gaps. Number gaps are only
-    reported when there is enough evidence for a complete track sequence: an
-    explicit total in the tag or a dense sequence starting at 1.
-    """
+    """Check track numbers per album, conservatively."""
     by_dir = defaultdict(list)
     for r in recs:
         d = str(Path(r["path"]).parent)
@@ -122,7 +109,6 @@ def track_analysis(recs):
                 max_n = max(valid)
                 total_hint = max(totals) if totals and len(set(totals)) == 1 else None
 
-                # Strong evidence: an explicit /total value in the track tag.
                 explicit_total_ok = (
                     total_hint is not None and
                     total_hint >= max_n and
@@ -130,9 +116,6 @@ def track_analysis(recs):
                     len(drs) >= max(2, int((total_hint * TRACK_DENSE_RATIO) + 0.999))
                 )
 
-                # Without a total only analyse dense sequences from 1. This way
-                # partially present albums are not misread as dozens of "missing"
-                # tracks.
                 dense_sequence_ok = (
                     len(valid) >= TRACK_DENSE_MIN and
                     min(valid) == 1 and
@@ -150,14 +133,10 @@ def track_analysis(recs):
                     if local_gaps:
                         gaps.extend((disc, n) for n in local_gaps)
                 elif len(valid) >= 2 and max_n > len(valid) * 2:
-                    # Sparse number sequence: interesting, but no reliable claim
-                    # about which tracks actually are missing.
                     sparse_groups.add((d, _album))
 
             album_raw = next((r["album"] for r in ars if r["album"]), "")
 
-            # Structured records (no text yet): the report renders them per
-            # language, so the analysis stays language independent.
             if missing:
                 if len(missing) == len(ars):
                     all_missing += 1
@@ -193,12 +172,7 @@ def lst(items, limit, lang):
 
 
 def date_fmt(s):
-    """Classify the date/year format of a year tag; returns a stable code.
-
-    The report translates the code, so the analysis says nothing language
-    specific. The order of the checks is significant (``YYYY-MM-DD`` before
-    ``YYYY-MM`` before the ISO timestamp).
-    """
+    """Classify the date/year format of a year tag; returns a stable code."""
     s = (s or "").strip()
     if not s:
         return "empty"
@@ -308,11 +282,7 @@ def folder_vs_tags(recs):
 
 
 def style_issues(r, check_case=False):
-    """Find style and formatting problems in the tags of one file.
-
-    Returns codes with parameters (e.g. ``("junk", "title", "Official Video")``);
-    the report renders them per language, so nothing here is language specific.
-    """
+    """Find style and formatting problems in the tags of one file."""
     issues = []
     for field in ("title", "artist", "album"):
         val = r.get(field) or ""

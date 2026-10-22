@@ -1,8 +1,4 @@
-"""Preview card (what will happen) and result panel (counters + recent lines).
-
-Fonts are read as ``design.FONT_*`` because :func:`design.load_fonts` rebinds
-them.
-"""
+"""Preview card (what will happen) and result panel (counters + recent lines)."""
 
 from __future__ import annotations
 
@@ -13,8 +9,6 @@ from . import design
 from .design import (BORDER, BORDER_SOFT, CARD, GREEN, SURFACE, TEXT, TEXT_FAINT,
                      TEXT_MUTED, YELLOW)
 
-# Long values (paths, artist lists) are cut at the front so the meaningful
-# end stays visible.
 MAX_VALUE_LENGTH = 44
 
 
@@ -33,10 +27,7 @@ def section_label(parent: tk.Misc, text: str, bg: str = CARD) -> tk.Label:
 
 
 class PreviewCard(tk.Frame):
-    """Card with the aggregated result of the last preview.
-
-    Rows are ``(field, old, new, extra)`` - one row per changed field.
-    """
+    """Card with the aggregated result of the last preview."""
 
     def __init__(self, parent: tk.Misc, title: str) -> None:
         super().__init__(parent, bg=CARD, highlightthickness=1,
@@ -117,10 +108,7 @@ class PreviewCard(tk.Frame):
 
 
 class ResultPanel(tk.Frame):
-    """Counters of the last run and the newest log lines.
-
-    ``self.header_right`` is an empty frame the window puts its buttons into.
-    """
+    """Counters of the last run and the newest log lines."""
 
     def __init__(self, parent: tk.Misc, title: str, recent_title: str,
                  recent_lines: int = 4) -> None:
@@ -180,11 +168,7 @@ class ResultPanel(tk.Frame):
                          row=index, column=2, sticky="w", pady=(top, 0))
 
     def set_recent(self, lines: list[str]) -> None:
-        """Show the newest log lines (the last ``recent_lines`` are kept).
-
-        Separator lines are skipped and long lines shortened, so the preview
-        keeps its height.
-        """
+        """Show the newest log lines (the last ``recent_lines`` are kept)."""
         kept: list[str] = []
         for line in lines:
             text = line.strip()

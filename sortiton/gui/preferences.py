@@ -1,13 +1,4 @@
-"""Settings window: external tools, fine-tuning of the tools and language.
-
-The fine-tuning cards (report length, duplicate check, reader count) are drawn
-from the feature descriptions, with the same :class:`~sortiton.gui.tools.OptionForm`
-the tools tab uses - only the card split differs: what belongs to one run stays
-in the tab, what belongs to the program lives here.
-
-The window scrolls instead of growing past the screen edge: the cards are
-generated, so their number follows the feature list and not this layout.
-"""
+"""Settings window: external tools, fine-tuning of the tools and language."""
 
 from __future__ import annotations
 
@@ -67,15 +58,12 @@ class PreferencesWindow:
         RoundButton(footer, i18n.t("gui.button.close"), self.window.destroy,
                     style="normal", height=34).pack()
 
-        # The wheel is bound on the window, not globally: this handler dies with
-        # it, and the main window keeps its own scrolling.
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.window.bind(sequence, self._on_wheel, add="+")
         self.window.bind("<Escape>", lambda _event: self.window.destroy())
 
         self._place(parent)
 
-    # -- window frame ---------------------------------------------------
 
     def _place(self, parent: tk.Misc) -> None:
         """Size the window to its content, but never past the screen edge."""
@@ -149,14 +137,9 @@ class PreferencesWindow:
         body.columnconfigure(0, weight=1)
         return body
 
-    # -- cards ----------------------------------------------------------
 
     def _tools_card(self, parent: tk.Misc, row: int) -> None:
-        """One pill per tool from :data:`external.TOOLS`, plus install hints.
-
-        The list is built from the registry, never per program, so a new tool
-        only has to be added to ``external.TOOLS``.
-        """
+        """One pill per tool from :data:`external.TOOLS`, plus install hints."""
         card = self._card(parent, row, i18n.t("gui.settings.tools"))
 
         pills = tk.Frame(card, bg=CARD)
@@ -189,12 +172,7 @@ class PreferencesWindow:
             hint_row += 1
 
     def _fine_tuning_cards(self, parent: tk.Misc, row: int) -> int:
-        """One card per fine-tuning section; returns the next free row.
-
-        The form is generated from the feature descriptions, so a second
-        feature with fine-tuning only needs a new entry in ``_SECTION_OF``.
-        With more than one feature the card title names its owner.
-        """
+        """One card per fine-tuning section; returns the next free row."""
         cards = fine_tuning_cards()
         if not cards:
             return row

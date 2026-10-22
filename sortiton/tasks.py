@@ -1,8 +1,4 @@
-"""The tasks: tags / rename / sort / all / rules.
-
-Both the CLI and the GUI call these ``cmd_*`` functions; they return a status
-code (0 = ok).
-"""
+"""The tasks: tags / rename / sort / all / rules."""
 
 from __future__ import annotations
 
@@ -30,7 +26,6 @@ from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_fi
 from .rules import snapshot as rules_snapshot
 from .tags import TAG_FIELDS, probe_many, read_info, write_tags
 
-# CLI: argparse.Namespace, GUI: SimpleNamespace.
 CmdArgs = argparse.Namespace | SimpleNamespace
 
 _SUMMARY_LINE = "=" * 62
@@ -59,11 +54,7 @@ def _prune_backups(keep: int = BACKUP_KEEP) -> None:
 
 def _finish(key: str, fields: dict, *, changed: int, errors: int, applied: bool,
             hint: str = "task.hint.apply_run") -> None:
-    """Close a run: the summary block every command ends with.
-
-    ``changed`` is what the hint line looks at - a preview that found nothing
-    to do gets no "run it with --apply" hint.
-    """
+    """Close a run: the summary block every command ends with."""
     message()
     message(_SUMMARY_LINE)
     message(i18n.t(key, **fields))
@@ -112,14 +103,11 @@ def cmd_tags(args: CmdArgs) -> int:
                 "album":        clean_text_field(tags["album"]),
                 "genre":        clean_genre(tags["genre"], custom),
             }
-            # An empty new value counts as a change if something was there before,
-            # so a custom rule can delete a genre on purpose.
             diff = {k: v for k, v in new.items() if v != tags[k]}
             if not diff:
                 continue
 
             plan.append((path, tags, diff))
-            # The GUI needs both sides of a change; write_tags() only the new value.
             report_plan("tags", path=path,
                         changes={key: (tags[key], value) for key, value in diff.items()})
             message(f"  {path.name}")
@@ -149,8 +137,6 @@ def cmd_tags(args: CmdArgs) -> int:
 
         def store(path: Path, before: dict, diff: dict) -> None:
             nonlocal done_count, errors
-            # The journal records what really happened, not what was planned -
-            # so it is written after the file has been touched.
             old = {key: before[key] for key in diff}
             try:
                 if write_tags(path, diff) is False:
@@ -175,16 +161,13 @@ def cmd_tags(args: CmdArgs) -> int:
                 progress(done, changed, i18n.t("task.progress.writing"))
         except Cancelled:
             for future in futures:
-                future.cancel()          # drop the writes that have not started
+                future.cancel()
             message(i18n.t("task.cancelled"))
             return 130
         finally:
-            # Writes that already run must finish before the run ends.
             pool.shutdown(wait=True)
 
     if args.apply:
-        # Only files that were really written count as changed; the plan may
-        # contain files whose write failed.
         changed = done_count
 
     _finish("task.tags.done", {"changed": changed, "total": total},
@@ -243,8 +226,6 @@ def cmd_rename(args: CmdArgs) -> int:
 
             target = free_target(target, used, ignore=path)
 
-            # free_target() can hand back the file's own name - renaming
-            # "Song (2).mp3" to "Song.mp3" ends up at "Song (2).mp3" again.
             if str(target) == str(path):
                 skipped += 1
                 continue
@@ -253,8 +234,6 @@ def cmd_rename(args: CmdArgs) -> int:
             report_plan("rename", source=path, target=target)
             if args.apply:
                 try:
-                    # The state may have changed since the plan was made; a
-                    # rename() would silently replace a file created meanwhile.
                     if target.exists():
                         raise FileExistsError(f"target already exists: {target}")
                     path.rename(target)
@@ -273,7 +252,7 @@ def cmd_rename(args: CmdArgs) -> int:
         return 130
 
     if args.apply:
-        renamed = done          # failed renames are errors, not changes
+        renamed = done
 
     _finish("task.rename.done", {"renamed": renamed, "skipped": skipped},
             changed=renamed, errors=errors, applied=args.apply)
@@ -326,15 +305,12 @@ def cmd_sort(args: CmdArgs) -> int:
             album = tags["album"]
             base = build_name(tags, path.stem, args.pattern)
 
-            # TODO: artist/album/file is hardcoded; a song without an album tag
-            # ends up as artist/file. No setting for the layout yet.
             relative = Path(safe_name(artist))
             if album:
                 relative = relative / safe_name(album)
             target_path = target / relative / f"{base}{path.suffix}"
 
             if target_path.exists():
-                # same file, or the same content already in place - nothing to do
                 if target_path.resolve() == path.resolve() or same_content(path, target_path):
                     skipped += 1
                     continue
@@ -383,15 +359,14 @@ def cmd_sort(args: CmdArgs) -> int:
                 progress(done, processed, i18n.t("task.progress.sorting"))
         except Cancelled:
             for future in futures:
-                future.cancel()          # drop the copies that have not started
+                future.cancel()
             message(i18n.t("task.cancelled"))
             return 130
         finally:
-            # Copies that already run must finish before the run ends.
             pool.shutdown(wait=True)
 
     if args.apply:
-        processed = placed       # failed copies/moves are errors, not changes
+        processed = placed
 
     _finish("task.sort.done",
             {"done": processed, "total": total, "skipped": skipped},
@@ -410,15 +385,9 @@ class Step:
 
 
 def _pipeline_steps(args: CmdArgs) -> list[Step]:
-    """The stages ``cmd_all`` runs, in order.
-
-    Built per run, not kept as a module constant, so a stage can read the
-    parsed arguments (see the optional fetch stage in step 4.5).
-    """
+    """The stages ``cmd_all`` runs, in order."""
     cancel = getattr(args, "cancel", NO_CANCEL)
     steps: list[Step] = []
-    # The fetch stage is optional and runs first: the classic stages then see
-    # the freshly fetched files in the source folder (step 4.5).
     if getattr(args, "fetch_url", None):
         steps.append(Step("task.step.fetch", lambda: _run_fetch_step(args, cancel)))
     steps.extend([
@@ -438,22 +407,12 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
 
 
 def _run_fetch_step(args: CmdArgs, cancel) -> int:
-    """Download ``args.fetch_url`` into ``args.source`` - never without consent.
-
-    Step 4.3: inside "all" the download happens only when the run is applied
-    (``args.apply``) *and* ``fetch_confirmed`` is explicitly True. Without that
-    confirmation an applied run stops before a single byte is fetched, so "all"
-    can never download by accident. A preview stays a preview: it only asks
-    yt-dlp what it would find and writes nothing.
-    """
+    """Download ``args.fetch_url`` into ``args.source`` - never without consent."""
     apply = bool(getattr(args, "apply", False))
     confirmed = getattr(args, "fetch_confirmed", False) is True
     if apply and not confirmed:
         message(i18n.t("fetch.apply.needs_confirm"))
         return 2
-    # A preview never confirms anything: the flag only has a meaning for an
-    # applied run, and carrying it into the preview made the fetch stage look
-    # like it was allowed to download.
     return cmd_fetch(SimpleNamespace(url=args.fetch_url, target=args.source,
                                      apply=apply, confirm=apply and confirmed,
                                      cancel=cancel))
@@ -480,8 +439,6 @@ def cmd_all(args: CmdArgs) -> int:
         message(i18n.t("task.step", title=title))
         message(_STEP_LINE)
         rc = step.run()
-        # 1 means "finished, but some files failed". The remaining stages still
-        # make sense for the files that worked; 2/130 stop the pipeline.
         if rc not in (0, 1):
             message(i18n.t("task.aborted", title=title, rc=rc))
             return rc
@@ -554,10 +511,7 @@ def cmd_rules(args: CmdArgs) -> int:
 
 
 def cmd_scan(args: CmdArgs) -> int:
-    """Count files, albums and artists below ``args.folder``.
-
-    An album counts per artist, so "Greatest Hits" of two artists counts twice.
-    """
+    """Count files, albums and artists below ``args.folder``."""
     root = Path(args.folder).expanduser()
     if not root.is_dir():
         message(i18n.t("task.error.folder", path=root))
@@ -600,12 +554,7 @@ def _shown_name(entry: dict) -> str:
 
 
 def _step_files(steps: list[dict]) -> list[Path]:
-    """The files that would change, for the optional backup before an undo.
-
-    ``backup`` is the path the file has *before* the undo starts: in a chain of
-    moves (sort -> rename -> tags) a step's own path may only be recreated by an
-    earlier undo step, so backing that one up would find nothing.
-    """
+    """The files that would change, for the optional backup before an undo."""
     files: list[Path] = []
     seen: set[str] = set()
     for step in steps:
@@ -624,20 +573,12 @@ def _step_files(steps: list[dict]) -> list[Path]:
 
 
 def _drop_archive_id(archive_id: str) -> bool:
-    """Remove one line from the yt-dlp download archive (step 4.4).
-
-    Undoing a download has to take its archive line out again, otherwise the
-    archive would skip the track on the next run. Returns True when the line is
-    gone (or never existed); False when the archive exists but could not be
-    rewritten.
-    """
+    """Remove one line from the yt-dlp download archive (step 4.4)."""
     if not archive_id:
         return True
     try:
         lines = FETCH_ARCHIVE.read_text(encoding="utf-8").splitlines()
     except OSError:
-        # No archive at all means there is nothing to undo; any other read
-        # failure must not be mistaken for success.
         return not FETCH_ARCHIVE.exists()
     remaining = [line for line in lines if line.strip() != archive_id]
     if len(remaining) == len(lines):
@@ -659,12 +600,7 @@ def _common_root(paths: list[Path]) -> Path:
 
 
 def _undo_step(step: dict) -> str:
-    """Run one planned undo step.
-
-    Returns ``"done"``, ``"skipped"`` (the step became impossible only after
-    planning - reported, never forced) or ``"error"``. The file system is
-    checked again here, because the state may have changed since the preview.
-    """
+    """Run one planned undo step."""
     try:
         op = step["op"]
         if op == "tags":
@@ -672,9 +608,6 @@ def _undo_step(step: dict) -> str:
             if not path.is_file():
                 message(i18n.t("restore.skip.missing", name=path.name))
                 return "skipped"
-            # The file must still carry the tags the run wrote - otherwise the
-            # user (or another program) changed it since, and the undo would
-            # silently throw that newer change away.
             info = read_info(path)
             actual = {field: info.joined(field, "; ")
                       for field in step["values"] if field in TAG_FIELDS}
@@ -696,12 +629,8 @@ def _undo_step(step: dict) -> str:
                 message(i18n.t("restore.skip.missing", name=copy.name))
                 return "skipped"
             if not step["original"].is_file():
-                # The original vanished meanwhile: the copy is the only one
-                # left, so never delete it.
                 message(i18n.t("restore.skip.only_copy", name=copy.name))
                 return "skipped"
-            # Only delete a copy that still matches its original. A modified
-            # copy is data, not a duplicate.
             if not same_content(step["original"], copy):
                 message(i18n.t("restore.skip.modified", name=copy.name))
                 return "skipped"
@@ -711,8 +640,6 @@ def _undo_step(step: dict) -> str:
             return "done"
 
         if op == "download":
-            # Take the archive line out first: if that fails, the file has to
-            # stay, because yt-dlp would otherwise skip it forever.
             path = step["path"]
             if not path.is_file():
                 message(i18n.t("restore.skip.missing", name=path.name))
@@ -770,12 +697,7 @@ def _list_journals() -> int:
 
 
 def cmd_restore(args: CmdArgs) -> int:
-    """Undo the changes of an earlier run (recorded in its journal).
-
-    Like every other task: without ``--apply`` this only prints the plan. The
-    events are undone newest first, which matters for a combined run
-    (tags -> rename -> sort): the reverse order is sort -> rename -> tags.
-    """
+    """Undo the changes of an earlier run (recorded in its journal)."""
     if getattr(args, "list_journals", False):
         return _list_journals()
 
@@ -808,11 +730,6 @@ def cmd_restore(args: CmdArgs) -> int:
                      applied=bool(args.apply))
         return 0
 
-    # Undo steps are planned against a virtual file system: in a combined run
-    # (tags -> rename -> sort) a file only returns to its old name through the
-    # undo steps planned before it. That is why a dependency like "the rename
-    # brings back the path the tag step needs" must not be checked against the
-    # file system as it is right now.
     state: dict[Path, bool] = {}
     origin: dict[Path, Path] = {}
 
@@ -873,8 +790,6 @@ def cmd_restore(args: CmdArgs) -> int:
                 skipped += 1
                 continue
             if not exists(original):
-                # Safety net: the original is gone, so the copy is the only one
-                # left. Report it instead of deleting data.
                 message(i18n.t("restore.skip.only_copy", name=copy.name))
                 skipped += 1
                 continue
@@ -942,9 +857,6 @@ def cmd_restore(args: CmdArgs) -> int:
         done_count = 0
         late_skipped = 0
 
-        # One step after the other: the reverse order is what makes a chained
-        # run undoable at all (sort -> rename -> tags), so the steps must never
-        # run in parallel.
         for index, step in enumerate(steps, start=1):
             try:
                 cancel.check()
@@ -960,8 +872,6 @@ def cmd_restore(args: CmdArgs) -> int:
                 errors += 1
             progress(index, planned, i18n.t("task.progress.restore"))
 
-        # A step can turn out to be impossible only at run time (the file
-        # vanished, a name was taken meanwhile): count what really happened.
         changed = done_count
         skipped += late_skipped
 

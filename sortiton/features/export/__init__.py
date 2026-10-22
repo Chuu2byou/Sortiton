@@ -1,14 +1,4 @@
-"""The export feature: read-only reports for an LLM.
-
-Reads a music folder and writes ``00_prompt.md``, ``01_zusammenfassung.md``,
-``02_auffaelligkeiten.md``, ``03_duplikate.md`` (with ``--fingerprint``),
-``tracks_partNN.tsv`` and - on request - ``alle_tags.jsonl``. The export never
-changes the library, so it has no ``--apply``.
-
-The logic lives in the sibling modules (:mod:`reader`, :mod:`analysis`,
-:mod:`fingerprint`, :mod:`report`); this module wires it to the Sortiton output
-and describes the feature for the CLI and the GUI.
-"""
+"""The export feature: read-only reports for an LLM."""
 
 from __future__ import annotations
 
@@ -25,13 +15,7 @@ from . import fingerprint, reader, report
 
 
 def _clear_reports(outdir: Path) -> None:
-    """Remove the reports of an earlier run that this run may not rewrite.
-
-    Without this a second export into the same folder keeps a stale
-    ``03_duplikate.md`` (run without ``--fingerprint``) or extra
-    ``tracks_partNN.tsv`` files, and ``00_prompt.md`` presents them as current.
-    Only the names this feature writes are touched.
-    """
+    """Remove the reports of an earlier run that this run may not rewrite."""
     for name in ("00_prompt.md", "01_zusammenfassung.md", "02_auffaelligkeiten.md",
                  "03_duplikate.md", "alle_tags.jsonl", "fpcalc_fehler.log"):
         try:
@@ -46,17 +30,10 @@ def _clear_reports(outdir: Path) -> None:
 
 
 def cmd_export(args: CmdArgs) -> int:
-    """Read a music folder and write the LLM reports (nothing is changed).
-
-    Returns 0 on success, 1 when no audio file was found (or none was
-    readable), 2 on a bad input or a missing tool, 130 when the run was
-    cancelled. The old script always ended with 1; the split is deliberate.
-    """
+    """Read a music folder and write the LLM reports (nothing is changed)."""
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
 
-    # Option.minimum was only a hint for the GUI spinbox; a typed or scripted
-    # value (--threads 0) used to crash deep inside the run.
     for option in FEATURE.options:
         if option.kind not in ("int", "float") or option.minimum is None:
             continue
@@ -74,7 +51,6 @@ def cmd_export(args: CmdArgs) -> int:
         output.message(i18n.t("export.error.threshold"))
         return 2
 
-    # The GUI does not go through cli.main, so the tool check lives here too.
     lacking = external.missing(FEATURE, args)
     if lacking:
         output.message(external.format_missing(lacking))
@@ -123,7 +99,6 @@ def cmd_export(args: CmdArgs) -> int:
         (outdir / "00_prompt.md").write_text(
             report.prompt_text(lang, len(recs), len(parts)), encoding="utf-8")
         if args.jsonl:
-            # Own non-core tags are only needed for the JSONL dump (owner decision O4).
             for rec in recs:
                 cancel.check()
                 rec["extra"] = reader.read_extra(root / rec["path"])
@@ -131,7 +106,6 @@ def cmd_export(args: CmdArgs) -> int:
                 for rec in recs:
                     handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Cancelled:
-        # A half-finished export is kept, never deleted; the message names it.
         output.message(i18n.t("task.cancelled"))
         output.message(i18n.t("export.cancelled", outdir=str(outdir.resolve())))
         return 130
@@ -141,11 +115,9 @@ def cmd_export(args: CmdArgs) -> int:
     output.report_stats("export", files=len(recs), errors=errors, parts=len(parts),
                         outdir=str(outdir.resolve()), duplicate_groups=duplicate_groups,
                         applied=False)
-    # A folder in which not a single file could be read has no usable report.
     return 1 if errors == len(recs) else 0
 
 
-#: The one description the CLI and the GUI share (steps 1.6 and 1.8).
 FEATURE = Feature(
     key="export",
     title_key="export.title",

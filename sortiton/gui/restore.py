@@ -1,11 +1,4 @@
-"""Undo window: pick a run journal, see what undoing it would do, then undo it.
-
-Journals are small, but a folder full of them is parsed in a background thread
-so opening the window stays instant. The worker only reads files; the listbox
-is filled from the main thread when it is done. Writing goes through the normal
-task path (:func:`sortiton.tasks.cmd_restore`), so log window, progress bar and
-the result card behave exactly like on the other pages.
-"""
+"""Undo window: pick a run journal, see what undoing it would do, then undo it."""
 
 from __future__ import annotations
 
@@ -23,10 +16,8 @@ from .design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD, TEXT,
 from .panels import PreviewCard, section_label
 from .widgets import RoundButton
 
-# How many concrete undo steps the preview lists before it only counts them.
 MAX_ROWS = 4
 
-# A callback of the window: (journal, keep_copies) -> start the undo run.
 RunHook = Callable[[Path, bool], bool]
 
 

@@ -72,12 +72,7 @@ class RulesMixin:
                  YELLOW).pack(side="left")
 
     def _rules_editor(self, prefill: str | None = None, restored: bool = False) -> None:
-        """Small editor window for my_rules.ini.
-
-        ``prefill`` (the INI block of a pasted LLM answer) wins over the file
-        content; the editor still only writes when the user presses Save, so
-        my_rules.ini is never overwritten on its own.
-        """
+        """Small editor window for my_rules.ini."""
         if self._rules_window is not None:
             try:
                 if self._rules_window.winfo_exists():
@@ -197,11 +192,7 @@ class RulesMixin:
         self._rules_text.insert("1.0", text)
 
     def _llm_rules_import(self) -> None:
-        """Paste dialog: an LLM answer -> its INI block -> the rules editor.
-
-        Nothing is written here: the editor opens pre-filled and only its Save
-        button touches my_rules.ini.
-        """
+        """Paste dialog: an LLM answer -> its INI block -> the rules editor."""
         if self._llm_window is not None:
             try:
                 if self._llm_window.winfo_exists():
@@ -349,7 +340,6 @@ class RulesMixin:
             self._set_rules_status(i18n.t("gui.rules.status.saved",
                                           summary=summary or i18n.t("gui.rules.status.none")),
                                    GREEN)
-        # Every preview that used the old rules is stale now.
         self._inputs_changed()
 
     def _open_system_editor(self) -> None:
@@ -357,6 +347,4 @@ class RulesMixin:
         self._save_rules()
         if config.RULES_FILE.is_file():
             self._xdg_open(config.RULES_FILE)
-            # The editor may change the file behind our back: require a fresh
-            # preview before the next write run.
             self._inputs_changed()

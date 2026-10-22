@@ -1,8 +1,4 @@
-"""Translations (English / German).
-
-Every user-visible text lives here as a key; use :func:`t` to translate.
-Placeholders use ``str.format`` style. Missing keys fall back to English.
-"""
+"""Translations (English / German)."""
 
 from __future__ import annotations
 
@@ -10,7 +6,6 @@ LANGUAGES: tuple[str, ...] = ("en", "de")
 DEFAULT_LANGUAGE = "en"
 
 _EN: dict[str, str] = {
-    # command line
     "cli.description": "Clean tags, rename and sort a music library. Only --apply writes.",
     "cli.tags.help": "Clean tags (artist, album artist, title, album, genre)",
     "cli.tags.folder": "music folder (recursive)",
@@ -62,7 +57,6 @@ _EN: dict[str, str] = {
     "cli.custom_rules": "  Custom rules: {summary}  ({file})",
     "cli.cancelled": "  Cancelled.",
 
-    # external helpers (programs on PATH, optional Python modules)
     "external.error.missing": "  ERROR: missing tool(s): {tools}",
     "external.hint.ffprobe": ("  ffprobe is missing - install ffmpeg "
                               "(Debian/Ubuntu: sudo apt install ffmpeg | "
@@ -79,7 +73,6 @@ _EN: dict[str, str] = {
     "external.hint.mutagen": "  mutagen is missing - run: pip install mutagen.",
     "external.hint.ytdlp": "  yt-dlp is missing - install it, e.g.: pip install yt-dlp.",
 
-    # export feature (read-only reports for an LLM)
     "export.title": "EXPORT - reports for an LLM (read only)",
     "export.done": "  Done: {files} file(s) -> {outdir}",
     "export.cancelled": "  Cancelled - partial output kept in {outdir}",
@@ -94,7 +87,6 @@ _EN: dict[str, str] = {
     "cli.export.report_lang": "report language (default: the interface language)",
     "export.fp.progress": "computing …",
 
-    # fixes feature (apply single tag corrections from a CSV, step 3.4)
     "fixes.title": "FIXES - single tag corrections from a CSV",
     "fixes.label.csv": "  CSV: {value}",
     "fixes.label.rows": "  Rows: {value}",
@@ -124,7 +116,6 @@ _EN: dict[str, str] = {
     "cli.fixes.apply": "write the corrections",
     "cli.fixes.backup": "copy the files into a backup folder before writing",
 
-    # fetch feature (download audio with yt-dlp: preview, confirmation, download)
     "fetch.title": "FETCH - download audio with yt-dlp",
     "fetch.error.url": "  ERROR: no URL given.",
     "fetch.error.url_invalid": "  ERROR: not a usable URL: {url}",
@@ -149,7 +140,6 @@ _EN: dict[str, str] = {
     "cli.fetch.apply": "download (needs --confirm as well)",
     "cli.fetch.confirm": "confirm the download (never downloads without this)",
 
-    # export report (structured Markdown; keys export.report.*)
     "export.report.summary.title": "# Music folder summary",
     "export.report.summary.folder": "- Folder: `{root}`",
     "export.report.summary.created": "- Created: {date}",
@@ -341,7 +331,6 @@ My sorting software (Sortiton) works with rules in a `my_rules.ini`.
 There are {n} file(s) in {parts} part(s). Start with the summary.
 """,
 
-    # output / log file
     "log.title": "# Sortiton - log",
     "log.start": "# Start   : {time}",
     "log.command": "# Command : {command}",
@@ -355,10 +344,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "log.mode.live": "LIVE (changes will be written)",
     "log.mode_line": "  Mode: {mode}",
 
-    # file names
     "file.error.no_free_name": "No free target name found for: {path}",
 
-    # tasks (cli commands)
     "task.error.folder": "  ERROR: Folder not found: {path}",
     "task.error.source": "  ERROR: Source folder not found: {path}",
     "task.label.folder": "  Folder  : {value}",
@@ -406,7 +393,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "task.step.sort": "Sort",
     "task.step.label": "{index}/{total} · {title}",
 
-    # rules subcommand
     "rules.file": "  Rule file : {path}",
     "rules.created": "  Created   : {path}",
     "rules.present": "  Present   : {path}  (unchanged)",
@@ -422,7 +408,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "rules.builtin.note1": "  Your own rules (my_rules.ini) extend this list and run afterwards.",
     "rules.builtin.note2": "  Create:  python3 sortiton.py rules --template",
 
-    # rule file parser warnings
     "rules.warn.read": "Rule file could not be read ({file}): {error}",
     "rules.warn.invalid": "Rule file is invalid ({file}): {error}",
     "rules.warn.artist_no_equals": 'Artist rule "{rule}" without "=" - skipped (old = new).',
@@ -438,7 +423,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "rules.summary.genre": "{count} genre",
     "rules.summary.protected": "{count} protected",
 
-    # name of the rules file / header of the built-in overview
     "rules.overview.header1": "# -- built-in rules, always active (overview only)",
     "rules.overview.header2": "#  Hard-coded. Your own rules (above) extend them and run AFTER",
     "rules.overview.header3": "#  them, so they have the last word.",
@@ -464,7 +448,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "rules.overview.artist_f9": '#      - "Orchestr; a; Plays" -> "Orchestra Plays"',
     "rules.overview.protected_title": "#  [Protected] always protected (never split):",
 
-    # template for my_rules.ini
     "rules.template.header": """\
 # Your own rules for Sortiton (my_rules.ini).
 # Read on every run. The built-in rules stay active - this file only adds to
@@ -497,7 +480,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
 # Example & Co
 # Foo/Bar = Foo / Bar""",
 
-    # GUI
     "gui.window.title": "Sortiton",
     "gui.button.custom_rules": "Custom Rules …",
     "gui.button.paste_llm": "Paste LLM answer",
@@ -655,7 +637,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.dialog.close.text": ("A task is still running. Cancel it and close the window "
                               "when it has stopped?"),
 
-    # cards, sections and result view
     "gui.button.settings": "Settings",
     "gui.button.choose_folder": "Choose folder",
     "gui.button.choose_file": "Choose file …",
@@ -744,7 +725,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.settings.language": "Language",
     "gui.settings.language_hint": "Stored in settings.ini, applied again on the next start.",
 
-    # restore / undo (run journal)
     "cli.restore.help": "Undo the changes of an earlier run",
     "cli.restore.journal": "journal to undo (default: the most recent one)",
     "cli.restore.list": "list the available journals and do nothing else",
@@ -810,7 +790,6 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
 }
 
 _DE: dict[str, str] = {
-    # Kommandozeile
     "cli.description": "Tags bereinigen, umbenennen und eine Bibliothek sortieren. Geschrieben wird nur mit --apply.",
     "cli.tags.help": "Tags bereinigen (Künstler, Album-Künstler, Titel, Album, Genre)",
     "cli.tags.folder": "Musikordner (rekursiv)",
@@ -864,7 +843,6 @@ _DE: dict[str, str] = {
     "cli.custom_rules": "  Eigene Regeln: {summary}  ({file})",
     "cli.cancelled": "  Abgebrochen.",
 
-    # Externe Helfer (Programme im PATH, optionale Python-Module)
     "external.error.missing": "  FEHLER: fehlende(s) Werkzeug(e): {tools}",
     "external.hint.ffprobe": ("  ffprobe fehlt - bitte ffmpeg installieren "
                               "(Debian/Ubuntu: sudo apt install ffmpeg | "
@@ -881,7 +859,6 @@ _DE: dict[str, str] = {
     "external.hint.mutagen": "  mutagen fehlt - bitte ausführen: pip install mutagen.",
     "external.hint.ytdlp": "  yt-dlp fehlt - bitte installieren, z. B.: pip install yt-dlp.",
 
-    # Export-Feature (nur lesende Berichte für ein LLM)
     "export.title": "EXPORT - Berichte für ein LLM (nur lesend)",
     "export.done": "  Fertig: {files} Datei(en) -> {outdir}",
     "export.cancelled": "  Abgebrochen - unvollständige Ausgabe bleibt in {outdir}",
@@ -896,7 +873,6 @@ _DE: dict[str, str] = {
     "cli.export.report_lang": "Sprache der Berichte (Standard: wie die Oberfläche)",
     "export.fp.progress": "berechnen …",
 
-    # Fixes-Feature (Einzelkorrekturen aus einer CSV anwenden, Schritt 3.4)
     "fixes.title": "FIXES - Einzelkorrekturen aus einer CSV",
     "fixes.label.csv": "  CSV: {value}",
     "fixes.label.rows": "  Zeilen: {value}",
@@ -927,7 +903,6 @@ _DE: dict[str, str] = {
     "cli.fixes.apply": "die Korrekturen schreiben",
     "cli.fixes.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
 
-    # Fetch-Feature (Audio mit yt-dlp herunterladen: Vorschau, Bestätigung, Download)
     "fetch.title": "FETCH - Audio mit yt-dlp herunterladen",
     "fetch.error.url": "  FEHLER: keine URL angegeben.",
     "fetch.error.url_invalid": "  FEHLER: keine brauchbare URL: {url}",
@@ -953,7 +928,6 @@ _DE: dict[str, str] = {
     "cli.fetch.apply": "herunterladen (zusätzlich --confirm nötig)",
     "cli.fetch.confirm": "den Download bestätigen (lädt nie ohne diese Bestätigung)",
 
-    # Export-Bericht (strukturiertes Markdown; Schlüssel export.report.*)
     "export.report.summary.title": "# Zusammenfassung Musikordner",
     "export.report.summary.folder": "- Ordner: `{root}`",
     "export.report.summary.created": "- Erstellt: {date}",
@@ -1151,7 +1125,6 @@ Meine Sortier-Software (Sortiton) arbeitet mit Regeln in einer `my_rules.ini`.
 Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
 """,
 
-    # Ausgabe / Protokolldatei
     "log.title": "# Sortiton - Protokoll",
     "log.start": "# Start   : {time}",
     "log.command": "# Befehl  : {command}",
@@ -1165,10 +1138,8 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "log.mode.live": "LIVE (Änderungen werden ausgeführt)",
     "log.mode_line": "  Modus: {mode}",
 
-    # Dateinamen
     "file.error.no_free_name": "Kein freier Zielname gefunden für: {path}",
 
-    # Aufträge
     "task.error.folder": "  FEHLER: Ordner nicht gefunden: {path}",
     "task.error.source": "  FEHLER: Quellordner nicht gefunden: {path}",
     "task.label.folder": "  Ordner : {value}",
@@ -1216,7 +1187,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "task.step.sort": "Sortieren",
     "task.step.label": "{index}/{total} · {title}",
 
-    # Unterbefehl „rules“
     "rules.file": "  Regeldatei : {path}",
     "rules.created": "  Angelegt   : {path}",
     "rules.present": "  Vorhanden  : {path}  (nichts geändert)",
@@ -1232,7 +1202,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "rules.builtin.note1": "  Eigene Regeln (my_rules.ini) ergänzen diese Liste und laufen danach.",
     "rules.builtin.note2": "  Anlegen:  python3 sortiton.py rules --template",
 
-    # Warnungen des Regel-Parsers
     "rules.warn.read": "Regeldatei konnte nicht gelesen werden ({file}): {error}",
     "rules.warn.invalid": "Regeldatei ist fehlerhaft ({file}): {error}",
     "rules.warn.artist_no_equals": 'Künstler-Regel „{rule}“ ohne „=“ – übersprungen (alt = neu).',
@@ -1248,7 +1217,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "rules.summary.genre": "{count} Genre",
     "rules.summary.protected": "{count} geschützt",
 
-    # Kopf der eingebauten Regel-Übersicht
     "rules.overview.header1": "# -- Eingebaute Regeln, immer aktiv (nur Übersicht)",
     "rules.overview.header2": "#  Stecken fest im Programm. Eigene Regeln (oben) ergänzen sie und",
     "rules.overview.header3": "#  laufen NACH ihnen – sie haben das letzte Wort.",
@@ -1274,7 +1242,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "rules.overview.artist_f9": "#      • „Orchestr; a; Plays“ → „Orchestra Plays“",
     "rules.overview.protected_title": "#  [Protected] immer geschützt (werden nie getrennt):",
 
-    # Vorlage für my_rules.ini
     "rules.template.header": """\
 # Eigene Regeln für Sortiton (my_rules.ini).
 # Wird bei jedem Lauf gelesen. Die eingebauten Regeln bleiben aktiv – diese
@@ -1307,7 +1274,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
 # Beispiel & Co
 # Foo/Bar = Foo / Bar""",
 
-    # GUI
     "gui.window.title": "Sortiton",
     "gui.button.custom_rules": "Eigene Regeln …",
     "gui.button.paste_llm": "LLM-Antwort einfügen",
@@ -1466,7 +1432,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.dialog.close.text": ("Ein Auftrag läuft noch. Abbrechen und das Fenster "
                               "schließen, sobald er beendet ist?"),
 
-    # Karten, Bereiche und Ergebnisansicht
     "gui.button.settings": "Einstellungen",
     "gui.button.choose_folder": "Ordner auswählen",
     "gui.button.choose_file": "Datei auswählen …",
@@ -1555,7 +1520,6 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.settings.language": "Sprache",
     "gui.settings.language_hint": "Steht in settings.ini und gilt wieder beim nächsten Start.",
 
-    # Rückgängig machen (Journal)
     "cli.restore.help": "Änderungen eines früheren Laufs rückgängig machen",
     "cli.restore.journal": "Journal, das zurückgenommen wird (Standard: das neueste)",
     "cli.restore.list": "die vorhandenen Journale auflisten und sonst nichts tun",
@@ -1647,12 +1611,7 @@ def set_language(code: str) -> str:
 
 
 def t_in(lang: str, key: str, **fmt: object) -> str:
-    """Translate ``key`` in ``lang`` without touching the active language.
-
-    Same as :func:`t`, but reads the language from the argument instead of the
-    global state. The export report uses it so one run can render a report in a
-    language other than the UI language (the ``--report-language`` option).
-    """
+    """Translate ``key`` in ``lang`` without touching the active language."""
     text = _CATALOGS.get(lang, {}).get(key)
     if text is None:
         text = _EN.get(key)

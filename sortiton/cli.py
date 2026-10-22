@@ -17,12 +17,9 @@ from .tasks import (cmd_all, cmd_rename, cmd_restore, cmd_rules, cmd_scan, cmd_s
 
 PATTERN_DEFAULT = "%artist% - %title%"
 
-#: Built-in commands that only read tags. mutagen can replace ffprobe.
 READ_COMMANDS = frozenset({"tags", "rename", "sort", "scan", "all"})
-#: A restore that writes tags needs a tag writer (mutagen or ffmpeg).
 WRITE_COMMANDS = frozenset({"restore"})
 
-# Console progress (P8): throttle the stderr line and close it at the end.
 _PROGRESS_INTERVAL = 0.1
 _progress_last = 0.0
 _progress_open = False
@@ -30,8 +27,6 @@ _progress_open = False
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=i18n.t("cli.description"))
-    # -q/--quiet reaches every sub-command (built-in and feature) through this
-    # parent; it only silences the progress line on stderr.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("-q", "--quiet", action="store_true", help=i18n.t("cli.quiet"))
     sub = parser.add_subparsers(dest="command", required=True)
@@ -91,8 +86,6 @@ def _build_parser() -> argparse.ArgumentParser:
                            help=i18n.t("cli.restore.keep_copies"))
     p_restore.set_defaults(func=cmd_restore)
 
-    # The features (export, later fetch) describe their own options; the CLI
-    # only hands the shared list to the parser builder.
     for feature in FEATURES:
         add_feature_parser(sub, feature, common)
 
@@ -100,12 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def console_progress(current: int, total: int, text: str = "") -> None:
-    """Draw the progress line on stderr: throttled, ended with a newline.
-
-    Only the progress line is suppressed by ``--quiet``; ordinary messages are
-    not. The sink is installed only for an interactive stderr, so a pipe or a
-    log never sees carriage returns.
-    """
+    """Draw the progress line on stderr: throttled, ended with a newline."""
     global _progress_last, _progress_open
     now = time.monotonic()
     at_end = total <= 0 or current >= total
@@ -136,15 +124,11 @@ def main() -> int:
 
     feature = getattr(args, "feature", None)
     if feature is not None:
-        # A feature declares what it needs; the check matches the one in
-        # cmd_export, so the GUI (which skips main) gets it too.
         lacking = external.missing(feature, args)
         if lacking:
             message(external.format_missing(lacking))
             return 2
     else:
-        # Only the commands that read tags need a reader, and only a writing
-        # restore needs a writer. "rules" and "restore --list" need neither.
         requirements = []
         if args.command in READ_COMMANDS:
             requirements.append(external.Requirement(
@@ -166,8 +150,6 @@ def main() -> int:
     if log:
         message(i18n.t("cli.log_file", path=log))
     if log and getattr(args, "apply", False):
-        # Only a run that writes gets a journal; a preview leaves no file.
-        # Without a journal the run could not be undone, so do not start it.
         if journal.enabled() and journal.open_for(log) is None:
             message(i18n.t("journal.error.open"))
             close_log_file(2)

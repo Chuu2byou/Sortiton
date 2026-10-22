@@ -1,9 +1,4 @@
-"""Hand-drawn widgets - no extra packages.
-
-RoundButton, Pill (status chip), Segments (tab/switcher), Switch (on/off) and
-ProgressBar. Every pixel value goes through :func:`design.px`, so the widgets
-keep their proportions at any screen scaling.
-"""
+"""Hand-drawn widgets - no extra packages."""
 
 from __future__ import annotations
 
@@ -88,7 +83,6 @@ class RoundButton(tk.Canvas):
         self.bind("<Leave>", self._on_leave)
         self.bind("<ButtonPress-1>", self._on_press)
         self.bind("<ButtonRelease-1>", self._on_release)
-        # Same as a click, so the buttons work without a mouse.
         self.bind("<Return>", self._on_key)
         self.bind("<space>", self._on_key)
         self._draw()
@@ -200,10 +194,7 @@ class Pill(tk.Canvas):
 
 
 class Segments(tk.Canvas):
-    """Segmented choice (like modern tab/switch controls).
-
-    With ``stretch=True`` the segments share the full width of their cell.
-    """
+    """Segmented choice (like modern tab/switch controls)."""
 
     def __init__(self, parent: tk.Misc, items: list[tuple[str, str]], variable: tk.StringVar,
                  command: Callable[[str], None] | None = None, height: int = 36,

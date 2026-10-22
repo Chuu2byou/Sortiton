@@ -1,13 +1,4 @@
-"""Reading and writing tags.
-
-mutagen is preferred, ffprobe/ffmpeg is the fallback. mutagen is optional, so
-its imports live inside the functions that need it.
-
-:class:`TrackInfo` is the lossless result of :func:`read_info`: every tag field
-keeps its values as a list and the stream properties (codec, bitrate …) come
-along. The export feature joins the list values with its own separator;
-:func:`probe_tags` is the thin wrapper the tag/rename/sort/scan commands use.
-"""
+"""Reading and writing tags."""
 
 from __future__ import annotations
 
@@ -23,19 +14,13 @@ from pathlib import Path
 from .cancel import NO_CANCEL, Cancelled
 from .config import MUTAGEN_AVAILABLE, READ_WORKERS
 
-#: The five tag fields the tag/rename/sort/scan commands read and write.
 EMPTY_TAGS = {"artist": "", "album_artist": "", "album": "", "title": "", "genre": ""}
 
-#: The eight tag fields :class:`TrackInfo` keeps, each a list of raw values.
 TAG_FIELDS = ("artist", "album_artist", "album", "title", "genre",
               "track", "disc", "year")
 
-#: :attr:`TrackInfo.error` value when no reader could read the file.
 UNREADABLE = "unreadable"
 
-# Tag fields -> writer-specific names. Plain strings keep mutagen optional; the
-# classes themselves are imported inside :func:`_write_mutagen`. Every field of
-# the fixes CSV (track/disc/year included) has an entry in each mapping.
 _ID3_FRAMES = {
     "title": "TIT2", "artist": "TPE1", "album_artist": "TPE2",
     "album": "TALB", "genre": "TCON",
@@ -60,13 +45,7 @@ _VORBIS_KEYS = {
 
 @dataclass
 class TrackInfo:
-    """All tags and stream properties of one file, without losing values.
-
-    Every tag field keeps its raw values as a list (nothing is joined here);
-    :meth:`joined` renders one field with a separator. The stream fields mirror
-    what the readers expose. ``error`` is empty for a readable file and
-    :data:`UNREADABLE` when neither mutagen nor ffprobe could read it.
-    """
+    """All tags and stream properties of one file, without losing values."""
 
     artist: list[str] = field(default_factory=list)
     album_artist: list[str] = field(default_factory=list)
@@ -91,11 +70,7 @@ class TrackInfo:
 
 
 def probe_tags(path: Path) -> dict:
-    """Read the five tag fields of one file (mutagen preferred, else ffprobe).
-
-    Thin wrapper over :func:`read_info`: the tag/rename/sort/scan commands keep
-    their five-field dict with ``"; "`` as the separator.
-    """
+    """Read the five tag fields of one file (mutagen preferred, else ffprobe)."""
     info = read_info(path)
     return {
         "artist": info.joined("artist", "; "),
@@ -107,11 +82,7 @@ def probe_tags(path: Path) -> dict:
 
 
 def read_info(path: Path) -> TrackInfo:
-    """Read tags and stream info of one file: mutagen preferred, else ffprobe.
-
-    Returns a :class:`TrackInfo`; when no reader could read the file its
-    ``error`` field is :data:`UNREADABLE` and every tag stays empty.
-    """
+    """Read tags and stream info of one file: mutagen preferred, else ffprobe."""
     info = _mutagen_info(path)
     if info is not None:
         return info
@@ -119,16 +90,10 @@ def read_info(path: Path) -> TrackInfo:
 
 
 def _mutagen_info(path: Path) -> TrackInfo | None:
-    """Read one file with mutagen's raw frames. None = unusable or error.
-
-    Raw frames are used on purpose (not the easy interface): they carry track,
-    disc and year without the easy layer's reformatting. ID3, MP4, ASF and the
-    Vorbis comment formats (FLAC, Ogg Vorbis, Opus) each have their own reader.
-    """
+    """Read one file with mutagen's raw frames."""
     if not MUTAGEN_AVAILABLE:
         return None
     try:
-        # mutagen is optional (late import).
         # pylint: disable=import-error,import-outside-toplevel
         import mutagen
         from mutagen.asf import ASF
@@ -194,7 +159,6 @@ def _read_id3(info: TrackInfo, tag) -> None:
     """ID3 (MP3, WAV): the raw frames, TDRC as text instead of a timestamp."""
     def frame(name: str) -> list[str]:
         found: list[str] = []
-        # getall() is required: get() returns the frame object itself.
         for item in tag.getall(name):
             found.extend(_texts(getattr(item, "text", [])))
         return found
@@ -234,11 +198,7 @@ def _mp4_number(value) -> list[str]:
 
 
 def _mp4_pairs(value: str) -> list[tuple[int, int]]:
-    """MP4 ``trkn``/``disk`` value: "3/12" -> ``[(3, 12)]``, "3" -> ``[(3, 0)]``.
-
-    An empty value returns an empty list (the caller then removes the atom).
-    The two tags are stored as ``(number, total)`` tuples, not as text.
-    """
+    """MP4 ``trkn``/``disk`` value: "3/12" -> ``[(3, 12)]``, "3" -> ``[(3, 0)]``."""
     text = value.strip()
     if not text:
         return []
@@ -312,7 +272,6 @@ def _ffprobe_info(path: Path) -> TrackInfo:
     streams = data.get("streams", [])
     audio = next((s for s in streams if s.get("codec_type") == "audio"), {})
 
-    # Tags of the container and of every stream; the first key wins.
     raw: dict[str, list[str]] = {}
     sources = [data.get("format", {}).get("tags", {})] + \
         [stream.get("tags", {}) for stream in streams]
@@ -354,18 +313,7 @@ def _ffprobe_info(path: Path) -> TrackInfo:
 
 def probe_many(files: list[Path], report=None, cancel=None,
                unreadable: list[Path] | None = None) -> list[dict]:
-    """Read tags of many files in parallel.
-
-    ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`, checked
-    after every finished file. When it is set, the reads that have not started
-    yet are dropped and :class:`~sortiton.cancel.Cancelled` is raised; the
-    running ones are left to finish on their own.
-
-    ``unreadable`` is an optional list the caller supplies; every file that no
-    reader could read is appended to it. Without that report such a file is
-    indistinguishable from one with empty tags and would be renamed or sorted
-    under the fallback artist.
-    """
+    """Read tags of many files in parallel."""
     cancel = cancel or NO_CANCEL
     if not files:
         cancel.check()
@@ -407,7 +355,6 @@ def probe_many(files: list[Path], report=None, cancel=None,
             future.cancel()
         raise
     finally:
-        # Read-only: on cancel we do not wait for the reads already running.
         pool.shutdown(wait=not cancelled, cancel_futures=cancelled)
     return results
 
@@ -417,17 +364,12 @@ def write_tags(path: Path, updates: dict) -> bool:
     try:
         return _write_mutagen(path, updates)
     except Exception:
-        pass  # no mutagen, or a format it cannot write -> ffmpeg remux
+        pass
     return _write_ffmpeg(path, updates)
 
 
 def _write_mutagen(path: Path, updates: dict) -> bool:
-    """Tag a temporary copy, then replace the original atomically.
-
-    mutagen saves in place. A crash in the middle of ``save()`` could leave the
-    only copy inconsistent, so the tags are applied to a copy in the same
-    folder and only a finished file replaces the original.
-    """
+    """Tag a temporary copy, then replace the original atomically."""
     path = Path(path).resolve()
     descriptor, temporary = tempfile.mkstemp(
         dir=path.parent, prefix=f".sortiton-{path.name[:40]}.",
@@ -438,8 +380,6 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
         shutil.copy2(path, temp)
         _write_mutagen_inplace(temp, updates)
         try:
-            # Keep the timestamps and permissions of the original, like the
-            # ffmpeg fallback does.
             shutil.copystat(path, temp)
         except OSError:
             pass
@@ -453,7 +393,6 @@ def _write_mutagen(path: Path, updates: dict) -> bool:
 
 
 def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
-    # mutagen is optional (the caller falls back to ffmpeg).
     # pylint: disable=import-error,import-outside-toplevel
     import mutagen
     import mutagen.id3 as id3_module
@@ -469,7 +408,6 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
     if handle is None:
         raise RuntimeError(f"Unknown format: {path.name}")
 
-    # MP3 / WAV with ID3
     id3_tags = getattr(handle, "tags", None)
     if isinstance(id3_tags, ID3) or path.suffix.lower() == ".mp3":
         id3 = id3_tags if isinstance(id3_tags, ID3) else None
@@ -480,26 +418,23 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
                 pass
             id3 = getattr(handle, "tags", None)
         if id3 is None:
-            # write_tags() falls back to the ffmpeg remux on this.
             raise RuntimeError(f"Could not initialize ID3 tags on {path.name}")
         for key, value in updates.items():
             frame_name = _ID3_FRAMES.get(key)
             if frame_name is None:
-                continue                      # unknown field: leave it alone
+                continue
             frame = getattr(id3_module, frame_name)
             values = as_list(value)
             if values:
                 id3.setall(frame_name, [frame(encoding=3, text=values)])
             else:
-                id3.delall(frame_name)        # empty value = remove the field
+                id3.delall(frame_name)
         handle.save()
         return True
 
-    # M4A / MP4
     if isinstance(handle, MP4):
         for key, value in updates.items():
             if key in _MP4_PAIR_KEYS:
-                # trkn/disk are (number, total) tuples, not text.
                 pairs = _mp4_pairs(value)
                 if pairs:
                     handle[_MP4_PAIR_KEYS[key]] = pairs
@@ -520,7 +455,6 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
         handle.save()
         return True
 
-    # WMA (ASF)
     if isinstance(handle, ASF):
         if handle.tags is None:
             handle.tags = ASFTags()
@@ -539,7 +473,6 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
         handle.save()
         return True
 
-    # FLAC / OGG / OPUS (Vorbis comments)
     for key, value in updates.items():
         vorbis_key = _VORBIS_KEYS.get(key)
         if vorbis_key is None:
@@ -561,8 +494,6 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
 
 def _write_ffmpeg(path: Path, updates: dict) -> bool:
     """Fallback without mutagen: remux with -c copy (no re-encoding)."""
-    # A symlinked track must keep its link: os.replace() below would otherwise
-    # replace the link itself and leave the real file untouched.
     path = Path(path).resolve()
     descriptor, temporary = tempfile.mkstemp(
         dir=path.parent, prefix=f".sortiton-{path.name[:40]}.",
@@ -572,7 +503,6 @@ def _write_ffmpeg(path: Path, updates: dict) -> bool:
     command = ["ffmpeg", "-v", "error", "-y", "-i", str(path),
                "-map", "0", "-c", "copy", "-map_metadata", "0"]
     for key, value in updates.items():
-        # ffmpeg calls the year field "date"; the other names match.
         command += ["-metadata", f"{'date' if key == 'year' else key}={value}"]
     command.append(str(temp))
     try:
@@ -585,18 +515,14 @@ def _write_ffmpeg(path: Path, updates: dict) -> bool:
             detail = stderr.strip() or str(error)
             raise RuntimeError(f"ffmpeg could not write {path.name}: {detail}") from error
         try:
-            # The temp file is a new inode: keep permissions and mtime of the
-            # original before it replaces it.
             shutil.copystat(str(path), str(temp))
         except OSError:
             pass
         try:
             os.replace(temp, path)
         except OSError as error:
-            # Say what failed: ffmpeg succeeded, the atomic swap did not.
             raise RuntimeError(
                 f"could not replace {path.name} with the written copy: {error}") from error
         return True
     finally:
-        # Same idiom as the log and the journal use.
         temp.unlink(missing_ok=True)

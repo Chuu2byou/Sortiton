@@ -12,12 +12,12 @@ from .config import (JOURNAL_SUFFIX, LATEST_LOG_NAME, LOG_DIR, LOG_KEEP,
                      LOG_PREFIX, MUTAGEN_AVAILABLE, READ_WORKERS, WRITE_WORKERS)
 from .files import open_new
 
-_sink = None                 # GUI callback; None = console
+_sink = None
 _progress_sink = None
 _plan_sink = None
 _stats_sink = None
 _last_stats: dict[str, dict] = {}
-_stats_lock = threading.Lock()   # report_stats() runs in worker threads
+_stats_lock = threading.Lock()
 
 _log_file = None
 _log_path: Path | None = None
@@ -62,11 +62,7 @@ def progress(current: int, total: int, text: str = "") -> None:
 
 
 def set_plan_sink(sink) -> None:
-    """Report planned changes: sink(kind, data). None = off.
-
-    ``kind`` is "tags" (``path``, ``changes``), "rename" or "sort" (``source``,
-    ``target``); only real changes are reported.
-    """
+    """Report planned changes: sink(kind, data)."""
     global _plan_sink
     _plan_sink = sink
 
@@ -97,12 +93,7 @@ def last_stats(kind: str) -> dict:
 
 
 def clear_stats(*kinds: str) -> None:
-    """Forget old counters before a combined run reads them again.
-
-    ``cmd_all`` sums the ``last_stats`` of its stages. Without this reset a
-    stage that did not report (for example a preview fetch without tools) would
-    contribute the counters of an earlier run.
-    """
+    """Forget old counters before a combined run reads them again."""
     with _stats_lock:
         for kind in kinds:
             _last_stats.pop(kind, None)
@@ -185,11 +176,7 @@ def _log_line(text: str) -> None:
 
 
 def _prune_old_logs(keep: int = LOG_KEEP) -> None:
-    """Keep only the most recent logs, and drop their journal with them.
-
-    Journals have a smaller limit of their own (:mod:`sortiton.journal`); this
-    is the safety net that leaves no orphaned journal behind.
-    """
+    """Keep only the most recent logs, and drop their journal with them."""
     def recent(path: Path) -> tuple[int, str]:
         try:
             return path.stat().st_mtime_ns, path.name

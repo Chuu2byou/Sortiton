@@ -1,10 +1,4 @@
-"""Start the graphical interface.
-
-The Tkinter check lives in front of the import of the window, so a missing libtk
-ends in a readable message instead of a traceback. Used by ``sortiton_gui.py``,
-by ``python -m sortiton.gui`` and by the console script ``sortiton-gui`` - all
-three behave the same.
-"""
+"""Start the graphical interface."""
 
 from __future__ import annotations
 
@@ -33,6 +27,5 @@ def main() -> int:
     if problem:
         print(problem)
         return 1
-    # Late import: only here may Tkinter be touched.
     from .app import main as run
     return run()

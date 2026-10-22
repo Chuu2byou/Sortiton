@@ -1,15 +1,4 @@
-"""Build the export report as structured sections and write the report files.
-
-The report is a list of :class:`Section` objects, each naming the output file it
-belongs to (``summary``, ``anomalies`` or ``duplicates``). Nothing is split by
-heading afterwards: the old ``write_summary_split`` rebuilt the files from
-rendered German headings and broke as soon as the text was translated.
-
-Every visible text comes from :mod:`sortiton.i18n` through :func:`i18n.t_in`, so
-one run can render the report in a language other than the UI language. The TSV
-columns are a deliberate exception: they stay language independent because the
-prompt describes them and the LLM parses them.
-"""
+"""Build the export report as structured sections and write the report files."""
 
 from __future__ import annotations
 
@@ -115,7 +104,6 @@ def _summary_formats_and_tags(ok, recs, n_ok, opts, lang):
                            count=sum(1 for r in ok if not r["cover"])))
     lines.append("")
 
-    # Percentages relative to readable files; disc is explained separately.
     lines += [i18n.t_in(lang, "export.report.tags.title"), ""]
     for c in CORE:
         if c == "disc":
@@ -241,7 +229,7 @@ def _anomalies(ok, recs, opts, lang):
     mism = []
     for r in ok:
         name = Path(r["path"]).name
-        if len(name.encode("utf-8")) >= MAX_FILENAME_BYTES:  # truncated by the file system
+        if len(name.encode("utf-8")) >= MAX_FILENAME_BYTES:
             continue
         if r["title"] and loose(r["title"]) not in loose(Path(r["path"]).stem):
             mism.append(i18n.t_in(lang, "export.report.filename.entry",
@@ -262,7 +250,7 @@ def _anomalies(ok, recs, opts, lang):
     bydir = defaultdict(list)
     for r in ok:
         d = str(Path(r["path"]).parent)
-        if d != ".":  # loose files in the root folder belong to no album
+        if d != ".":
             bydir[d].append(r)
     inc, dbl, comp = [], [], []
     for d, rs in sorted(bydir.items()):
@@ -278,15 +266,13 @@ def _anomalies(ok, recs, opts, lang):
         seen = defaultdict(int)
         for r in rs:
             t = track_num(r["track"])
-            if t is not None:  # track number present (count track 0 too)
+            if t is not None:
                 disc = track_num(r["disc"])
                 disc = 1 if disc is None else disc
                 seen[(norm(r["album"]), disc, t)] += 1
         twice = sorted({f"CD{k[1]}#{k[2]}" for k, c in seen.items() if c > 1})
         if twice:
             dbl.append(f"`{d}`: {twice[:10]}")
-        # Sampler detection kicks in with changing artists and no uniform album
-        # artist, or when the album artist is explicitly "Various Artists".
         artists = {r["artist"] for r in rs if r["artist"]}
         if len(rs) >= 4 and len(artists) > 3:
             albumartists = {r["albumartist"] for r in rs if r["albumartist"]}
@@ -311,17 +297,11 @@ def _anomalies(ok, recs, opts, lang):
 
 def build_report(recs: list[dict[str, Any]], root: Path, opts: ReportOptions,
                  lang: str) -> list[Section]:
-    """Build the summary and anomaly sections.
-
-    The fingerprint section needs ``fpcalc`` and the computed fingerprints, so
-    ``cmd_export`` builds it after the scan and appends it to this list.
-    """
+    """Build the summary and anomaly sections."""
     ok = [r for r in recs if not r["error"]]
-    n_ok = max(len(ok), 1)  # avoid division by zero for pure read errors
+    n_ok = max(len(ok), 1)
     sections = [Section("summary", _summary_overview(recs, root, lang))]
     if not ok:
-        # Special case "nothing readable": the read errors belong to the summary
-        # (the old splitter kept them there because the heading was unknown).
         sections.append(Section("summary",
                                 i18n.t_in(lang, "export.report.summary.warning").splitlines()
                                 + [""]))
@@ -335,11 +315,7 @@ def build_report(recs: list[dict[str, Any]], root: Path, opts: ReportOptions,
 
 
 def write_report(sections: list[Section], outdir: Path) -> list[str]:
-    """Write the report sections into the ``01_*``, ``02_*`` and ``03_*`` files.
-
-    Sections of the same target are joined exactly like the old splitter did it:
-    each block stripped, blocks separated by one blank line, one final newline.
-    """
+    """Write the report sections into the ``01_*``, ``02_*`` and ``03_*`` files."""
     contents: dict[str, list[str]] = {"summary": [], "anomalies": [], "duplicates": []}
     for section in sections:
         if section.lines:
@@ -357,19 +333,11 @@ def write_report(sections: list[Section], outdir: Path) -> list[str]:
     return names
 
 
-# --------------------------------------------------------------------------
-# Output (TSV chunks and the prompt)
-# --------------------------------------------------------------------------
-# The TSV columns are language independent on purpose (a deliberate exception
-# to the i18n rule): the prompt describes them and the LLM parses them, so they
-# are a stable machine contract and must not follow --report-language.
 TSV_HEAD = ["path", "artist", "albumartist", "album", "title", "track", "disc",
             "year", "genre", "sek", "kbps", "codec", "cover"]
 
 
 def clean(v: object) -> str:
-    # Cc = control, Zl/Zp = Unicode line/paragraph separator. All three would
-    # split a TSV row in tools that use splitlines().
     return "".join(" " if unicodedata.category(char) in {"Cc", "Zl", "Zp"} else char
                    for char in str(v))
 
@@ -393,7 +361,7 @@ def write_chunks(recs, outdir, limit):
         if cur and size + blen > limit:
             chunks.append(cur)
             cur, size = [], len(head)
-        cur.extend(block)  # folders stay together (unless they are huge)
+        cur.extend(block)
         size += blen
     if cur:
         chunks.append(cur)

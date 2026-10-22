@@ -1,12 +1,7 @@
-"""Sortiton package: the logic behind the CLI and the GUI.
-
-The names re-exported here are the stable public interface.
-"""
+"""Sortiton package: the logic behind the CLI and the GUI."""
 
 from __future__ import annotations
 
-# Single source of truth for the version: the release workflow checks it against
-# the git tag, tools/build_app.sh puts it into the file names.
 __version__ = "1.0.0"
 
 from .config import (AUDIO_EXTENSIONS, BACKUP_DIR, FALLBACK_ARTIST, LOG_DIR, MAX_NAME_LENGTH,

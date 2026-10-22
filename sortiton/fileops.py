@@ -1,9 +1,4 @@
-"""Small file-system primitives shared by the tasks and the features.
-
-The helpers here are about safety, not about music: a copy that never
-overwrites, a move that does not lose a file when the target appears in the
-meantime, and a text write that cannot leave a half-written file behind.
-"""
+"""Small file-system primitives shared by the tasks and the features."""
 
 from __future__ import annotations
 
@@ -16,12 +11,7 @@ from pathlib import Path
 
 
 def copy_new(source: Path, target: Path) -> None:
-    """Copy ``source`` to a target that must not exist yet.
-
-    ``shutil.copy2`` opens the target with "w" and would silently replace a
-    file that appeared in the meantime. "xb" fails instead, so a backup never
-    mixes two versions.
-    """
+    """Copy ``source`` to a target that must not exist yet."""
     with source.open("rb") as reader, target.open("xb") as writer:
         shutil.copyfileobj(reader, writer)
     shutil.copystat(source, target)
@@ -49,12 +39,7 @@ def _copy_then_unlink(source: Path, target: Path) -> None:
 
 
 def move_no_clobber(source: Path, target: Path) -> None:
-    """Move ``source`` to ``target`` without ever replacing an existing name.
-
-    ``shutil.move`` ends in ``os.rename``, which silently replaces an existing
-    target on POSIX. A hard link is created atomically instead; only file
-    systems that cannot link use the exclusive-copy fallback.
-    """
+    """Move ``source`` to ``target`` without ever replacing an existing name."""
     if target.exists():
         raise FileExistsError(f"target already exists: {target}")
 
@@ -69,7 +54,6 @@ def move_no_clobber(source: Path, target: Path) -> None:
         _copy_then_unlink(source, target)
         return
     except NotImplementedError:
-        # Old platforms without follow_symlinks= for os.link.
         try:
             os.link(source, target)
         except FileExistsError:
@@ -85,11 +69,7 @@ def move_no_clobber(source: Path, target: Path) -> None:
 
 
 def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
-    """Write a small state file via a temp file and ``os.replace``.
-
-    Used for settings, rules and the fetch archive: a crash during the write
-    must leave the old file intact instead of a truncated one.
-    """
+    """Write a small state file via a temp file and ``os.replace``."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:

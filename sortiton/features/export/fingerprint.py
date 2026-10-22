@@ -1,9 +1,4 @@
-"""Audio fingerprints (optional, ``--fingerprint``): duplicates independent of tags.
-
-``fpcalc`` (Chromaprint) builds a raw fingerprint; an inverted index keeps the
-comparison cheap, and the cache keyed by path+size+mtime makes a second run
-fast.
-"""
+"""Audio fingerprints (optional, ``--fingerprint``): duplicates independent of tags."""
 
 from __future__ import annotations
 
@@ -26,26 +21,20 @@ from ...cancel import NO_CANCEL, Cancelled
 from .analysis import lst, norm
 
 _popcount = (lambda x: x.bit_count()) if hasattr(int, "bit_count") else (lambda x: bin(x).count("1"))
-FP_MAX_POSTINGS = 50   # sub-fingerprints that appear in more files are noise
-FP_MIN_VOTES = 8       # this many equal sub-fingerprints at the same offset = candidate
-FP_MIN_OVERLAP_RATIO = 0.5  # minimum overlap share relative to the shorter fingerprint
-FP_MIN_OVERLAP_FRAMES = 20  # minimum number of sub-fingerprints in the overlap window
-DURATION_TOLERANCE_SECS = 3.0  # fixed tolerance in seconds for equal play time
-DURATION_TOLERANCE_RATIO = 0.02  # relative tolerance (2%) for play time
-# Bit packing in the inverted index: (fid << FP_POS_BITS) | pos
-FP_POS_BITS = 20          # bits for the position (max 2^20 = 1 048 576 sub-FPs per file)
-FP_POS_MASK = (1 << FP_POS_BITS) - 1  # 0xFFFFF
-FP_POLL_SECS = 0.2        # short wait, so a cancel is noticed quickly
-FP_TIMEOUT_SECS = 600.0   # overall limit per fpcalc call
+FP_MAX_POSTINGS = 50
+FP_MIN_VOTES = 8
+FP_MIN_OVERLAP_RATIO = 0.5
+FP_MIN_OVERLAP_FRAMES = 20
+DURATION_TOLERANCE_SECS = 3.0
+DURATION_TOLERANCE_RATIO = 0.02
+FP_POS_BITS = 20
+FP_POS_MASK = (1 << FP_POS_BITS) - 1
+FP_POLL_SECS = 0.2
+FP_TIMEOUT_SECS = 600.0
 
 
 def run_fpcalc(path, secs, cancel=None) -> tuple[Any, str]:
-    """Run ``fpcalc`` and return ``(fingerprint, error)``.
-
-    The process is polled in short steps instead of one long ``timeout=600``
-    wait, so a :class:`~sortiton.cancel.CancelToken` can terminate it. On a
-    cancelled token :class:`~sortiton.cancel.Cancelled` is raised.
-    """
+    """Run ``fpcalc`` and return ``(fingerprint, error)``."""
     cancel = cancel or NO_CANCEL
     try:
         proc = subprocess.Popen(["fpcalc", "-raw", "-length", str(secs), str(path)],
@@ -71,12 +60,7 @@ def run_fpcalc(path, secs, cancel=None) -> tuple[Any, str]:
 
 
 def _wait_fpcalc(proc, cancel) -> tuple[str, str]:
-    """Wait for ``fpcalc`` in short steps; stop early on cancel or the timeout.
-
-    Returns ``(stdout, stderr)``. Raises :class:`Cancelled` when the token is
-    set; on the overall timeout it returns an explanatory ``stderr`` and lets
-    the caller terminate the still-running process.
-    """
+    """Wait for ``fpcalc`` in short steps; stop early on cancel or the timeout."""
     deadline = time.monotonic() + FP_TIMEOUT_SECS
     while True:
         try:
@@ -95,13 +79,7 @@ def _legacy_fp_cache_path(key: str) -> Path:
 
 
 def fp_cache_path(root: Path) -> Path:
-    """Fingerprint cache for ``root`` under ``SORTITON_CACHE_DIR``.
-
-    The first time it is missing, the cache of the old standalone script is
-    copied over once - otherwise every user would recompute all fingerprints
-    (hours for a large library). It is a copy, never a move or a delete, and the
-    cache format stays the same.
-    """
+    """Fingerprint cache for ``root`` under ``SORTITON_CACHE_DIR``."""
     key = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
     base = config.CACHE_DIR / "fingerprints"
     base.mkdir(parents=True, exist_ok=True)
@@ -119,12 +97,7 @@ def fp_cache_path(root: Path) -> Path:
 def compute_fingerprints(recs, root: Path, secs: int,
                          workers: int, outdir: Path,
                          cancel=None) -> dict[int, list[int]]:
-    """Fingerprints with a cache (path+size+mtime) so repeats stay fast.
-
-    ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`. On a
-    cancelled token the running ``fpcalc`` processes are terminated and
-    :class:`~sortiton.cancel.Cancelled` is raised; the cache is left untouched.
-    """
+    """Fingerprints with a cache (path+size+mtime) so repeats stay fast."""
     cancel = cancel or NO_CANCEL
     cache_file = fp_cache_path(root)
     try:
@@ -222,13 +195,7 @@ def _similarity(a, b, off):
 
 
 def _build_index(fps: dict[int, list[int]]) -> dict[int, array]:
-    """Inverted index with a hard cap per sub-fingerprint.
-
-    Values that occur in more than :data:`FP_MAX_POSTINGS` files are noise and
-    are removed completely. ``array("Q")`` stores the packed positions as
-    machine integers instead of Python objects, which keeps a large library's
-    index small.
-    """
+    """Inverted index with a hard cap per sub-fingerprint."""
     index: dict[int, array] = {}
     over = set()
     for fid, fp in fps.items():
@@ -249,8 +216,7 @@ def _build_index(fps: dict[int, list[int]]) -> dict[int, array]:
 
 def fingerprint_groups(recs, fps: dict[int, list[int]],
                        threshold: float) -> tuple[list[tuple[list[int], float]], int]:
-    """Inverted-index approach: only pairs with many equal sub-fingerprints at the
-    same offset are compared closely (no n*n comparison)."""
+    """Inverted-index approach: only pairs with many equal sub-fingerprints at the same offset are compared closely (no n*n comparison)."""
     index = _build_index(fps)
     pairs = {}
     for fid, fp in fps.items():
@@ -273,7 +239,6 @@ def fingerprint_groups(recs, fps: dict[int, list[int]],
             sim = _similarity(fp, fps[other], off)
             if sim >= threshold:
                 pairs[(fid, other)] = sim
-    # Pairs -> groups (Union-Find)
     parent = {}
 
     def find(x):
@@ -320,8 +285,6 @@ def _same_album(rs):
 
 
 def _dupe_class(sim, same_identity, duration_close, marker, same_album):
-    # Only rate high audio similarity + matching metadata/length as a real
-    # duplicate. High similarity alone is not enough (cover versions!).
     if sim >= 0.95 and same_identity and duration_close and same_album:
         return "sehr_wahrscheinlich"
     if sim >= 0.90 and same_identity and (duration_close or marker):
@@ -334,8 +297,6 @@ def _dupe_class(sim, same_identity, duration_close, marker, same_album):
 
 
 def _quality_hint(rs, lang):
-    # No automatic deletion: merely a hint which file is technically the
-    # larger/higher bitrate variant of the same recording.
     if len(rs) < 2:
         return ""
     bitrates = [(r["kbps"], r["path"]) for r in rs if r["kbps"]]

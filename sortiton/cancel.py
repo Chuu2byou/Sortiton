@@ -1,11 +1,4 @@
-"""Cooperative cancellation for long-running commands.
-
-A command receives a :class:`CancelToken` through its optional ``args.cancel``
-field and calls :meth:`CancelToken.check` at every safe point. The GUI creates
-one token per run and sets it from the "Cancel" button; the CLI is stopped by
-``KeyboardInterrupt`` (handled in :mod:`sortiton.cli`). A command that is never
-cancelled uses the shared :data:`NO_CANCEL` token.
-"""
+"""Cooperative cancellation for long-running commands."""
 
 from __future__ import annotations
 
@@ -17,13 +10,7 @@ class Cancelled(Exception):
 
 
 class CancelToken:
-    """A thread-safe "stop" flag wrapped around :class:`threading.Event`.
-
-    ``check()`` turns the flag into an exception, so a command stops at its next
-    check point instead of polling a boolean everywhere. The token is safe to
-    share between the worker threads of a command and the GUI thread that
-    cancels it.
-    """
+    """A thread-safe "stop" flag wrapped around :class:`threading.Event`."""
 
     def __init__(self) -> None:
         self._event = threading.Event()
@@ -42,5 +29,4 @@ class CancelToken:
             raise Cancelled
 
 
-#: The default token for commands started without one; it is never cancelled.
 NO_CANCEL = CancelToken()

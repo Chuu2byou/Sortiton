@@ -40,11 +40,7 @@ class LogMixin:
     """Result area, log view, footer and the open-* actions."""
 
     def _build_result_area(self) -> None:
-        """One area, two views: the result counters or the full log.
-
-        Both live in the same grid cell, so ``self.logbox`` always exists (a
-        language switch rebuilds it instead of losing it).
-        """
+        """One area, two views: the result counters or the full log."""
         self._result_area = tk.Frame(self.root, bg=BACKGROUND, height=self._result_height)
         self._result_area.grid(row=ROW_RESULT, column=0, sticky="nsew", padx=design.px(22),
                                pady=(design.px(4), design.px(6)))
@@ -59,8 +55,6 @@ class LogMixin:
         last_kind = getattr(self, "_last_result_kind", None)
         last_values = getattr(self, "_last_result_values", None)
         if last_kind and last_values is not None:
-            # A language switch (or a theme rebuild) must not wipe the card of
-            # the last run; the counters are still valid.
             self._render_stats(last_kind, last_values)
         else:
             self._rebuild_result_header()
@@ -188,7 +182,6 @@ class LogMixin:
         tk.Label(footer, textvariable=self.status_var, bg=BACKGROUND, fg=TEXT_MUTED,
                  font=design.FONT_SMALL).grid(row=0, column=1, sticky="w",
                                               padx=(design.px(8), 0))
-        # The bar stretches (and gives way) instead of pushing the buttons out.
         progress_holder = tk.Frame(footer, bg=BACKGROUND)
         progress_holder.grid(row=0, column=2, sticky="ew",
                              padx=(design.px(16), design.px(8)))
@@ -242,11 +235,7 @@ class LogMixin:
                             side="right", padx=(0, design.px(8)))
 
     def _copy_prompt(self) -> None:
-        """Put ``00_prompt.md`` of the last export on the clipboard.
-
-        The button only exists after a successful export, so the file is there;
-        a read error is swallowed rather than interrupting the interface.
-        """
+        """Put ``00_prompt.md`` of the last export on the clipboard."""
         outdir = output.last_stats("export").get("outdir")
         if not outdir:
             return

@@ -1,8 +1,4 @@
-"""System dialogs: kdialog/zenity preferred, Tkinter as the fallback.
-
-Every call uses ``check=False`` - a missing program simply leads to the next
-variant.
-"""
+"""System dialogs: kdialog/zenity preferred, Tkinter as the fallback."""
 
 from __future__ import annotations
 
@@ -13,8 +9,6 @@ from tkinter import filedialog, messagebox
 
 from .. import i18n
 
-# No native dialog may block the GUI forever (a hung D-Bus is the usual cause).
-# Five minutes is generous enough for browsing a folder.
 _DIALOG_TIMEOUT = 300
 
 
@@ -34,7 +28,7 @@ def _pick_folder(start_dir: Path) -> str | None:
             if result.returncode == 0:
                 return result.stdout.strip() or None
             if result.returncode == 1:
-                return None          # cancelled by the user
+                return None
         except (OSError, subprocess.TimeoutExpired):
             pass
     if _command_available("zenity"):
@@ -47,8 +41,7 @@ def _pick_folder(start_dir: Path) -> str | None:
             if result.returncode == 0:
                 return result.stdout.strip() or None
             if result.returncode == 1:
-                return None          # cancelled by the user
-            # Any other exit code means zenity itself failed - try Tkinter.
+                return None
         except (OSError, subprocess.TimeoutExpired):
             pass
     chosen = filedialog.askdirectory(title=title, initialdir=str(start_dir), mustexist=True)
@@ -66,7 +59,7 @@ def _pick_file(start_dir: Path, title: str) -> str | None:
             if result.returncode == 0:
                 return result.stdout.strip() or None
             if result.returncode == 1:
-                return None          # cancelled by the user
+                return None
         except (OSError, subprocess.TimeoutExpired):
             pass
     if _command_available("zenity"):
@@ -79,8 +72,7 @@ def _pick_file(start_dir: Path, title: str) -> str | None:
             if result.returncode == 0:
                 return result.stdout.strip() or None
             if result.returncode == 1:
-                return None          # cancelled by the user
-            # Any other exit code means zenity itself failed - try Tkinter.
+                return None
         except (OSError, subprocess.TimeoutExpired):
             pass
     chosen = filedialog.askopenfilename(
@@ -111,7 +103,6 @@ def _ask_yes_no(title: str, text: str) -> bool:
                 return True
             if result.returncode == 1:
                 return False
-            # Any other exit code: zenity failed, fall through to Tkinter.
         except (OSError, subprocess.TimeoutExpired):
             pass
     return messagebox.askyesno(title, text, icon="warning", default="no")

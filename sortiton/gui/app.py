@@ -1,12 +1,4 @@
-"""Window and tasks of the graphical interface.
-
-Calls the same ``cmd_*`` functions as the command line; their results come back
-through the hooks of :mod:`sortiton.output` and reach the widgets through
-``self.queue`` - worker threads never touch widgets directly.
-
-The class only composes the mixins from :mod:`sortiton.gui.mixins`; the
-shared constants and formatters live in :mod:`sortiton.gui.common`.
-"""
+"""Window and tasks of the graphical interface."""
 
 from __future__ import annotations
 
@@ -40,7 +32,7 @@ from .mixins.settings import SettingsMixin
 
 
 class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
-    """Main window of the Sortiton."""
+    """Main window of Sortiton."""
 
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -62,21 +54,16 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._llm_status_label: tk.Label | None = None
         self._restore_window: tk.Toplevel | None = None
         self._log_history: list[str] = []
-        self._log_lines = 0          # lines currently in the Text widget
+        self._log_lines = 0
         self.pages: dict[str, tk.Frame] = {}
 
-        # Preview state per tab: the aggregated plan and the signature it was
-        # made for (the execute button depends on both).
         self._plans: dict[str, dict] = {}
         self._execute_buttons: dict[str, RoundButton] = {}
         self._preview_notes: dict[str, tk.Label] = {}
         self._previews: dict[str, PreviewCard] = {}
         self._stats_labels: dict[str, tk.Label] = {}
-        # One widget per feature option, keyed (feature.key, option.name); only
-        # used to look the tools form up again (tests, future features).
         self._tool_widgets: dict[tuple[str, str], tk.Widget] = {}
         self._traces: list[tuple[tk.Variable, str]] = []
-        # Pending after() id of the debounced settings.ini write.
         self._fine_tuning_job: str | None = None
         self._job_page = "tags"
         self._dirty = False
@@ -84,23 +71,17 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._log_shown = False
         self._prefs_window: PreferencesWindow | None = None
         self._backup_for_run = True
-        # True as soon as the window got its size/place - a rebuild (language
-        # switch) must keep it where it is instead of centring it again.
         self._placed = False
-        # Set when the user asked to close while a task runs: the window then
-        # waits for the task to stop instead of killing its worker thread.
         self._closing = False
 
         self.has_ffprobe = shutil.which("ffprobe") is not None
         self.has_mutagen = config.MUTAGEN_AVAILABLE
 
-        # Scale first: fonts (points) and every px() call below depend on it.
         design.configure(root)
         design.load_fonts(root)
         self._apply_scale()
         self._make_vars()
         self._install_output_hooks()
-        # All fixed rows follow the width of the centred form column.
         self.root.bind("<Configure>", self._align_fixed_rows, add="+")
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_all()
@@ -116,11 +97,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._log_height = design.px(_LOG_HEIGHT_BASE)
 
     def _install_output_hooks(self) -> None:
-        """Route everything the tasks report into the queue.
-
-        The hooks of :mod:`sortiton.output` are global, so they are installed
-        once - a folder scan may still be running.
-        """
+        """Route everything the tasks report into the queue."""
         output.set_logger(lambda text: self.queue.put(("log", text)))
         output.set_progress(lambda i, n, text: self.queue.put(("prog", (i, n, text))))
         output.set_plan_sink(lambda kind, data: self.queue.put(("plan", (kind, data))))

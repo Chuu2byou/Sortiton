@@ -1,18 +1,4 @@
-"""Reading the export: extensions, records and the folder scan.
-
-The export only ever reads a music folder. Tag reading lives in
-:mod:`sortiton.tags` (:func:`~sortiton.tags.read_info`): ``mutagen`` is
-preferred, ``ffprobe`` is the fallback when mutagen is missing or when a file
-cannot be read with it. This module turns a :class:`~sortiton.tags.TrackInfo`
-into the flat record the report works on and joins the tag lists with
-:data:`SEP`.
-
-The extension list is :data:`sortiton.config.READ_EXTENSIONS`, deliberately
-wider than :data:`sortiton.config.AUDIO_EXTENSIONS`: it also covers
-MP4/Ogg-Audio and AIFF, formats the tag/rename/sort paths must leave alone. The
-scan reuses :func:`sortiton.files.iter_audio`, so hidden files and folders are
-skipped just like in every other Sortiton command.
-"""
+"""Reading the export: extensions, records and the folder scan."""
 
 from __future__ import annotations
 
@@ -31,9 +17,8 @@ ALIASES = {
     "tracknumber": "track", "track": "track", "discnumber": "disc", "disc": "disc",
     "date": "year", "year": "year", "genre": "genre",
 }
-SEP = " | "  # separates several values of the same tag
+SEP = " | "
 
-# A record uses the export's own names; TrackInfo uses the tag names.
 _INFO_FIELD = {
     "artist": "artist",
     "albumartist": "album_artist",
@@ -51,7 +36,6 @@ def _mutagen():
     if not config.MUTAGEN_AVAILABLE:
         return None
     try:
-        # mutagen is optional (late import).
         # pylint: disable=import-error,import-outside-toplevel
         import mutagen
     except ImportError:
@@ -60,11 +44,7 @@ def _mutagen():
 
 
 def read_extra(path):
-    """The tags the export keeps besides its core fields (only for --jsonl).
-
-    Read through mutagen's easy interface, the way the old export did; a
-    missing mutagen or an unreadable file simply yields no extra tags.
-    """
+    """The tags the export keeps besides its core fields (only for --jsonl)."""
     engine = _mutagen()
     if engine is None:
         return {}
@@ -95,13 +75,12 @@ def read_file(root, path):
         rec["size"] = path.stat().st_size
         info = read_info(path)
         if info.error == UNREADABLE:
-            rec["error"] = "nicht lesbar"  # TODO(phase 2): i18n
+            rec["error"] = "nicht lesbar"
         else:
             rec["error"] = info.error
     except Exception as e:  # noqa: BLE001
         rec["error"] = f"{type(e).__name__}: {e}"
         info = TrackInfo()
-    # ``or 0`` mirrors the old records: an unknown duration stays the integer 0.
     rec.update({"codec": info.codec, "dur": info.duration or 0, "kbps": info.bitrate_kbps,
                 "sr": info.sample_rate, "ch": info.channels, "bits": info.bits,
                 "cover": info.has_cover, "extra": {}})
@@ -111,17 +90,7 @@ def read_file(root, path):
 
 
 def scan(root, workers, cancel=None):
-    """Walk ``root`` and read every audio file; report progress per file.
-
-    :func:`sortiton.files.iter_audio` with :data:`sortiton.config.READ_EXTENSIONS`
-    skips hidden files and folders (like every other Sortiton command) and
-    accepts the read-only formats; the records are sorted by the casefolded
-    relative path, the sort key the export has always used.
-
-    ``cancel`` is an optional :class:`~sortiton.cancel.CancelToken`, checked
-    after every file. When it is set, the reads that have not started yet are
-    dropped and :class:`~sortiton.cancel.Cancelled` is raised.
-    """
+    """Walk ``root`` and read every audio file; report progress per file."""
     cancel = cancel or NO_CANCEL
     cancel.check()
     files = sorted(iter_audio(root, config.READ_EXTENSIONS),

@@ -46,8 +46,6 @@ from ..common import (
 class RunMixin:
     """Running tasks: plans, previews, workers, progress and closing."""
 
-    #: A second close attempt may force the window away after this many seconds
-    #: of waiting for a worker that ignores cancellation.
     _FORCE_CLOSE_AFTER = 10.0
 
     def _run_restore(self, path: Path, keep_copies: bool) -> bool:
@@ -116,8 +114,6 @@ class RunMixin:
             return
         if execute and not self._confirm_write("all", folder=source, target=target):
             return
-        # TODO: unlike the sort page this hands the source folder to "Open
-        # folder", although the files end up in the target as well.
         self._start("all", self._job_name("gui.job.all", execute), cmd_all,
                     SimpleNamespace(source=source, target=target, pattern=pattern,
                                     move=move, apply=execute,
@@ -133,13 +129,7 @@ class RunMixin:
         return False
 
     def _tool_args(self, feature, execute: bool = False) -> SimpleNamespace:
-        """Read the tools form back into the namespace the feature expects.
-
-        ``apply``, ``backup`` and ``confirm`` come from the action bar and the
-        confirm dialog, not from the form (the form does not draw those).
-        ``confirm`` follows ``apply``: the GUI shows its own dialog before a
-        run, so reaching this point with ``execute`` means the user confirmed.
-        """
+        """Read the tools form back into the namespace the feature expects."""
         values = {option.name: tool_value(option, self.var_tool[feature.key][option.name])
                   for option in feature.options}
         if any(option.name == "apply" for option in feature.options):
@@ -177,8 +167,6 @@ class RunMixin:
                 return
             location = str(csv_file.parent)
         elif target:
-            # fetch names its output folder "target"; without this branch every
-            # GUI fetch stopped at "choose a folder first".
             if not self._path_ok(target):
                 return
             location = target
@@ -190,7 +178,6 @@ class RunMixin:
         if feature.writes and execute and not self._confirm_tool_write(feature):
             return
         if any(option.name == "backup" for option in feature.options):
-            # The dialog may have changed the backup switch after args was built.
             args.backup = self._backup_for_run
         last = config.EXPORT_DIR if folder else location
         description = (self._job_name(f"gui.job.{feature.key}", execute)
@@ -233,12 +220,7 @@ class RunMixin:
         return confirmed
 
     def _confirm_tool_write(self, feature) -> bool:
-        """Confirmation before a writing tool runs.
-
-        The fetch feature asks on its own: a download must be confirmed every
-        single time, and its dialog must not reuse the CSV wording of the fixes
-        feature.
-        """
+        """Confirmation before a writing tool runs."""
         if feature.key == "fetch":
             return self._confirm_fetch()
         has_backup = any(option.name == "backup" for option in feature.options)
@@ -279,17 +261,12 @@ class RunMixin:
                              "signature": None}
 
     def _absorb_plan(self, kind: str, data: dict) -> None:
-        """Aggregate one planned change - counters plus a few examples only.
-
-        The full list stays in the log, so the card stays readable.
-        """
+        """Aggregate one planned change - counters plus a few examples only."""
         plan = self._plans.get(self._job_page)
         if plan is None:
             return
 
         if kind == "tags":
-            # The fixes feature (tools tab) also reports tag changes; render them
-            # like the tags page instead of the generic file summary.
             plan["kind"] = "tags"
             changes = data.get("changes") or {}
             plan["files"] += 1
@@ -303,8 +280,6 @@ class RunMixin:
             return
 
         if kind == "fetch":
-            # The fetch feature reports what yt-dlp would load, not files on
-            # disk; keep the entries so the preview card can name them.
             plan["kind"] = "fetch"
             plan["files"] += 1
             entries = plan.setdefault("entries", [])
@@ -336,7 +311,6 @@ class RunMixin:
                          self.var_all_pattern, self.var_all_mode):
             self._traces.append((variable,
                                  variable.trace_add("write", self._inputs_changed)))
-        # The tools form is generated per feature; watch every option field too.
         for option_vars in self.var_tool.values():
             for variable in option_vars.values():
                 self._traces.append((variable,
@@ -369,8 +343,6 @@ class RunMixin:
                            for option in feature.options)
             return ("tools", feature.key, values)
         if page == "restore":
-            # An undo has no inputs of its own: the journal is fixed when the run
-            # starts, so the signature only has to stay stable while it runs.
             return ("restore", str((self._plans.get("restore") or {}).get("source", "")))
         return ("all", self.var_all_source.get().strip(), self.var_all_target.get().strip(),
                 self.var_all_pattern.get().strip(), self.var_all_mode.get(), rules_id)
@@ -462,11 +434,7 @@ class RunMixin:
                     page, self.var_tags_folder)
 
     def _refresh_folder_stats(self, page: str, manual: bool = True) -> None:
-        """Count files/albums/artists in the background and show the result.
-
-        Without mutagen it falls back to ffprobe and can take a minute, so the
-        automatic start is skipped in that case.
-        """
+        """Count files/albums/artists in the background and show the result."""
         label = self._stats_labels.get(page)
         if label is None or self.running or self._scan_page is not None:
             return
@@ -515,7 +483,6 @@ class RunMixin:
                 self._set_state(GREEN if self.has_ffprobe else YELLOW)
             return
         if kind == "export" and values.get("outdir"):
-            # "Open folder" should point at the reports, not at the music folder.
             self.last_path = Path(values["outdir"])
         self._render_stats(kind, values)
 
@@ -533,7 +500,6 @@ class RunMixin:
                 (RED, "✕", number(values.get("errors", 0)), i18n.t("gui.result.errors")),
             ]
         elif kind == "export":
-            # The export has no "changed/skipped": it only reads (see step 3.2).
             rows = [
                 (GREEN, "✓", number(values.get("files", 0)),
                  i18n.t("gui.result.analysed")),
@@ -572,9 +538,6 @@ class RunMixin:
             self._cancel_button.grid()
         self.last_path = Path(last_path).expanduser()
         self._begin_plan(page, source=source, target_root=target_root)
-        # Snapshot the inputs of this run. _finish() must not recompute them:
-        # the user may have changed the form while the worker was running, and
-        # stamping the new values would enable a write against other inputs.
         self._job_signature = self._signature(page)
         self._job_applied = bool(getattr(args, "apply", False))
         self._set_buttons(False)
@@ -594,8 +557,6 @@ class RunMixin:
                 if log_file:
                     output.message(i18n.t("gui.log.log_file", path=log_file))
                     if getattr(args, "apply", False):
-                        # Only a run that writes gets a journal. Without one the
-                        # run could not be undone, so it must not start.
                         if journal.enabled() and journal.open_for(log_file) is None:
                             output.message(i18n.t("journal.error.open"))
                             rc = 2
@@ -613,12 +574,7 @@ class RunMixin:
         return True
 
     def _finish(self, rc: int) -> None:
-        """A run is over: release the buttons and stamp the preview.
-
-        Only a successful preview keeps a signature, and it is the one captured
-        when the run started. An applied run (or a failed one) has no valid
-        preview any more: the files or tags on disk may have changed.
-        """
+        """A run is over: release the buttons and stamp the preview."""
         self.progress.stop()
         self.progress_label.configure(text="")
         self.running = False
@@ -631,8 +587,6 @@ class RunMixin:
         if plan is not None:
             plan["signature"] = signature if rc == 0 and not applied else None
         if rc == 0 and applied:
-            # A write changes tags or names behind the other pages, so their
-            # previews are stale now and have to be created again.
             for page, other in self._plans.items():
                 if page != self._job_page:
                     other["signature"] = None
@@ -648,22 +602,11 @@ class RunMixin:
             self._set_state(RED)
             self.status_var.set(i18n.t("gui.status.failed", rc=rc))
         if self._closing:
-            # The worker is done, so it is safe to destroy the window now.
-            # after_idle: this runs from the queue pump, which must be able to
-            # finish its current tick first.
             self.root.after_idle(self.root.destroy)
 
     def _on_window_close(self) -> None:
-        """Close the window - but let a running task stop first.
-
-        The worker threads are daemons: destroying the window mid-write would
-        kill them inside ``shutil.move`` or ``write_tags``. A running task is
-        therefore cancelled and the window closes when it has finished.
-        """
+        """Close the window - but let a running task stop first."""
         if self._closing:
-            # A second close attempt is the escape hatch for a worker that
-            # ignores cancellation (a stuck yt-dlp, a huge move) - but only
-            # after a grace period, so a double click cannot kill a write.
             since = getattr(self, "_closing_since", time.monotonic())
             if (time.monotonic() - since >= self._FORCE_CLOSE_AFTER
                     and _ask_yes_no(i18n.t("gui.dialog.force_close.title"),
@@ -709,7 +652,6 @@ class RunMixin:
             if kind == "log":
                 self._log_line(value)
             elif kind == "prog":
-                # A folder scan must not paint over the progress bar of a run.
                 if self._scan_page is None or not self.running:
                     self._set_progress(*value)
             elif kind == "plan":
@@ -721,8 +663,6 @@ class RunMixin:
             elif kind == "done":
                 self._finish(value)
         except Exception:
-            # One broken handler must not stop the queue pump for the rest of
-            # the session (the window would freeze on its last status).
             output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
 
     def _scan_finished(self) -> None:

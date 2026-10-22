@@ -1,14 +1,4 @@
-"""The fixes feature: apply single tag corrections from a CSV.
-
-``sortiton fixes datei.csv [--root ORDNER] [--apply] [--backup]`` reads a CSV
-with the columns ``path;field;old;new`` (a header is optional), checks every row
-against the current tags and - only with ``--apply`` - writes the corrections.
-Without ``--apply`` it is a pure preview.
-
-This closes the loop with the export: the report asks the LLM for corrections in
-exactly this CSV shape. The command writes, so it needs ``--apply`` and gets a
-journal entry per changed file (undo via ``sortiton restore``).
-"""
+"""The fixes feature: apply single tag corrections from a CSV."""
 
 from __future__ import annotations
 
@@ -26,10 +16,8 @@ from ...tags import read_info, write_tags
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import parse
 
-#: Separator the export uses when it joins several tag values into one cell.
 JOIN_SEP = "; "
 
-#: Fields that may hold several values; the export joins them with " | ".
 MULTI_VALUE_FIELDS = {"artist", "album_artist", "genre"}
 _VALUE_SPLIT = re.compile(r"\s*[|;]\s*")
 
@@ -58,26 +46,17 @@ def _same_value(left: str, right: str) -> bool:
 
 
 def _normalised_new(field: str, value: str) -> str:
-    """Store a CSV value in the ``; `` form ``write_tags`` understands.
-
-    The export/LLM round trip uses " | " between values; writing that string as
-    one value would produce a single tag "A | B" instead of two values.
-    """
+    """Store a CSV value in the ``; `` form ``write_tags`` understands."""
     if field not in MULTI_VALUE_FIELDS or "|" not in value:
         return value
     return "; ".join(_value_list(value))
 
 
 def cmd_fixes(args: CmdArgs) -> int:
-    """Apply (or preview) single tag corrections from a CSV file.
-
-    Returns 0 on success, 1 when no row could be used or a write failed, 2 on a
-    bad input or a missing tool, 130 when the run was cancelled.
-    """
+    """Apply (or preview) single tag corrections from a CSV file."""
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
 
-    # The GUI does not go through cli.main, so the tool check lives here too.
     lacking = external.missing(FEATURE, args)
     if lacking:
         output.message(external.format_missing(lacking))
@@ -114,7 +93,6 @@ def cmd_fixes(args: CmdArgs) -> int:
     output.message()
 
     for action in actions:
-        # The preview card and the log show exactly what would be written.
         output.report_plan("tags", path=action.path,
                            changes={action.field: (action.current, action.new)})
         output.message(f"  {action.path.name}")
@@ -140,7 +118,6 @@ def cmd_fixes(args: CmdArgs) -> int:
             backup_folder = _backup_files(root or csv_path.parent,
                                           [action.path for action in actions])
             if backup_folder is None:
-                # An incomplete backup is no safety net; do not touch a file.
                 _report(rows, 0, len(skipped), errors, args, None)
                 return 2
 
@@ -167,7 +144,6 @@ def cmd_fixes(args: CmdArgs) -> int:
                                       error=error))
 
     if not actions and not skipped and errors:
-        # Nothing could even be checked - treat it as a failed input.
         _report(rows, 0, 0, errors, args, backup_folder)
         return 1
 
@@ -179,12 +155,7 @@ def cmd_fixes(args: CmdArgs) -> int:
 def _prepare(rows: list[parse.FixRow], root: Path | None
              ) -> tuple[list[_Action], list[tuple[int, str, str, str, str]],
                         list[tuple[int, str, dict]]]:
-    """Check every row: the usable actions, the skips and the row errors.
-
-    A row is rejected when its field, path, extension, new value or readability
-    is not usable. Two rows naming the same (path, field) are errors for both -
-    nothing is written for them, so the correction stays unambiguous.
-    """
+    """Check every row: the usable actions, the skips and the row errors."""
     prepared: list[tuple[parse.FixRow, Path]] = []
     problems: list[tuple[int, str, dict]] = []
 
@@ -270,7 +241,6 @@ def _backup_files(root: Path, paths: list[Path]) -> Path | None:
     return backup_files(root, paths)
 
 
-#: The one description the CLI and the GUI share.
 FEATURE = Feature(
     key="fixes",
     title_key="fixes.title",
@@ -284,7 +254,6 @@ FEATURE = Feature(
         Option("backup", "bool", False, "cli.fixes.backup", flags=("--backup",)),
     ),
     requires=(Requirement(any_of=(external.MUTAGEN, external.FFPROBE)),
-              # Writing without mutagen is an ffmpeg remux (tags.write_tags).
               Requirement(any_of=(external.MUTAGEN, external.FFMPEG),
                           when="apply")),
     writes=True,

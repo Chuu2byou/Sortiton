@@ -1,10 +1,4 @@
-"""Backup folders shared by the tasks and the features.
-
-A backup folder belongs to ``backup_*`` and carries a ``.complete`` marker only
-after every file was copied. Incomplete folders are moved below ``failed/`` so
-they stay available as evidence but can never displace a usable backup during
-pruning.
-"""
+"""Backup folders shared by the tasks and the features."""
 
 from __future__ import annotations
 
@@ -16,7 +10,6 @@ from . import config, i18n
 from .fileops import copy_new
 from .output import message, progress
 
-#: Marker files inside a backup folder (hidden on Unix).
 _COMPLETE = ".complete"
 _INCOMPLETE = ".incomplete"
 _FAILED_DIR = "failed"
@@ -43,11 +36,7 @@ def _failed_dir() -> Path | None:
 
 
 def _retire_incomplete(folder: Path) -> Path:
-    """Move an incomplete folder out of the regular ``backup_*`` namespace.
-
-    Returns its new path, or the old one when the folder could not be moved
-    (the ``.incomplete`` marker still keeps it out of the retention count).
-    """
+    """Move an incomplete folder out of the regular ``backup_*`` namespace."""
     failed = _failed_dir()
     if failed is None:
         return folder
@@ -82,13 +71,11 @@ def prune_backups(keep: int = config.BACKUP_KEEP) -> None:
     complete: list[Path] = []
     for folder in folders:
         if (folder / _COMPLETE).is_file():
-            # A crash can leave both markers behind; .complete wins.
             (folder / _INCOMPLETE).unlink(missing_ok=True)
             complete.append(folder)
         elif (folder / _INCOMPLETE).is_file():
             _retire_incomplete(folder)
         else:
-            # Backups from older versions have no marker and count as usable.
             complete.append(folder)
 
     complete.sort(key=_mtime, reverse=True)
@@ -104,12 +91,7 @@ def prune_backups(keep: int = config.BACKUP_KEEP) -> None:
 
 
 def backup_files(root: Path, paths: list[Path]) -> Path | None:
-    """Copy the files that are about to change into a fresh backup folder.
-
-    The path below ``root`` is kept, so restoring is a plain copy. Returns the
-    folder only when *every* file was copied; None means the caller must not
-    start writing (an incomplete backup is not a usable safety net).
-    """
+    """Copy the files that are about to change into a fresh backup folder."""
     stamp = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
     folder: Path | None = None
     backup_root = _backup_root()
@@ -117,8 +99,6 @@ def backup_files(root: Path, paths: list[Path]) -> Path | None:
         name = f"backup_{stamp}" if number == 1 else f"backup_{stamp} ({number})"
         candidate = backup_root / name
         try:
-            # exist_ok=False: two backups in the same second must not share
-            # (and thereby mix) one folder.
             candidate.mkdir(parents=True, exist_ok=False)
         except FileExistsError:
             continue
@@ -173,8 +153,6 @@ def backup_files(root: Path, paths: list[Path]) -> Path | None:
     try:
         (folder / _INCOMPLETE).unlink()
     except OSError:
-        # The .complete marker wins in prune_backups(), so a leftover
-        # .incomplete marker must not turn a usable backup into evidence.
         pass
 
     message(i18n.t("task.backup.done", count=copied, path=folder))

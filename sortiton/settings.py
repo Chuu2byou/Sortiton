@@ -14,14 +14,10 @@ SECTION = "general"
 KEY_LANGUAGE = "language"
 KEY_BACKUP = "backup"
 
-#: Fine-tuning of the helper tools: keys look like ``export.chunk_chars``.
 SECTION_TOOLS = "tools"
 
 
 def _parser() -> configparser.ConfigParser:
-    # No interpolation: a value such as "50%" or a naming pattern must survive
-    # a write/read round-trip. With the default interpolation the read would
-    # raise InterpolationSyntaxError and the write would refuse the value.
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(SETTINGS_FILE, encoding="utf-8")
@@ -99,10 +95,7 @@ def save_language(code: str) -> bool:
 
 
 def resolve_backup() -> bool:
-    """Whether a backup is written before tags change (default: yes).
-
-    ``SORTITON_BACKUP`` overrides settings.ini (so a test run can switch it off).
-    """
+    """Whether a backup is written before tags change (default: yes)."""
     from_env = os.environ.get("SORTITON_BACKUP", "").strip().lower()
     if from_env:
         return from_env not in OFF_VALUES

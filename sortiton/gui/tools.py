@@ -1,23 +1,4 @@
-"""The "Tools" tab: one form per registered feature, built from ``FEATURES``.
-
-Nothing here knows about the export. A form is generated from the feature's
-:class:`~sortiton.features.base.Option` list, so a second feature (phase 4) only
-needs a new entry in :mod:`sortiton.features`. The typed values live in
-``app.var_tool`` and survive a language switch; this module only draws widgets
-and reads them back.
-
-Layout: the feature picker uses short names, one description line explains the
-selected feature, and the options are grouped into cards ("Folder & files",
-"Download", …). Short fields sit side by side, folder fields take the full
-width, and every switch is a full, clickable row - so the form stays readable
-instead of growing into one long column.
-
-Only the inputs that belong to a single run stay in the tab. The fine-tuning
-cards ("Report contents", "Duplicates & speed") are drawn by the settings
-window instead - the same :class:`OptionForm` paints them, the same
-``app.var_tool`` variables hold them, and their values are stored in
-``settings.ini``.
-"""
+"""The "Tools" tab: one form per registered feature, built from ``FEATURES``."""
 
 from __future__ import annotations
 
@@ -32,20 +13,13 @@ from .design import (ACCENT, BACKGROUND, BORDER, CARD, FIELD, FIELD_ACTIVE, TEXT
                      TEXT_MUTED, YELLOW)
 from .widgets import Pill, RoundButton, Segments, Switch
 
-# Up to this many features are shown as segments; more need a combobox.
 SEGMENT_LIMIT = 3
 
-# Bool options driven by the action bar / the confirm dialog, not the form: a
-# writing feature gets a preview/write pair and the shared backup switch. The
-# fetch feature's "confirm" is the same idea - the GUI asks its own dialog
-# before every download, so the raw checkbox stays out of the form.
 _ACTION_FLAGS = {"apply", "backup", "confirm"}
 
-# Fallback bounds for the spin boxes when a feature leaves minimum/maximum open.
 _INT_MAX = 1_000_000
 _FLOAT_STEP = 0.05
 
-#: i18n key per section; unknown options land in the generic "Options" card.
 _SECTION_TITLES = {
     "files": "gui.tools.section.files",
     "report": "gui.tools.section.report",
@@ -56,15 +30,10 @@ _SECTION_TITLES = {
 _DEFAULT_SECTION = "options"
 _DEFAULT_SECTION_TITLE = "gui.section.options"
 
-#: Features that work with an LLM answer get the "paste LLM answer" button.
 _LLM_FEATURES = {"export"}
 
-#: Cards that hold fine-tuning rather than per-run input: they live in the
-#: settings window (see :class:`sortiton.gui.preferences.PreferencesWindow`).
 FINE_TUNING_SECTIONS = ("report", "advanced")
 
-#: Which card an option belongs to (by name - the names are stable across the
-#: features, and an unknown option simply falls back to "options").
 _SECTION_OF = {
     "folder": "files", "output": "files", "file": "files", "root": "files",
     "target": "files", "url": "files",
@@ -110,7 +79,7 @@ def _sections(feature: Feature, wanted: tuple[str, ...]) -> list[tuple[str, list
     table: dict[str, list[Option]] = {}
     for option in feature.options:
         if option.kind == "bool" and option.name in _ACTION_FLAGS:
-            continue        # shown as the action bar / the confirm switch
+            continue
         section = _SECTION_OF.get(option.name, _DEFAULT_SECTION)
         if section not in wanted:
             continue
@@ -176,11 +145,7 @@ def _stored_value(option: Option, raw: str) -> str | bool | None:
 
 
 def apply_stored(var_tool: dict[str, dict[str, tk.Variable]]) -> None:
-    """Seed the fine-tuning variables from settings.ini.
-
-    Missing or unreadable values keep the option default, so a hand-edited
-    settings.ini can never break a run.
-    """
+    """Seed the fine-tuning variables from settings.ini."""
     stored = settings.read_tool_values()
     for feature, option in fine_tuning_items():
         raw = stored.get(_stored_key(feature, option))
@@ -206,12 +171,7 @@ def _choice_label(option: Option, value: str) -> str:
 
 
 def _layout(options: list[Option]) -> list[tuple[Option, int, int, int]]:
-    """Place the options on a two-column grid: (option, row, column, span).
-
-    Long fields (folder / text) span both columns, short fields share a row,
-    switches take a full row of their own. The grid is pre-computed so the
-    drawing code stays a simple loop.
-    """
+    """Place the options on a two-column grid: (option, row, column, span)."""
     cells: list[tuple[Option, int, int, int]] = []
     row = 0
     column = 0
@@ -240,12 +200,7 @@ def _layout(options: list[Option]) -> list[tuple[Option, int, int, int]]:
 
 
 def make_tool_vars() -> dict[str, dict[str, tk.Variable]]:
-    """One ``tk`` variable per feature option.
-
-    Called once from :meth:`sortiton.gui.app.SortitonGUI._make_vars`; the
-    variables are kept across a language switch so nothing the user typed is
-    lost (the widgets are rebuilt, the values are not).
-    """
+    """One ``tk`` variable per feature option."""
     table: dict[str, dict[str, tk.Variable]] = {}
     for feature in FEATURES:
         table[feature.key] = {option.name: _make_var(option)
@@ -261,12 +216,7 @@ def _make_var(option: Option) -> tk.Variable:
 
 
 def tool_value(option: Option, variable: tk.Variable) -> object:
-    """Read one widget back as the type the feature expects.
-
-    A number field that does not parse falls back to the option's default. A
-    parsed value is clamped to ``minimum``/``maximum``: a spinbox can be typed
-    into, and a negative thread count would otherwise reach the worker pool.
-    """
+    """Read one widget back as the type the feature expects."""
     raw = variable.get()
     if option.kind == "bool":
         return bool(raw)
@@ -295,13 +245,7 @@ def tool_value(option: Option, variable: tk.Variable) -> object:
 
 
 class OptionForm:
-    """Paints option cards into a body frame; shared by tab and settings.
-
-    ``width`` is the room the fields get in design pixels - the tools tab is
-    wide, the settings window is narrow, so labels wrap differently. Both use
-    the same ``app.var_tool`` variables and register their widgets in
-    ``app._tool_widgets``, so a form can be rebuilt without losing a value.
-    """
+    """Paints option cards into a body frame; shared by tab and settings."""
 
     def __init__(self, app, width: int | None = None) -> None:
         self.app = app
@@ -499,13 +443,7 @@ class ToolsTab(tk.Frame):
         self._description.configure(wraplength=max(width, design.px(180)))
 
     def _secondary_row(self, parent: tk.Frame, row: int, feature: Feature) -> None:
-        """Fine-tuning hint on the left, the matching buttons on the right.
-
-        Report length, duplicate check and reader count are fine-tuning: they
-        belong to the program, not to one run, so they live in the settings and
-        the form only points there. Both buttons share one row so the form
-        stays short enough for the viewport.
-        """
+        """Fine-tuning hint on the left, the matching buttons on the right."""
         frame = tk.Frame(parent, bg=BACKGROUND)
         frame.grid(row=row, column=0, sticky="ew", pady=(design.px(4), 0))
         frame.columnconfigure(0, weight=1)
@@ -551,8 +489,6 @@ class ToolsTab(tk.Frame):
                 holder.grid_remove()
         feature = next((item for item in FEATURES if item.key == key), None)
         self._show_description(feature)
-        # A writing feature gets preview/write buttons, a read-only one a single
-        # run button - the action bar follows the selection.
         self.app._tools_actions()
 
     def _show_description(self, feature: Feature | None) -> None:

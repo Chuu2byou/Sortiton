@@ -1,8 +1,4 @@
-"""The static feature registry: the CLI and the GUI read the very same tuple.
-
-Registration is explicit (no plugin loader): every feature is imported here by
-name, so the wheel and a PyInstaller build both see it.
-"""
+"""The static feature registry: the CLI and the GUI read the very same tuple."""
 
 from __future__ import annotations
 
@@ -13,8 +9,6 @@ from .fixes import FEATURE as _FIXES
 
 __all__ = ["Feature", "FEATURES", "get"]
 
-#: Order matters: the GUI shows the features in this order, and the first
-#: writing feature drives the "write button" test in tests/smoke.py::test_gui.
 FEATURES: tuple[Feature, ...] = (_EXPORT, _FIXES, _FETCH)
 
 

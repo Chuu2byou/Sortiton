@@ -38,15 +38,10 @@ class SettingsMixin:
         self.var_page = tk.StringVar(value="tags")
         self.var_language = tk.StringVar(value=i18n.get_language())
         self.var_backup = tk.BooleanVar(value=settings.resolve_backup())
-        # Tools tab: the feature picker and one variable per feature option.
-        # Created here, not in the page builders, so a language switch keeps
-        # every value the user typed.
         self.var_tool = make_tool_vars()
         self.var_tool_choice = tk.StringVar(value=FEATURES[0].key if FEATURES else "")
         self.status_var = tk.StringVar(value="")
         self._seed_tool_folders()
-        # Fine-tuning lives in the settings window but in these variables: load
-        # the stored values once and write them back whenever they change.
         apply_stored(self.var_tool)
         self._watch_fine_tuning()
 
@@ -61,11 +56,7 @@ class SettingsMixin:
                     variable.set(str(DEFAULT_FOLDER))
 
     def _watch_fine_tuning(self) -> None:
-        """Store fine-tuning changes in settings.ini (debounced to one write).
-
-        The traces live outside ``self._traces``: that list is rebuilt for the
-        preview invalidation on every language switch, these must survive.
-        """
+        """Store fine-tuning changes in settings.ini (debounced to one write)."""
         for feature, option in fine_tuning_items():
             self.var_tool[feature.key][option.name].trace_add("write",
                                                               self._fine_tuning_changed)
@@ -101,8 +92,6 @@ class SettingsMixin:
                 pass
             self._prefs_window = None
 
-        # The window edits the same variables the tools tab reads, so it only
-        # needs the app - not a copy of the language handler or the form vars.
         self._prefs_window = PreferencesWindow(self)
         self._prefs_window.window.bind("<Destroy>", self._prefs_closed, add="+")
 

@@ -1,8 +1,4 @@
-"""Confirmation window shown before a run that changes files.
-
-The native dialogs can only ask yes/no, but a run that rewrites tags should
-say what will happen - so this window shows the counts and the backup switch.
-"""
+"""Confirmation window shown before a run that changes files."""
 
 from __future__ import annotations
 
@@ -18,11 +14,7 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
                 ok_text: str, cancel_text: str,
                 options: list[tuple[str, str, bool]] | None = None,
                 note: str = "") -> tuple[bool, dict[str, bool]]:
-    """Ask for confirmation.
-
-    ``options`` is a list of ``(key, label, default)`` check boxes; the result
-    contains the confirmed state and the value of every option.
-    """
+    """Ask for confirmation."""
     result: dict[str, bool] = {}
     window = tk.Toplevel(parent)
     window.withdraw()
@@ -55,7 +47,7 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
         for index, (key, label, default) in enumerate(options):
             variable = tk.BooleanVar(value=default)
             variables[key] = variable
-            result[key] = bool(default)     # fallback if the window is killed
+            result[key] = bool(default)
             tk.Checkbutton(box, text=label, variable=variable, bg=BACKGROUND, fg=TEXT,
                            font=design.FONT_SMALL, activebackground=BACKGROUND,
                            activeforeground=TEXT, selectcolor=FIELD, bd=0,
@@ -67,8 +59,6 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
 
     def close(confirmed: bool) -> None:
         state["confirmed"] = confirmed
-        # Read the variables while the window still exists: after destroy()
-        # they belong to a dead widget tree.
         result.update({key: bool(variable.get())
                        for key, variable in variables.items()})
         window.destroy()
