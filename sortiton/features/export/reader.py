@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
 from ... import config, output
 from ...cancel import NO_CANCEL, Cancelled
 from ...files import iter_audio
-from ...tags import UNREADABLE, TrackInfo, read_info
+from ...tags import TrackInfo, read_info
 
 CORE = ["artist", "albumartist", "album", "title", "track", "disc", "year", "genre"]
 ALIASES = {
@@ -74,10 +73,9 @@ def read_file(root, path):
     try:
         rec["size"] = path.stat().st_size
         info = read_info(path)
-        if info.error == UNREADABLE:
-            rec["error"] = "nicht lesbar"
-        else:
-            rec["error"] = info.error
+        # Der Sentinel bleibt sprachneutral ("unreadable"); erst der Bericht
+        # übersetzt ihn, damit auch alle_tags.jsonl sprachunabhängig bleibt.
+        rec["error"] = info.error
     except Exception as e:  # noqa: BLE001
         rec["error"] = f"{type(e).__name__}: {e}"
         info = TrackInfo()

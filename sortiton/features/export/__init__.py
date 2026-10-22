@@ -14,19 +14,104 @@ from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import fingerprint, reader, report
 
 
-def _clear_reports(outdir: Path) -> None:
-    """Remove the reports of an earlier run that this run may not rewrite."""
-    for name in ("00_prompt.md", "01_zusammenfassung.md", "02_auffaelligkeiten.md",
-                 "03_duplikate.md", "alle_tags.jsonl", "fpcalc_fehler.log"):
+MANIFEST_NAME = ".sortiton-export.json"
+"""Name des Manifests, das die in einem Lauf von Sortiton erzeugten Dateien nennt."""
+
+
+def _valid_name(name: object) -> str | None:
+    """Ein reiner Dateiname im Ausgabeordner, oder ``None`` für alles andere."""
+    if not isinstance(name, str) or not name or name in (".", "..", MANIFEST_NAME):
+        return None
+    if "\0" in name or Path(name).name != name:
+        return None
+    return name
+
+
+def _read_manifest(outdir: Path) -> list[str]:
+    """Die im alten Manifest gelisteten Namen; leer bei fehlendem/kaputtem Manifest.
+
+    Nur ein vollständig lesbares Manifest mit einer Namensliste gilt als Nachweis
+    der eigenen Herkunft - alles andere führt dazu, dass nichts gelöscht wird.
+    """
+    try:
+        data = json.loads((outdir / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    listed = data.get("files")
+    if not isinstance(listed, list):
+        return []
+    names: list[str] = []
+    for item in listed:
+        name = _valid_name(item)
+        if name is not None and name not in names:
+            names.append(name)
+    return names
+
+
+def _write_manifest(outdir: Path, names: list[str]) -> None:
+    """Schreibt das Manifest der bisher in diesem Lauf erzeugten Dateien."""
+    try:
+        (outdir / MANIFEST_NAME).write_text(
+            json.dumps({"version": 1, "files": names}, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _clear_reports(outdir: Path) -> list[str]:
+    """Entfernt ausschließlich die im alten Manifest belegten Berichte.
+
+    Fehlt das Manifest oder ist es unlesbar, bleibt jede Datei unangetastet -
+    auch eine TSV des Nutzers, die zufällig wie ein Bericht heißt. Zurück kommt
+    die noch leere Liste der in diesem Lauf erzeugten Dateien.
+    """
+    old = _read_manifest(outdir)
+    for name in old:
         try:
             (outdir / name).unlink(missing_ok=True)
         except OSError:
             pass
-    try:
-        for old in outdir.glob("tracks_part*.tsv"):
-            old.unlink(missing_ok=True)
-    except OSError:
-        pass
+    _write_manifest(outdir, [])
+    return []
+
+
+class _Output:
+    """Schreibt die Berichte und ersetzt dabei nie eine fremde Datei.
+
+    ``names`` sind die Dateien dieses Laufs; nur sie dürfen überschrieben
+    werden. Existiert ein Zielname bereits und gehört nicht uns, weicht die
+    Datei auf einen freien Namen aus (" (2)"), damit die Zusage "nichts wird
+    überschrieben" auch für einen vom Nutzer gewählten Ordner gilt.
+
+    Der Name steht im Manifest, *bevor* geschrieben wird: bricht der Lauf
+    dazwischen ab, gilt die halbe Datei als unsere und wird beim nächsten Lauf
+    aufgeräumt statt als fremd liegen zu bleiben.
+    """
+
+    def __init__(self, outdir: Path) -> None:
+        self.outdir = outdir
+        self.names: list[str] = []
+
+    def _claim(self, name: str) -> Path:
+        """Der Zielpfad für ``name``; fremde Dateien weichen auf " (2)" aus."""
+        if name in self.names:
+            return self.outdir / name
+        path = free_path(self.outdir / name)
+        self.names.append(path.name)
+        _write_manifest(self.outdir, self.names)
+        return path
+
+    def write(self, name: str, text: str) -> str:
+        """Schreibt ``text`` und liefert den tatsächlich benutzten Namen."""
+        path = self._claim(name)
+        path.write_text(text, encoding="utf-8")
+        return path.name
+
+    def open(self, name: str):
+        """Öffnet ``name`` zum Schreiben (für zeilenweise Ausgaben)."""
+        return self._claim(name).open("w", encoding="utf-8")
 
 
 def cmd_export(args: CmdArgs) -> int:
@@ -38,6 +123,8 @@ def cmd_export(args: CmdArgs) -> int:
         if option.kind not in ("int", "float") or option.minimum is None:
             continue
         value = getattr(args, option.name, None)
+        if value is None:
+            continue
         try:
             number = float(value)
         except (TypeError, ValueError):
@@ -65,6 +152,7 @@ def cmd_export(args: CmdArgs) -> int:
         outdir = Path(args.output).expanduser()
     else:
         outdir = free_path(EXPORT_DIR / f"export_{datetime.now():%Y%m%d_%H%M%S}")
+    created_here = not outdir.exists()
     try:
         outdir.mkdir(parents=True, exist_ok=True)
     except OSError as error:
@@ -75,8 +163,17 @@ def cmd_export(args: CmdArgs) -> int:
         recs = reader.scan(root, args.threads, cancel)
         if not recs:
             output.message(i18n.t("export.error.no_files"))
+            if created_here:
+                # Ein selbst angelegter, leerer Ordner bleibt nicht zurück.
+                try:
+                    outdir.rmdir()
+                except OSError:
+                    pass
             return 1
+        # Ab hier gehört der Ordner uns: alte Berichte aus dem Manifest
+        # entfernen und das neue Manifest mit jedem erzeugten Bericht fortsetzen.
         _clear_reports(outdir)
+        out = _Output(outdir)
 
         lang = args.report_lang or i18n.get_language()
         opts = report.ReportOptions(max_examples=args.examples, check_case=args.check_case)
@@ -86,7 +183,8 @@ def cmd_export(args: CmdArgs) -> int:
         duplicate_groups: int | None = None
         if args.fingerprint:
             fps = fingerprint.compute_fingerprints(recs, root, args.fp_seconds,
-                                                   args.threads, outdir, cancel)
+                                                   args.threads, outdir, cancel,
+                                                   write=out.write)
             groups, _pairs = fingerprint.fingerprint_groups(recs, fps, args.fp_threshold)
             duplicate_groups = len(groups)
             sections.append(report.Section(
@@ -94,21 +192,23 @@ def cmd_export(args: CmdArgs) -> int:
                 fingerprint.fp_section(recs, groups, len(fps), len(recs),
                                        args.fp_threshold, args.examples, lang)))
 
-        report.write_report(sections, outdir)
-        parts = report.write_chunks(recs, outdir, args.chunk_chars)
-        (outdir / "00_prompt.md").write_text(
-            report.prompt_text(lang, len(recs), len(parts)), encoding="utf-8")
+        report.write_report(sections, out.write)
+        parts = report.write_chunks(recs, out.write, args.chunk_chars)
+        out.write("00_prompt.md", report.prompt_text(lang, len(recs), len(parts)))
         if args.jsonl:
             for rec in recs:
                 cancel.check()
                 rec["extra"] = reader.read_extra(root / rec["path"])
-            with open(outdir / "alle_tags.jsonl", "w", encoding="utf-8") as handle:
+            with out.open("alle_tags.jsonl") as handle:
                 for rec in recs:
                     handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Cancelled:
         output.message(i18n.t("task.cancelled"))
         output.message(i18n.t("export.cancelled", outdir=str(outdir.resolve())))
         return 130
+    except OSError as error:
+        output.message(i18n.t("export.error.write", path=outdir, error=error))
+        return 2
 
     errors = sum(1 for rec in recs if rec["error"])
     output.message(i18n.t("export.done", files=len(recs), outdir=str(outdir.resolve())))

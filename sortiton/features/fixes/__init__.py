@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,13 +10,12 @@ from ... import external, i18n, journal, output
 from ...backup import backup_files
 from ...cancel import NO_CANCEL, Cancelled
 from ...config import AUDIO_EXTENSIONS
-from ...tags import read_info, write_tags
+from ...tags import MULTI_VALUE_FIELDS, read_info, write_tags
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import parse
 
 JOIN_SEP = "; "
 
-MULTI_VALUE_FIELDS = {"artist", "album_artist", "genre"}
 _VALUE_SPLIT = re.compile(r"\s*[|;]\s*")
 
 
@@ -142,8 +139,12 @@ def cmd_fixes(args: CmdArgs) -> int:
                 write_errors += 1
                 output.message(i18n.t("task.error.file", name=action.path.name,
                                       error=error))
+            changed = done
 
     if not actions and not skipped and errors:
+        # Auch ein Lauf, in dem jede Zeile ein Fehler ist, endet mit dem
+        # gewohnten Abschlussblock statt nur mit Einzelmeldungen.
+        _finish(0, 0, len(rows), errors, args)
         _report(rows, 0, 0, errors, args, backup_folder)
         return 1
 
@@ -170,6 +171,10 @@ def _prepare(rows: list[parse.FixRow], root: Path | None
         path, key = parse.resolve_path(root, row.path)
         if key:
             problems.append((row.line, key, {"path": row.path}))
+            continue
+        if path is None:
+            # Nicht auflösbarer Pfad: derselbe Fehler wie bei fehlender Datei.
+            problems.append((row.line, "fixes.error.missing_file", {"path": row.path}))
             continue
         if path.suffix.lower() not in AUDIO_EXTENSIONS:
             problems.append((row.line, "fixes.error.extension", {"path": row.path}))
@@ -200,10 +205,13 @@ def _prepare(rows: list[parse.FixRow], root: Path | None
             problems.append((row.line, "fixes.error.unreadable", {"path": row.path}))
             continue
         current = info.joined(row.field, JOIN_SEP).strip()
-        if current != row.old.strip():
+        matches = (_same_value(current, row.old) if row.field in MULTI_VALUE_FIELDS
+                   else current == row.old.strip())
+        if not matches:
             skipped.append((row.line, row.path, row.field, row.old, current))
             continue
-        actions.append(_Action(row.line, path, row.field, current, row.new))
+        actions.append(_Action(row.line, path, row.field, current,
+                               _normalised_new(row.field, row.new)))
     return actions, skipped, problems
 
 

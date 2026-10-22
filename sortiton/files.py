@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import filecmp
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -122,6 +123,12 @@ def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     raise RuntimeError(i18n.t("file.error.no_free_name", path=dst))
 
 
+def content_digest(path: Path) -> str:
+    """SHA-256 des Dateiinhalts."""
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
 def same_content(a: Path, b: Path) -> bool:
     """True if both files are identical (same size + byte-for-byte compare)."""
     try:
@@ -135,7 +142,10 @@ def same_content(a: Path, b: Path) -> bool:
 def iter_audio(root: Path, extensions: set[str] = AUDIO_EXTENSIONS):
     """Yield every audio file below ``root`` (hidden entries are ignored)."""
     for folder, subfolders, files in os.walk(root):
-        subfolders[:] = [d for d in subfolders if not d.startswith(".")]
+        # Sortiert, damit die Reihenfolge (und damit "(2)" bei Namensgleichheit)
+        # bei jedem Lauf gleich ist - os.walk liefert sie sonst in Plattenordnung.
+        subfolders[:] = sorted((d for d in subfolders if not d.startswith(".")),
+                               key=str.casefold)
         for name in sorted(files):
             if name.startswith("."):
                 continue

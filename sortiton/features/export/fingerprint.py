@@ -12,12 +12,12 @@ import tempfile
 import time
 from array import array
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
 
 from ... import config, i18n, output
-from ...cancel import NO_CANCEL, Cancelled
+from ...cancel import NO_CANCEL, CancelToken, Cancelled
 from .analysis import lst, norm
 
 _popcount = (lambda x: x.bit_count()) if hasattr(int, "bit_count") else (lambda x: bin(x).count("1"))
@@ -33,8 +33,13 @@ FP_POLL_SECS = 0.2
 FP_TIMEOUT_SECS = 600.0
 
 
-def run_fpcalc(path, secs, cancel=None) -> tuple[Any, str]:
-    """Run ``fpcalc`` and return ``(fingerprint, error)``."""
+def run_fpcalc(path: Path | str, secs: int,
+               cancel: CancelToken | None = None) -> tuple[list[int] | None, str]:
+    """Führt ``fpcalc`` aus und liefert ``(fingerprint, fehler)``.
+
+    Der Fingerprint ist ``None``, wenn ``fpcalc`` fehlschlägt oder keine
+    ``FINGERPRINT=``-Zeile schreibt; der zweite Wert ist dann die Meldung.
+    """
     cancel = cancel or NO_CANCEL
     try:
         proc = subprocess.Popen(["fpcalc", "-raw", "-length", str(secs), str(path)],
@@ -59,8 +64,8 @@ def run_fpcalc(path, secs, cancel=None) -> tuple[Any, str]:
     return None, (stderr or "").strip() or "keine FINGERPRINT-Ausgabe"
 
 
-def _wait_fpcalc(proc, cancel) -> tuple[str, str]:
-    """Wait for ``fpcalc`` in short steps; stop early on cancel or the timeout."""
+def _wait_fpcalc(proc: subprocess.Popen[str], cancel: CancelToken) -> tuple[str, str]:
+    """Wartet in kurzen Schritten auf ``fpcalc``; bricht bei Abbruch oder Timeout ab."""
     deadline = time.monotonic() + FP_TIMEOUT_SECS
     while True:
         try:
@@ -94,10 +99,42 @@ def fp_cache_path(root: Path) -> Path:
     return target
 
 
+def _cache_entry(value: object, cache_key: str) -> tuple[list[int], list[int]] | None:
+    """Prüft einen Cache-Eintrag: ``(meta, fp)``, oder ``None`` wenn unbrauchbar.
+
+    Die Cache-Datei ist reine Daten von der Platte, also wird nichts geglaubt:
+    der Eintrag muss ein Dictionary mit genau zwei int-Metawerten, dem Schlüssel
+    der aktuellen Fingerprint-Länge und einer nicht-leeren Liste von ints sein.
+    ``bool`` wird abgelehnt, obwohl es in Python ein ``int`` ist. Ein ungültiger
+    Eintrag wird verworfen und die Datei neu berechnet, nicht übernommen.
+    """
+    if not isinstance(value, dict):
+        return None
+    meta = value.get("meta")
+    if not isinstance(meta, (list, tuple)) or len(meta) != 2:
+        return None
+    if not all(isinstance(item, int) and not isinstance(item, bool) for item in meta):
+        return None
+    if value.get("k") != cache_key:
+        return None
+    fp = value.get("fp")
+    if not isinstance(fp, list) or not fp:
+        return None
+    if not all(isinstance(item, int) and not isinstance(item, bool) for item in fp):
+        return None
+    return [meta[0], meta[1]], fp
+
+
 def compute_fingerprints(recs, root: Path, secs: int,
                          workers: int, outdir: Path,
-                         cancel=None) -> dict[int, list[int]]:
-    """Fingerprints with a cache (path+size+mtime) so repeats stay fast."""
+                         cancel=None,
+                         write: Callable[[str, str], str] | None = None
+                         ) -> dict[int, list[int]]:
+    """Fingerprints with a cache (path+size+mtime) so repeats stay fast.
+
+    ``write`` schreibt die Datei und liefert ihren Namen zurück - so bleibt die
+    Herkunftsprüfung des Ausgabeordners auch für ``fpcalc_fehler.log`` gültig.
+    """
     cancel = cancel or NO_CANCEL
     cache_file = fp_cache_path(root)
     try:
@@ -106,11 +143,14 @@ def compute_fingerprints(recs, root: Path, secs: int,
         cache = {}
     if not isinstance(cache, dict):
         cache = {}
+    cache_key = f"len{secs}"
     active_paths = {r["path"] for r in recs}
     cache_size = len(cache)
-    cache = {path: value for path, value in cache.items() if path in active_paths}
+    # Fremde oder kaputte Einträge (kein dict, falsche Typen) fliegen raus,
+    # statt später als Dictionary benutzt zu werden.
+    cache = {path: value for path, value in cache.items()
+             if path in active_paths and _cache_entry(value, cache_key) is not None}
     cache_changed = len(cache) != cache_size
-    cache_key = f"len{secs}"
     todo, fps = [], {}
     for i, r in enumerate(recs):
         try:
@@ -118,9 +158,9 @@ def compute_fingerprints(recs, root: Path, secs: int,
         except OSError:
             continue
         meta = [st.st_size, int(st.st_mtime)]
-        c = cache.get(r["path"])
-        if c and c.get("meta") == meta and c.get("k") == cache_key and c.get("fp"):
-            fps[i] = c["fp"]
+        entry = _cache_entry(cache.get(r["path"]), cache_key)
+        if entry is not None and entry[0] == meta:
+            fps[i] = entry[1]
         else:
             todo.append((i, meta))
     output.message(i18n.t("export.fp.cache", cached=len(fps), todo=len(todo)))
@@ -176,10 +216,12 @@ def compute_fingerprints(recs, root: Path, secs: int,
                 except OSError:
                     pass
     if failed:
-        (outdir / "fpcalc_fehler.log").write_text(
-            "\n".join(f"{path}\t{error.replace(chr(9), ' ').replace(chr(10), ' ')}"
-                      for path, error in failed_paths) + "\n",
-            encoding="utf-8")
+        text = "\n".join(f"{path}\t{error.replace(chr(9), ' ').replace(chr(10), ' ')}"
+                         for path, error in failed_paths) + "\n"
+        if write is not None:
+            write("fpcalc_fehler.log", text)
+        else:
+            (outdir / "fpcalc_fehler.log").write_text(text, encoding="utf-8")
         output.message(i18n.t("export.fp.failed", count=failed))
     return fps
 

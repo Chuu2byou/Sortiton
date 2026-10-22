@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import subprocess
 import threading
@@ -69,6 +70,49 @@ def _archive_lines(path: Path) -> list[str]:
     except OSError:
         return []
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _snapshot(root: Path) -> set[Path]:
+    """Pfade aller Dateien unter ``root`` vor dem Download, aufgelöst.
+
+    Nur ein Pfad, der hier nicht vorkommt, kann in diesem Lauf entstanden sein;
+    die Menge ist damit der Herkunftsnachweis für das Journal. Fehlt der Ordner
+    oder ist er unlesbar, bleibt die Menge leer - die Einzelprüfungen greifen
+    trotzdem.
+    """
+    found: set[Path] = set()
+    try:
+        for dirpath, _dirnames, filenames in os.walk(root):
+            base = Path(dirpath)
+            for name in filenames:
+                try:
+                    found.add((base / name).resolve())
+                except OSError:
+                    continue
+    except OSError:
+        return found
+    return found
+
+
+def _own_path(text: str, root: Path, before: set[Path]) -> Path | None:
+    """Gemeldete Datei dieses Laufs innerhalb ``root``, sonst ``None``.
+
+    Der Pfad muss als Datei existieren, nach dem Auflösen von ``..`` und
+    Symlink-Zielen innerhalb von ``root`` liegen und vor dem Lauf noch nicht
+    vorhanden gewesen sein. Alles andere ist fremd und bleibt aus Ergebnis und
+    Journal heraus.
+    """
+    try:
+        path = Path(text).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return None
+    if not path.is_file() or path in before:
+        return None
+    return path
 
 
 def _stream(argv: list[str], cancel, on_line) -> tuple[int | None, str]:
@@ -149,6 +193,8 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
         except OSError:
             pass
     before = _archive_lines(archive) if archive is not None else []
+    root = target.resolve()
+    before_files = _snapshot(root)
 
     argv = ["yt-dlp", "--no-simulate", "--newline", "--no-warnings",
             "-x", "--audio-format", audio_format, "--audio-quality", "0",
@@ -162,25 +208,39 @@ def download(url: str, target: Path, *, audio_format: str, playlist: bool,
     argv += _playlist_args(playlist)
     argv.append(url)
 
-    paths: list[Path] = []
+    reported: list[str] = []
     log_tail: list[str] = []
 
     def handle(line: str) -> None:
         if line.startswith(PROGRESS_MARK + SEP):
             _report_progress(line)
         elif line.startswith(FILE_MARK + SEP):
-            paths.append(Path(line[len(FILE_MARK) + 1:]))
+            reported.append(line[len(FILE_MARK) + 1:])
         elif line.strip():
             log_tail.append(line)
             del log_tail[:-LOG_TAIL]
 
     def collect() -> list[Saved]:
-        """Finished files so far, with the archive ids that belong to them."""
+        """Bisher fertige eigene Dateien, mit den zugehörigen Archiv-Ids.
+
+        Die Archiv-Ids werden vor dem Filtern zugeordnet, damit die Reihenfolge
+        zu den Meldungen passt; erst danach fällt alles Fremde weg.
+        """
         if archive is None:
-            return [Saved(path, "") for path in paths]
-        new_ids = _archive_lines(archive)[len(before):]
-        return [Saved(path, new_ids[index] if index < len(new_ids) else "")
-                for index, path in enumerate(paths)]
+            pairs = [(text, "") for text in reported]
+        else:
+            new_ids = _archive_lines(archive)[len(before):]
+            pairs = [(text, new_ids[index] if index < len(new_ids) else "")
+                     for index, text in enumerate(reported)]
+        saved: list[Saved] = []
+        seen: set[Path] = set()
+        for text, archive_id in pairs:
+            path = _own_path(text, root, before_files)
+            if path is None or path in seen:
+                continue
+            seen.add(path)
+            saved.append(Saved(path, archive_id))
+        return saved
 
     def deliver(saved: list[Saved]) -> None:
         if on_saved is not None:

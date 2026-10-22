@@ -22,9 +22,7 @@ from _support import (
     ms,
     os,
     output,
-    probe_tags,
     shutil,
-    skip,
     subprocess,
     sys,
     tempfile,
@@ -82,10 +80,12 @@ def test_tag_reader() -> None:
 @pytest.mark.external
 @pytest.mark.skipif(importlib.util.find_spec("mutagen") is None, reason="mutagen not installed")
 def test_probe_tags_unchanged() -> None:
-    """Step 2.3: ``probe_tags`` keeps its five fields and the ``"; "`` separator.
+    """Step 2.3: ``probe_tags`` keeps its five text fields and the ``"; "`` separator.
 
     The expected values were captured before the reader merge; this is the
-    regression guard for the tag/rename/sort/scan commands.
+    regression guard for the tag/rename/sort/scan commands. The placeholders
+    ``track``, ``disc`` and ``year`` may be returned on top - they carry the
+    values that ``%track%``, ``%disc%`` and ``%year%`` need.
     """
     print("probe_tags (regression)")
     from sortiton.tags import probe_tags
@@ -114,8 +114,9 @@ def test_probe_tags_unchanged() -> None:
     }
     for rel, want in expected.items():
         got = probe_tags(fixture / rel)
-        check(f"probe_tags keeps the five fields ({Path(rel).name})", got == want,
-              f"{got} != {want}")
+        core = {name: got.get(name) for name in want}
+        check(f"probe_tags keeps the five fields ({Path(rel).name})", core == want,
+              f"{core} != {want}")
 
 
 def test_export_public_api() -> None:

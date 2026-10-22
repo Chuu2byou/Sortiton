@@ -6,12 +6,14 @@ import re
 import statistics
 import unicodedata
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from ... import i18n
+from ...tags import UNREADABLE
 from .analysis import (LOSSY, MAX_FILENAME_BYTES, THRESH, TRUNC_MIN, VA_NAMES,
                        date_fmt, folder_vs_tags, lst, loose, norm, style_issues,
                        track_analysis, track_num, variants)
@@ -58,9 +60,15 @@ def _style_text(issue: tuple, lang: str) -> str:
     return i18n.t_in(lang, f"export.report.style.{kind}")
 
 
+def _error_text(error: str, lang: str) -> str:
+    """Ein Lesefehler aus dem Reader: der Sentinel wird übersetzt."""
+    return i18n.t_in(lang, "export.report.unreadable") if error == UNREADABLE else error
+
+
 def _error_lines(recs, opts, lang):
     """The read-error block (shared by the normal and the 'nothing readable' case)."""
-    errs = [f"`{r['path']}`: {r['error']}" for r in recs if r["error"]]
+    errs = [f"`{r['path']}`: {_error_text(r['error'], lang)}"
+            for r in recs if r["error"]]
     if not errs:
         return []
     return [i18n.t_in(lang, "export.report.errors.title", count=len(errs)), ""] \
@@ -314,8 +322,14 @@ def build_report(recs: list[dict[str, Any]], root: Path, opts: ReportOptions,
     return sections
 
 
-def write_report(sections: list[Section], outdir: Path) -> list[str]:
-    """Write the report sections into the ``01_*``, ``02_*`` and ``03_*`` files."""
+def write_report(sections: list[Section],
+                 write: Callable[[str, str], str]) -> list[str]:
+    """Write the report sections into the ``01_*``, ``02_*`` and ``03_*`` files.
+
+    ``write`` legt eine Datei an und liefert ihren (eventuell abweichenden)
+    Namen zurück. Der Export entscheidet dort, ob ein vorhandener Name uns
+    gehört oder einer fremden Datei ausgewichen werden muss.
+    """
     contents: dict[str, list[str]] = {"summary": [], "anomalies": [], "duplicates": []}
     for section in sections:
         if section.lines:
@@ -323,13 +337,10 @@ def write_report(sections: list[Section], outdir: Path) -> list[str]:
     names = []
     for name, target in (("01_zusammenfassung.md", "summary"),
                          ("02_auffaelligkeiten.md", "anomalies")):
-        (outdir / name).write_text("\n\n".join(contents[target]) + "\n", encoding="utf-8")
-        names.append(name)
+        names.append(write(name, "\n\n".join(contents[target]) + "\n"))
     if contents["duplicates"]:
-        name = "03_duplikate.md"
-        (outdir / name).write_text("\n\n".join(contents["duplicates"]) + "\n",
-                                   encoding="utf-8")
-        names.append(name)
+        names.append(write("03_duplikate.md",
+                           "\n\n".join(contents["duplicates"]) + "\n"))
     return names
 
 
@@ -349,7 +360,8 @@ def tsv_row(r):
     return "\t".join(clean(v) for v in vals)
 
 
-def write_chunks(recs, outdir, limit):
+def write_chunks(recs, write: Callable[[str, str], str], limit: int) -> list[str]:
+    """Write one TSV per chunk; ``write`` legt die Datei an und liefert ihren Namen."""
     head = "\t".join(TSV_HEAD)
     by_dir = defaultdict(list)
     for r in recs:
@@ -368,8 +380,7 @@ def write_chunks(recs, outdir, limit):
     names = []
     for i, rows in enumerate(chunks, 1):
         name = f"tracks_part{i:02d}.tsv"
-        (outdir / name).write_text(head + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
-        names.append(name)
+        names.append(write(name, head + "\n" + "\n".join(rows) + "\n"))
     return names
 
 

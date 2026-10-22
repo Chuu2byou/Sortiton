@@ -69,4 +69,4 @@ _Already factored out: truncated folder names (from 25 characters accepted as th
 
 ## Read errors (1)
 
-- `broken.mp3`: nicht lesbar
+- `broken.mp3`: unreadable
