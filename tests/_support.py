@@ -28,9 +28,7 @@ sys.path.insert(0, str(BASE))
 import sortiton as ms  # noqa: E402
 from sortiton import config, files, i18n, journal, output, rules, settings  # noqa: E402
 from sortiton.tags import probe_tags, write_tags  # noqa: E402
-from sortiton.tasks import cmd_restore, cmd_scan  # noqa: E402
-
-_SKIPPED: list[str] = []
+from sortiton.tasks import cmd_restore  # noqa: E402
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -40,11 +38,11 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def skip(name: str, detail: str = "") -> None:
-    """Record an optional check that cannot run inside an otherwise useful test.
+    """Melde eine optionale Prüfung, die in diesem Lauf nicht möglich ist.
 
-    A terminal skip uses ``pytest.skip`` directly, so pytest reports it.
+    Anders als ``pytest.skip`` beendet das den umgebenden Test nicht: die
+    übrigen Prüfungen laufen weiter, die Lücke steht nur im Protokoll.
     """
-    _SKIPPED.append(name)
     print(f"  [skip] {name}{(' - ' + detail) if detail else ''}")
 
 

@@ -1,11 +1,11 @@
-"""Check translation catalogs for duplicate and missing keys."""
+"""Prüft die Übersetzungskataloge: doppelte, fehlende und unbenutzte Schlüssel."""
 
 from __future__ import annotations
 
 import ast
 import re
 
-from _support import BASE, Path, check, i18n
+from _support import BASE, KEY_RE, Path, check, i18n
 
 # Match literal keys passed to ``i18n.t_in(lang, ...)``.
 _T_IN_RE = re.compile(r"""t_in\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*["']([A-Za-z0-9_.-]+)["']""")
@@ -129,3 +129,37 @@ def test_feature_descriptions_are_translated() -> None:
         missing = sorted({key for key in keys if key not in catalog})
         check(f"every feature/option key exists in {name}", not missing,
               ", ".join(missing))
+
+
+def test_used_keys_exist_in_both_languages() -> None:
+    """Jeder im Code benutzte ``i18n.t()``-Schlüssel existiert in en und de.
+
+    Beide Kataloge müssen außerdem deckungsgleich sein: ein Schlüssel nur in
+    einer Sprache fällt sonst erst im Betrieb als englischer Ersatztext auf.
+    """
+    en, de = i18n.catalog("en"), i18n.catalog("de")
+    check("both catalogs non-empty", bool(en) and bool(de))
+
+    only_en = sorted(set(en) - set(de))
+    only_de = sorted(set(de) - set(en))
+    check("same keys in en/de", not only_en and not only_de,
+          f"en only: {only_en[:5]} de only: {only_de[:5]}")
+
+    raw: set[str] = set()
+    for path in _python_files():
+        raw |= set(KEY_RE.findall(path.read_text(encoding="utf-8")))
+
+    # Ohne diese Prüfung wären die beiden folgenden auf einem Projekt grün,
+    # das i18n anders aufruft - nichts gefunden ist nicht nichts falsch.
+    check("i18n.t() calls were found at all", bool(raw))
+
+    # Dynamische Schlüssel wie i18n.t("gui.confirm." + page + ".title") werden
+    # als reiner Präfix gefunden und nur auf vorhandene Einträge geprüft.
+    used = {key for key in raw if not key.endswith(".")}
+    prefixes = sorted(key for key in raw if key.endswith("."))
+    unknown = sorted(used - set(en))
+    check("every used key exists", not unknown, ", ".join(unknown[:8]))
+
+    empty_prefixes = [prefix for prefix in prefixes
+                      if not any(key.startswith(prefix) for key in en)]
+    check("dynamic key prefixes exist", not empty_prefixes, ", ".join(empty_prefixes))

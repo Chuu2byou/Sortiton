@@ -11,7 +11,6 @@ from _support import (
 
 
 def test_rules() -> None:
-    print("cleaning rules")
     check("genre keeps J-Pop", rules.clean_genre("Jpop") == "J-Pop")
     check("genre splits at comma", rules.clean_genre("Rock,Pop") == "Rock; Pop")
     check("artist splits at &", rules.clean_artist("Sample Band & Guest") == "Sample Band; Guest")
@@ -24,7 +23,6 @@ def test_rules() -> None:
 
 
 def test_custom_rules() -> None:
-    print("custom rules (my_rules.ini)")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "my_rules.ini"
         path.write_text(
@@ -80,3 +78,19 @@ def test_custom_rules() -> None:
           rules.extract_ini_block("```ini\n[Artist]\na = b") == "[Artist]\na = b")
 
     rules.load_custom_rules()
+
+
+def test_unsafe_regex_rules_are_rejected() -> None:
+    """Verschachtelte/alternierende Quantoren und überlange Muster werden verworfen."""
+    text = ("[Artist Regex]\n"
+            "(a+)+$ = nested\n"
+            "(ab|cd)+$ = alternating\n"
+            + "a" * 501 + " = too_long\n"
+            "safe = done\n")
+    parsed, warnings = rules.parse_custom_rules(text)
+
+    check("only the safe rule was loaded",
+          len(parsed.regex) == 1, str([pattern.pattern for pattern, _ in parsed.regex]))
+    check("all three unsafe rules were reported", len(warnings) == 3, str(warnings))
+    check("the safe rule is the expected one",
+          parsed.regex[0][0].pattern == "safe", parsed.regex[0][0].pattern)

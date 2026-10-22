@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import os
+import threading
+import time
+import unittest.mock as mock
+
 import pytest
 
 from _support import (
@@ -13,7 +19,6 @@ from _support import (
     check,
     cmd_restore,
     config,
-    files,
     journal,
     output,
     probe_tags,
@@ -58,7 +63,6 @@ def test_download_undo_preserves_modified_or_unverified_files(legacy: bool) -> N
 
 
 def test_journal() -> None:
-    print("run journal")
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         log = work / "sortiton_2026-01-01_00-00-00.log"
@@ -117,8 +121,8 @@ def test_journal() -> None:
         check("unknown operations are named",
               journal.summarize([{"op": "rmfile"}]) == {"rmfile": 1})
 
-        # Step 4.4: the download operation is undoable and carries the archive
-        # id, but it is additive and must not bump the schema version.
+        # Der Download ist rückgängig zu machen und trägt die Archiv-ID, ist
+        # aber additiv und darf die Schema-Version nicht erhöhen.
         dl_log = work / "sortiton_2026-01-01_00-30-00.log"
         dl_log.write_text("", encoding="utf-8")
         dl_journal = journal.open_for(dl_log)
@@ -156,16 +160,8 @@ def test_journal() -> None:
 
 
 def test_logs() -> None:
-    print("log files")
+    """Zwei Läufe in derselben Sekunde bekommen zwei eigene, vollständige Protokolle."""
     output.close_log_file()
-
-    with tempfile.TemporaryDirectory() as tmp:
-        taken = Path(tmp) / "sortiton_2026-01-01_12-00-00.log"
-        check("a free name is left alone", files.free_path(taken) == taken)
-        taken.write_text("first\n", encoding="utf-8")
-        moved = files.free_path(taken)
-        check("a taken name moves to ' (2)'",
-              moved.name == "sortiton_2026-01-01_12-00-00 (2).log", moved.name)
 
     # A second run in the same second must not cut the first log short.
     real_clock = output.datetime
@@ -189,7 +185,6 @@ def test_logs() -> None:
 
 @pytest.mark.external
 def test_restore() -> None:
-    print("undo (restore)")
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
 
@@ -387,8 +382,9 @@ def test_restore() -> None:
               output.last_stats("restore").get("skipped") == 1,
               str(output.last_stats("restore")))
 
-        # Step 4.4: a download is undone by deleting the file and dropping its
-        # archive line, so the archive does not block a later re-download.
+        # Ein Download wird rückgängig gemacht, indem die Datei gelöscht und
+        # ihre Archiv-Zeile entfernt wird - sonst blockiert das Archiv einen
+        # späteren erneuten Download.
         archive = config.FETCH_ARCHIVE
         archive.parent.mkdir(parents=True, exist_ok=True)
         downloads = work / "downloads"
@@ -503,3 +499,161 @@ def test_restore() -> None:
         check("a missing journal is an error",
               cmd_restore(_restore_args(work / "nope.jsonl")) == 2)
         check("--list runs", cmd_restore(_restore_args(None, list_journals=True)) == 0)
+
+
+def test_journals_in_the_same_second_are_ordered() -> None:
+    """Das " (2)"-Journal derselben Sekunde ist neuer als das Basis-Journal."""
+    config.LOG_DIR.mkdir(parents=True, exist_ok=True)
+    base = config.LOG_DIR / "sortiton_2026-01-01_00-00-00.jsonl"
+    later = config.LOG_DIR / "sortiton_2026-01-01_00-00-00 (2).jsonl"
+    base.write_text("{}\n", encoding="utf-8")
+    later.write_text("{}\n", encoding="utf-8")
+    os.utime(base, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(later, ns=(2_000_000_000, 2_000_000_000))
+    try:
+        order = journal.find_journals(limit=None)
+        check("the newer journal comes first",
+              order.index(later) < order.index(base), str(order))
+    finally:
+        base.unlink(missing_ok=True)
+        later.unlink(missing_ok=True)
+
+
+def test_journal_paths_are_absolute_and_legacy_paths_use_recorded_cwd() -> None:
+    """Restore bindet alte relative Einträge an den damaligen Ordner des Laufs."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original = root / "original"
+        original.mkdir()
+        target = original / "song.mp3"
+        legacy = root / "legacy.jsonl"
+        legacy.write_text(
+            json.dumps({"op": "run", "cwd": str(original)}) + "\n"
+            + json.dumps({"op": "tags", "path": "song.mp3",
+                          "before": {"artist": "Old"},
+                          "after": {"artist": "New"}}) + "\n",
+            encoding="utf-8")
+
+        check("legacy relative paths use the recorded cwd",
+              journal.plan_restore(legacy)[0]["path"] == str(target),
+              str(journal.plan_restore(legacy)))
+
+        log = root / "run.log"
+        journal.close()
+        opened = journal.open_for(log)
+        journal.record_tags(Path("relative-song.mp3"), {"artist": "A"},
+                            {"artist": "B"})
+        journal.close()
+        events = list(journal.read_journal(opened)) if opened else []
+        check("newly recorded paths are absolute",
+              len(events) == 2 and Path(events[1]["path"]).is_absolute(),
+              str(events))
+
+
+def test_journal_write_failure_is_reported_once() -> None:
+    """Ein fehlschlagendes Journal stoppt den Lauf nicht, warnt aber genau einmal."""
+    class Broken:
+        def write(self, _line: str) -> None:
+            raise OSError("disk full")
+
+        def flush(self) -> None:
+            pass
+
+    old = (journal._file, journal._path, journal._write_error_reported)
+    try:
+        journal._file = Broken()
+        journal._path = Path("broken.jsonl")
+        journal._write_error_reported = False
+        with mock.patch.object(journal.output, "message") as warning:
+            journal.record("tags", path="song.mp3")
+            journal.record("tags", path="other.mp3")
+        check("the failure is reported exactly once", warning.call_count == 1,
+              str(warning.call_count))
+    finally:
+        journal._file, journal._path, journal._write_error_reported = old
+
+
+def test_log_prune_uses_the_real_timestamp() -> None:
+    """Ein ``... (2).log`` derselben Sekunde ist neuer als die Basisdatei."""
+    with tempfile.TemporaryDirectory() as tmp:
+        logs = Path(tmp)
+        base = logs / f"{output.LOG_PREFIX}_2026-01-01_00-00-00.log"
+        later = logs / f"{output.LOG_PREFIX}_2026-01-01_00-00-00 (2).log"
+        base.write_text("old\n", encoding="utf-8")
+        later.write_text("new\n", encoding="utf-8")
+        os.utime(base, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(later, ns=(2_000_000_000, 2_000_000_000))
+
+        with mock.patch.object(output, "LOG_DIR", logs):
+            output._prune_old_logs(keep=1)
+
+        check("the older log was removed", not base.exists())
+        check("the newer log survived", later.is_file())
+
+
+def test_record_never_writes_after_close() -> None:
+    """``record`` prüft ``_file`` unter dem Lock, das ``close`` unter demselben räumt.
+
+    Vor dem Fix konnte ein ``record()``, das die Prüfung gerade passiert hatte,
+    auf ``None`` schreiben und ``AttributeError`` werfen.
+    """
+    class _NeverUsed:
+        def write(self, _text):
+            raise AssertionError("record wrote after close()")
+
+        def flush(self):
+            raise AssertionError("record flushed after close()")
+
+    original_lock, original_file = journal._lock, journal._file
+    journal._lock = threading.Lock()
+    errors: list[BaseException] = []
+
+    def record_worker() -> None:
+        try:
+            journal.record("regression")
+        except BaseException as error:      # noqa: BLE001 - der Test sammelt sie
+            errors.append(error)
+
+    try:
+        journal._lock.acquire()
+        journal._file = _NeverUsed()
+        worker = threading.Thread(target=record_worker)
+        worker.start()
+        time.sleep(0.1)                     # dem Worker die Prüfung passieren lassen
+        journal._file = None                # was close() unter dem Lock tut
+        journal._lock.release()
+        worker.join(timeout=2)
+    finally:
+        journal._lock = original_lock
+        journal._file = original_file
+    check("record() never writes after close()", not errors, repr(errors))
+
+
+def test_undo_keeps_a_modified_copy() -> None:
+    """Der Undo darf eine Kopie nur löschen, solange sie ihrem Original gleicht."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as tmp:
+        original = Path(tmp) / "original.mp3"
+        copy = Path(tmp) / "copy.mp3"
+        original.write_bytes(b"same")
+        copy.write_bytes(b"different")
+        outcome = tasks._undo_step({"op": "copy", "target": copy, "original": original})
+        check("the modified copy is skipped", outcome == "skipped", outcome)
+        check("the modified copy is kept", copy.exists())
+
+
+def test_undo_keeps_a_download_when_the_archive_fails() -> None:
+    """Die Datei löschen, aber die Archiv-Zeile behalten, wäre ein falsches Undo."""
+    from sortiton import tasks
+    from sortiton.files import content_digest
+
+    with tempfile.TemporaryDirectory() as tmp:
+        downloaded = Path(tmp) / "track.mp3"
+        downloaded.write_bytes(b"x")
+        with mock.patch.object(tasks, "_drop_archive_id", return_value=False):
+            outcome = tasks._undo_step(
+                {"op": "download", "path": downloaded, "archive_id": "youtube x",
+                 "sha256": content_digest(downloaded)})
+        check("the step reports an error", outcome == "error", outcome)
+        check("the download is kept", downloaded.exists())

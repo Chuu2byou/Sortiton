@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sortiton"
-# Keep in sync with sortiton/__init__.py::__version__ - tests/smoke.py::test_version
+# Keep in sync with sortiton/__init__.py::__version__ - tests/test_public_api.py::test_version
 # fails when they drift apart. It cannot be read from there: the entry script
 # sortiton.py sits next to the package, and setuptools would load that file.
 version = "1.0.0"

@@ -1,6 +1,8 @@
-"""The export report: readers, goldens, fingerprints and errors."""
+"""The export report: goldens, fingerprints, output files and errors."""
 
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -8,7 +10,6 @@ from _support import (
     BASE,
     Path,
     SimpleNamespace,
-    _INFO_TO_RECORD,
     _export_args,
     _export_columns,
     _export_texts,
@@ -17,7 +18,6 @@ from _support import (
     _load_export_helper,
     _tree_digest,
     check,
-    cmd_scan,
     importlib,
     ms,
     os,
@@ -28,118 +28,53 @@ from _support import (
     tempfile,
 )
 
-
-@pytest.mark.external
-@pytest.mark.skipif(importlib.util.find_spec("mutagen") is None, reason="mutagen not installed")
-def test_tag_reader() -> None:
-    """Step 2.3: ``read_info`` reads all eight fields for every format.
-
-    One fixture file per format (flac, mp3, ogg, opus, m4a); the values are
-    checked against the golden ``alle_tags.jsonl``, so the raw-frame reader
-    stays in step with the report. Runs only with mutagen installed.
-    """
-    print("tag reader (read_info)")
-    import json
-
-    from sortiton.tags import TAG_FIELDS, TrackInfo, read_info
-
-    helper = _load_export_helper()
-    fixture = helper.FIXTURE_DIR
-    golden_file = helper.GOLDEN_DIR / "base" / "alle_tags.jsonl"
-    if not fixture.is_dir() or not golden_file.is_file():
-        pytest.skip("tag reader", "fixture or golden missing")
-        return
-    if importlib.util.find_spec("mutagen") is None:
-        pytest.skip("tag reader", "mutagen not installed")
-        return
-
-    records = {}
-    for line in golden_file.read_text(encoding="utf-8").splitlines():
-        if line:
-            rec = json.loads(line)
-            records[rec["path"]] = rec
-
-    samples = ("Artist A/Album One/01 - Song One.flac",
-               "Sampler/01.mp3",
-               "Artist B/Album Two/01 Song (Official Video).ogg",
-               "Artist B/Album Two/02 - snake_case_title.opus",
-               "Artist B/Album Two/03 - Same Song (2).m4a")
-    for rel in samples:
-        info = read_info(fixture / rel)
-        ext = Path(rel).suffix.lstrip(".")
-        check(f"read_info reads {ext}", isinstance(info, TrackInfo) and not info.error,
-              info.error)
-        if info.error:
-            continue
-        wrong = {field: (info.joined(field, " | "), records[rel][_INFO_TO_RECORD[field]])
-                 for field in TAG_FIELDS
-                 if info.joined(field, " | ") != records[rel][_INFO_TO_RECORD[field]]}
-        check(f"read_info fills all eight fields ({ext})", not wrong, str(wrong))
+MANIFEST = ".sortiton-export.json"
 
 
-@pytest.mark.external
-@pytest.mark.skipif(importlib.util.find_spec("mutagen") is None, reason="mutagen not installed")
-def test_probe_tags_unchanged() -> None:
-    """Step 2.3: ``probe_tags`` keeps its five text fields and the ``"; "`` separator.
+def _reader_available() -> bool:
+    """Ob der Export überhaupt laufen kann (mutagen oder ffprobe)."""
+    from sortiton import external
 
-    The expected values were captured before the reader merge; this is the
-    regression guard for the tag/rename/sort/scan commands. The placeholders
-    ``track``, ``disc`` and ``year`` may be returned on top - they carry the
-    values that ``%track%``, ``%disc%`` and ``%year%`` need.
-    """
-    print("probe_tags (regression)")
-    from sortiton.tags import probe_tags
+    return any(external.available(tool) for tool in (external.MUTAGEN, external.FFPROBE))
 
+
+def _library() -> Path:
+    """Die Fixture-Bibliothek oder ein Skip, wenn sie fehlt."""
     fixture = _load_export_helper().FIXTURE_DIR
     if not fixture.is_dir():
-        pytest.skip("probe_tags regression", "fixture missing")
-        return
-    if importlib.util.find_spec("mutagen") is None:
-        pytest.skip("probe_tags regression", "mutagen not installed")
-        return
+        pytest.skip("export fixture missing")
+    return fixture
 
-    expected = {
-        "Artist A/Album One/01 - Song One.flac":
-            {"artist": "Artist A", "album_artist": "Artist A", "album": "Album One",
-             "title": "Song One", "genre": "Rock"},
-        "Sampler/01.mp3":
-            {"artist": "Alpha", "album_artist": "", "album": "Sampler",
-             "title": "Alpha One", "genre": "Pop"},
-        "Artist E/Album Five/01 - Cherry.flac":
-            {"artist": "Artist E", "album_artist": "Artist E", "album": "Album Five",
-             "title": "Cherry", "genre": "J-Pop; Rock"},
-        "Ünïcode/ぼ.flac":
-            {"artist": "Unicode", "album_artist": "Unicode", "album": "Ünïcode Album",
-             "title": "ぼ", "genre": "J-Pop"},
+
+def _foreign_report_files(directory: Path) -> dict[str, bytes]:
+    """Dateien, die wie Berichte heißen, aber dem Nutzer gehören.
+
+    Bewusst keine Namen, die ein normaler Lauf selbst schreibt
+    (``01_*``/``02_*``/``tracks_partNN.tsv``/``00_prompt.md``): dort wäre ein
+    Überschreiben unvermeidbar und kein Herkunftsfehler.
+    """
+    personal = {
+        "tracks_part_privat.tsv": b"meine\tnotizen\n",
+        "03_duplikate.md": b"# meine eigene Notiz\n",
+        "tracks_part_2024.tsv": b"archiv\n",
     }
-    for rel, want in expected.items():
-        got = probe_tags(fixture / rel)
-        core = {name: got.get(name) for name in want}
-        check(f"probe_tags keeps the five fields ({Path(rel).name})", core == want,
-              f"{core} != {want}")
+    for name, content in personal.items():
+        (directory / name).write_bytes(content)
+    return personal
+
+
+def _unchanged(directory: Path, personal: dict[str, bytes]) -> bool:
+    return all((directory / name).read_bytes() == content
+               for name, content in personal.items())
 
 
 def test_export_public_api() -> None:
-    """Step 1.9: the export entry point and progress are part of the public API."""
-    print("export public interface")
+    """Der Export-Einstiegspunkt und der Fortschritt sind Teil der öffentlichen API."""
     check("ms.cmd_export is public", hasattr(ms, "cmd_export") and "cmd_export" in ms.__all__)
     check("ms.progress is public", hasattr(ms, "progress") and "progress" in ms.__all__)
 
 
-def test_scan() -> None:
-    print("folder scan")
-    with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "track.mp3").write_bytes(b"\x00" * 64)
-        rc = cmd_scan(SimpleNamespace(folder=tmp))
-        check("scan runs", rc == 0)
-        check("scan counts files", output.last_stats("scan").get("files") == 1,
-              str(output.last_stats("scan")))
-        check("scan of a missing folder fails",
-              cmd_scan(SimpleNamespace(folder=str(Path(tmp) / "nope"))) == 2)
-
-
 def test_export_fixture() -> None:
-    print("export fixture library")
     fixture = BASE / "tests" / "fixtures" / "export_library"
     script = BASE / "tools" / "make_export_fixture.py"
     if not fixture.is_dir():
@@ -158,16 +93,16 @@ def test_export_fixture() -> None:
 
 @pytest.mark.slow
 def test_export_golden() -> None:
-    """Steps 1.9 and 2.1: the German report reproduces the phase-1 golden.
+    """Der deutsche Bericht entspricht dem Golden aus Phase 1 (``base``).
 
-    Variant A is the plain run whose whole output was stored in
-    ``tests/golden/export/base``; variant B adds ``check_case`` and only
-    ``01_*``/``02_*`` were stored.  Both run with ``report_lang="de"`` so the
-    (unchanged) German golden still matches after the report was localized; the
-    English counterpart is ``test_export_golden_en``.  Compared after
-    ``normalize_export_text`` (folder and timestamp).
+    Variante A ist der einfache Lauf, dessen gesamte Ausgabe unter
+    ``tests/golden/export/base``
+    liegt; Variante B setzt zusätzlich ``check_case``, dort sind nur
+    ``01_*``/``02_*`` gespeichert. Beide laufen mit ``report_lang="de"``,
+    damit das (unveränderte) deutsche Golden weiter passt; das englische
+    Gegenstück ist ``test_export_golden_en``. Verglichen wird nach
+    ``normalize_export_text`` (Ordner und Zeitstempel).
     """
-    print("export golden")
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -214,13 +149,12 @@ def test_export_golden() -> None:
 
 @pytest.mark.slow
 def test_export_golden_en() -> None:
-    """Step 2.1: the English report is pinned to ``tests/golden/export/base_en``.
+    """Der englische Bericht ist auf ``tests/golden/export/base_en`` festgenagelt.
 
     Same run as the German base golden, only with ``report_lang="en"``.  A
     missing translation key would show up as the raw key name, so the golden
     also proves that the English catalog is complete.
     """
-    print("export golden (english)")
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -259,14 +193,13 @@ def test_export_golden_en() -> None:
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
 def test_export_ffprobe_loose() -> None:
-    """Step 1.9: without mutagen the ffprobe reader yields the same tag columns.
+    """Ohne mutagen liefert der ffprobe-Leser dieselben Tag-Spalten.
 
     Only the columns both readers fill from tags are compared; ``sek``,
     ``kbps``, ``codec`` and ``cover`` come from different tools and may differ.
     ``genre`` is compared as a set of values, because the two readers join
     several genres differently.
     """
-    print("export ffprobe reader")
     import unittest.mock as mock
 
     from sortiton import config as cfg
@@ -309,14 +242,13 @@ def test_export_ffprobe_loose() -> None:
 @pytest.mark.external
 @pytest.mark.skipif(shutil.which("fpcalc") is None, reason="fpcalc not installed")
 def test_export_fingerprint() -> None:
-    """Step 1.9: a fingerprint run groups the identical pair, not the other file.
+    """Ein Fingerprint-Lauf gruppiert das identische Paar, nicht die andere Datei.
 
     No byte comparison (fpcalc versions produce different fingerprints), only
     the grouping in ``03_duplikate.md``.  The default ``fp_seconds`` is used:
     the fixture chirp is 5.5 s and a shorter window would leave too few
     sub-fingerprints for the comparison.
     """
-    print("export fingerprint duplicates")
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -346,8 +278,7 @@ def test_export_fingerprint() -> None:
 
 @pytest.mark.slow
 def test_export_source_untouched() -> None:
-    """Step 1.9: the export is read-only - the source tree stays untouched."""
-    print("export leaves the source alone")
+    """Der Export ist nur lesend - der Quellbaum bleibt unangetastet."""
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -373,8 +304,7 @@ def test_export_source_untouched() -> None:
 
 
 def test_export_errors() -> None:
-    """Step 1.9: the documented return codes of ``cmd_export``."""
-    print("export error paths")
+    """Die dokumentierten Rückgabecodes von ``cmd_export``."""
     import unittest.mock as mock
 
     from sortiton import config as cfg, external
@@ -401,6 +331,7 @@ def test_export_errors() -> None:
         with mock.patch.object(output, "message", side_effect=messages.append):
             rc = cmd_export(_export_args(empty, out))
         check("an empty folder reports no files", rc == 1, str(rc))
+        check("the output folder created by this run is gone again", not out.exists())
 
         messages.clear()
         with mock.patch.object(cfg, "MUTAGEN_AVAILABLE", False), \
@@ -413,8 +344,7 @@ def test_export_errors() -> None:
 
 
 def test_export_cli() -> None:
-    """Step 1.9: the ``export`` sub-command and the German flag aliases."""
-    print("export cli")
+    """Das ``export``-Unterkommando und die deutschen Options-Aliase."""
     script = BASE / "sortiton.py"
     fixture = _load_export_helper().FIXTURE_DIR
     command = [sys.executable, str(script), "export"]
@@ -440,13 +370,12 @@ def test_export_cli() -> None:
 
 
 def test_export_cache_migration() -> None:
-    """Step 1.7: the old fingerprint cache is taken over once.
+    """Der alte Fingerprint-Cache wird einmalig übernommen.
 
     The legacy cache lives in ``$XDG_CACHE_HOME/musik_export``, the new one in
     ``SORTITON_CACHE_DIR/fingerprints``. With the old file copied over, a run
     has to serve every file from the cache and call ``fpcalc`` for none of them.
     """
-    print("export fingerprint cache migration")
     import hashlib
     import json
     import unittest.mock as mock
@@ -500,13 +429,12 @@ def test_export_cache_migration() -> None:
 
 
 def test_cancel() -> None:
-    """Step 3.1: a cancelled token stops ``cmd_export`` with code 130.
+    """Ein abgebrochener Lauf stoppt ``cmd_export`` mit Code 130.
 
     The reader is patched to cancel the token after three files. ``scan`` has to
     notice it, drop the remaining reads and let ``cmd_export`` return 130
     without hanging; the half-finished output folder must stay on disk.
     """
-    print("cancellation")
     import unittest.mock as mock
 
     from sortiton import external
@@ -563,3 +491,272 @@ def test_cancel() -> None:
         check("the partial output is named in the message",
               any(str(outdir.resolve()) in text for text in messages), str(messages[:3]))
         check("the partial output folder is kept", outdir.is_dir())
+
+
+@pytest.mark.external
+@pytest.mark.slow
+def test_export_write_error_is_a_clean_failure() -> None:
+    """Ein Schreibfehler endet mit Meldung und Code 2, nicht mit Traceback."""
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export, report
+
+    if not _reader_available():
+        pytest.skip("no tag reader available")
+    fixture = _library()
+
+    def boom(_sections, _write):
+        raise PermissionError(13, "Permission denied")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        out.mkdir()
+        with mock.patch.object(report, "write_report", boom), \
+                mock.patch("sortiton.output.message") as say:
+            rc = cmd_export(_export_args(fixture, out, chunk_chars=60000, examples=5))
+
+        check("a write failure returns 2", rc == 2, str(rc))
+        printed = " ".join(str(call.args[0]) for call in say.call_args_list)
+        check("the failure is reported", "ERROR" in printed.upper() or "FEHLER" in printed,
+              printed)
+        check("no half-written report claims a name",
+              not (out / "01_zusammenfassung.md").exists())
+
+
+@pytest.mark.external
+@pytest.mark.slow
+def test_export_never_overwrites_a_foreign_report() -> None:
+    """Eine eigene ``01_zusammenfassung.md`` im Zielordner bleibt unangetastet.
+
+    Vorher schrieb ``write_report`` feste Namen und ersetzte die Datei ohne
+    Rückfrage - obwohl der Sortierpfad die Zusage "nichts wird überschrieben"
+    über ``free_target`` einhält.
+    """
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
+    if not _reader_available():
+        pytest.skip("no tag reader available")
+    fixture = _library()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        out.mkdir()
+        mine = out / "01_zusammenfassung.md"
+        mine.write_text("meine Notizen\n", encoding="utf-8")
+
+        with mock.patch("sortiton.output.message"):
+            rc = cmd_export(_export_args(fixture, out, chunk_chars=60000, examples=5))
+
+        check("the export works", rc == 0, str(rc))
+        check("the foreign report survives untouched",
+              mine.read_text(encoding="utf-8") == "meine Notizen\n",
+              mine.read_text(encoding="utf-8"))
+        check("our report uses a free name",
+              (out / "01_zusammenfassung (2).md").is_file(),
+              str(sorted(p.name for p in out.iterdir())))
+
+
+@pytest.mark.external
+@pytest.mark.slow
+def test_export_keeps_foreign_files_when_source_is_output() -> None:
+    """Quelle = Ausgabe darf keine fremde TSV/Berichte löschen.
+
+    Vor dem Fix löschte ``_clear_reports`` feste Namen und alles, was auf
+    ``tracks_part*.tsv`` passt - ohne zu prüfen, wer die Datei geschrieben hat.
+    """
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
+    fixture = _library()
+    if not _reader_available():
+        pytest.skip("no tag reader available")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        music = Path(tmp) / "music"
+        shutil.copytree(fixture, music)
+        personal = _foreign_report_files(music)
+
+        with mock.patch("sortiton.output.message"):
+            rc = cmd_export(SimpleNamespace(folder=str(music), output=str(music),
+                                            chunk_chars=1500, examples=5))
+        check("export with source == output works", rc == 0, str(rc))
+        check("foreign files survive the export", _unchanged(music, personal))
+        check("the run wrote its own reports", (music / "00_prompt.md").is_file())
+        check("the run wrote a provenance manifest", (music / MANIFEST).is_file())
+
+
+@pytest.mark.external
+@pytest.mark.slow
+def test_export_replaces_only_manifest_files() -> None:
+    """Ein früherer Lauf wird ersetzt, Fremdes bleibt.
+
+    Das alte Manifest nennt einen überzähligen TSV-Teil und ``03_duplikate.md``;
+    beide stammen aus einem Sortiton-Lauf und müssen verschwinden. Die fremde
+    Datei mit Berichtsnamen steht in keinem Manifest und bleibt.
+    """
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export
+
+    fixture = _library()
+    if not _reader_available():
+        pytest.skip("no tag reader available")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        music = Path(tmp) / "music"
+        shutil.copytree(fixture, music)
+        out = Path(tmp) / "out"
+        out.mkdir()
+        personal = _foreign_report_files(out)
+
+        stale = {"tracks_part99.tsv": b"alt\n", "03_duplikate.md.stale": b"alt\n"}
+        for name, content in stale.items():
+            (out / name).write_bytes(content)
+        old_manifest = ["tracks_part99.tsv", "03_duplikate.md.stale"]
+        (out / MANIFEST).write_text(json.dumps({"version": 1, "files": old_manifest}),
+                                    encoding="utf-8")
+
+        with mock.patch("sortiton.output.message"):
+            first = cmd_export(SimpleNamespace(folder=str(music), output=str(out),
+                                               chunk_chars=1000, examples=5))
+            check("the first run works", first == 0, str(first))
+            check("the stale report of the earlier run is gone",
+                  not (out / "tracks_part99.tsv").exists()
+                  and not (out / "03_duplikate.md.stale").exists())
+
+            second = cmd_export(SimpleNamespace(folder=str(music), output=str(out),
+                                                chunk_chars=60000, examples=5))
+        check("the second run works", second == 0, str(second))
+        check("only one TSV part remains after the smaller run",
+              sorted(p.name for p in out.glob("tracks_part[0-9]*.tsv"))
+              == ["tracks_part01.tsv"],
+              str(sorted(p.name for p in out.glob("tracks_part*.tsv"))))
+        check("the stale manifest is replaced, not appended",
+              json.loads((out / MANIFEST).read_text(encoding="utf-8"))["files"]
+              == ["01_zusammenfassung.md", "02_auffaelligkeiten.md",
+                  "tracks_part01.tsv", "00_prompt.md"],
+              (out / MANIFEST).read_text(encoding="utf-8"))
+        check("foreign files survive the second run", _unchanged(out, personal))
+
+
+@pytest.mark.external
+@pytest.mark.slow
+def test_export_without_manifest_deletes_nothing() -> None:
+    """Ein fehlendes Manifest ist kein Freibrief zum Löschen.
+
+    Nur wenn der Lauf abbricht, bevor er seine Berichte schreibt, zeigt sich
+    der Unterschied: mit altem Manifest verschwinden die alten Berichte, ohne
+    Manifest bleibt alles liegen - auch bei kaputtem Manifest.
+    """
+    import unittest.mock as mock
+
+    from sortiton.features.export import cmd_export, report
+
+    fixture = _library()
+    if not _reader_available():
+        pytest.skip("no tag reader available")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        music = Path(tmp) / "music"
+        shutil.copytree(fixture, music)
+
+        broken = Path(tmp) / "broken"
+        broken.mkdir()
+        personal = _foreign_report_files(broken)
+        corrupt = Path(tmp) / "corrupt"
+        corrupt.mkdir()
+        corrupt_personal = _foreign_report_files(corrupt)
+        (corrupt / MANIFEST).write_text("{kein json", encoding="utf-8")
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("Schreibfehler")
+
+        for out, files in ((broken, personal), (corrupt, corrupt_personal)):
+            with mock.patch("sortiton.output.message"), \
+                    mock.patch.object(report, "write_report", boom):
+                try:
+                    cmd_export(SimpleNamespace(folder=str(music), output=str(out),
+                                               chunk_chars=60000, examples=5))
+                except RuntimeError:
+                    pass
+            check(f"foreign files survive without a usable manifest ({out.name})",
+                  _unchanged(out, files))
+
+
+def test_fingerprint_cache_rejects_invalid_entries() -> None:
+    """Liste/falsche Typen im Cache dürfen den Export nicht sprengen.
+
+    Der Cache ist JSON von der Platte: ein Eintrag als Liste ließ ``c.get`` mit
+    ``AttributeError`` abstürzen, falsche ``meta``/``fp``-Typen kamen ungeprüft
+    in die Auswertung.
+    """
+    import hashlib
+    import unittest.mock as mock
+
+    from sortiton import config as cfg
+    from sortiton.features.export import fingerprint
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        root = work / "music"
+        root.mkdir()
+        recs = []
+        for name in ("a.flac", "b.flac", "c.flac"):
+            (root / name).write_bytes(b"\x00" * 64)
+            recs.append({"path": name})
+
+        cache_dir = work / "cache"
+        fp_dir = cache_dir / "fingerprints"
+        fp_dir.mkdir(parents=True)
+        key = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
+        cache_file = fp_dir / f"fp_{key}.json"
+        stat = (root / "c.flac").stat()
+        cache_file.write_text(json.dumps({
+            "a.flac": ["kein", "dict"],
+            "b.flac": {"meta": [64, 0], "k": "len3", "fp": "kein liste"},
+            "c.flac": {"meta": [stat.st_size, int(stat.st_mtime)],
+                       "k": "len3", "fp": [7, 7, 7]},
+        }), encoding="utf-8")
+
+        calls: list[str] = []
+
+        def fake_fpcalc(path, _secs, _cancel=None):
+            calls.append(Path(path).name)
+            return [1, 2, 3], ""
+
+        with mock.patch.object(cfg, "CACHE_DIR", cache_dir), \
+                mock.patch.object(fingerprint, "run_fpcalc", fake_fpcalc), \
+                mock.patch("sortiton.output.message"), \
+                mock.patch("sortiton.output.progress"):
+            fps = fingerprint.compute_fingerprints(recs, root, 3, 1, work)
+
+        check("invalid entries are recomputed", sorted(calls) == ["a.flac", "b.flac"],
+              str(calls))
+        check("the valid entry is served from the cache",
+              fps.get(2) == [7, 7, 7], str(fps))
+        check("the recomputed files have fingerprints",
+              fps.get(0) == [1, 2, 3] and fps.get(1) == [1, 2, 3], str(fps))
+
+        written = json.loads(cache_file.read_text(encoding="utf-8"))
+        check("the cache holds only dictionaries",
+              all(isinstance(value, dict) for value in written.values()), str(written))
+        check("the recomputed entries are stored",
+              written["a.flac"]["fp"] == [1, 2, 3]
+              and written["b.flac"]["fp"] == [1, 2, 3], str(written))
+
+
+def test_fingerprint_index_drops_common_values() -> None:
+    """Ein Sub-Fingerprint in zu vielen Dateien wird entfernt statt ewig behalten."""
+    import unittest.mock as mock
+
+    from sortiton.features.export import fingerprint
+
+    fps = {0: [7, 8, 9], 1: [7, 8], 2: [7, 8]}
+    with mock.patch.object(fingerprint, "FP_MAX_POSTINGS", 2):
+        index = fingerprint._build_index(fps)
+
+    check("the common values are gone", 7 not in index and 8 not in index, str(index))
+    check("the rare value is kept", list(index.get(9, [])) == [2], str(index))

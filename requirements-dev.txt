@@ -7,8 +7,7 @@
 
 pylint>=3.0
 
-# Test runner for the pytest modules in tests/ (tests/smoke.py stays as a
-# thin wrapper around the same suite).
+# Test runner for the pytest modules in tests/.
 pytest>=8
 
 # Freezes the program for the release files (tools/build_app.sh); never needed

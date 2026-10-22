@@ -36,33 +36,34 @@ def _restore_gui_globals():
 @pytest.mark.parametrize("rc", [0, 1, 130, 99])
 @pytest.mark.parametrize("applied", [False, True])
 def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applied: bool) -> None:
-      """Auch Teilfehler und Abbruch eines Schreiblaufs entwerten andere Vorschauen."""
-      from types import SimpleNamespace
-      from typing import cast
-      from unittest.mock import Mock
-      from sortiton.gui.mixins.run import RunMixin
+    """Auch Teilfehler und Abbruch eines Schreiblaufs entwerten andere Vorschauen."""
+    from types import SimpleNamespace
+    from typing import cast
+    from unittest.mock import Mock
 
-      app = SimpleNamespace(
-            progress=Mock(), progress_label=Mock(), running=True, _cancel=None,
-            _cancel_button=None, _job_page="tags", _job_applied=applied,
-            _job_signature="current preview", _closing=False,
-            _plans={"tags": {"signature": None}, "sort": {"signature": "old preview"}},
-            _set_buttons=Mock(), _refresh_preview_states=Mock(), _set_state=Mock(), status_var=Mock())
+    from sortiton.gui.mixins.run import RunMixin
 
-      RunMixin._finish(cast(RunMixin, app), rc)
+    app = SimpleNamespace(
+        progress=Mock(), progress_label=Mock(), running=True, _cancel=None,
+        _cancel_button=None, _job_page="tags", _job_applied=applied,
+        _job_signature="current preview", _closing=False,
+        _plans={"tags": {"signature": None}, "sort": {"signature": "old preview"}},
+        _set_buttons=Mock(), _refresh_preview_states=Mock(), _set_state=Mock(),
+        status_var=Mock())
 
-      check("other previews are invalidated after any applied run",
-              app._plans["sort"]["signature"] == (None if applied else "old preview"))
-      check("only a successful preview receives its signature",
-              app._plans["tags"]["signature"] == ("current preview" if rc == 0 and not applied
-                                                                   else None))
-      check("the run finishes", not app.running and app._cancel is None)
-      app._refresh_preview_states.assert_called_once_with()
+    RunMixin._finish(cast(RunMixin, app), rc)
+
+    check("other previews are invalidated after any applied run",
+          app._plans["sort"]["signature"] == (None if applied else "old preview"))
+    check("only a successful preview receives its signature",
+          app._plans["tags"]["signature"]
+          == ("current preview" if rc == 0 and not applied else None))
+    check("the run finishes", not app.running and app._cancel is None)
+    app._refresh_preview_states.assert_called_once_with()
 
 
 def test_screenshot_guard() -> None:
     """The screenshot run must never store anything but the Sortiton window."""
-    print("screenshot guard")
     target = BASE / "tools" / "make_screenshots.py"
     spec = importlib.util.spec_from_file_location("make_screenshots", target)
     assert spec is not None and spec.loader is not None
@@ -92,7 +93,6 @@ def test_screenshot_guard() -> None:
 
 @pytest.mark.gui
 def test_gui() -> None:
-    print("gui")
     try:
         import tkinter as tk
     except ImportError:
@@ -223,8 +223,8 @@ def test_gui() -> None:
               gui_app._fmt_number(1842))
         i18n.set_language(spoken)
 
-        # Step 3.2: the tools tab generates a form from the feature list, has no
-        # write button and runs the (read-only) export from a single button.
+        # Der Tools-Tab erzeugt ein Formular aus der Feature-Liste, hat keinen
+        # Schreibknopf und startet den (nur lesenden) Export über einen Knopf.
         from sortiton import external
         from sortiton.features import FEATURES as feature_list
         from sortiton.gui import tools as gui_tools
@@ -265,8 +265,8 @@ def test_gui() -> None:
         root.update()
         check("settings window closes again", gui._prefs_window is None)
 
-        # Step 3.4: a writing feature (fixes) turns the tools bar into the
-        # normal preview/write pair; the export keeps its single button.
+        # Ein schreibendes Feature (fixes) macht aus der Tools-Leiste das
+        # übliche Paar Vorschau/Schreiben; der Export behält seinen einen Knopf.
         fixes_key = next(feature.key for feature in feature_list if feature.writes)
         gui.var_tool_choice.set(fixes_key)
         gui._tools_actions()
@@ -337,8 +337,8 @@ def test_gui() -> None:
                       gui.last_path == outdir.resolve(), str(gui.last_path))
                 check("tools export wrote a report", (outdir / "00_prompt.md").is_file())
 
-        # Step 3.3: a pasted LLM answer is checked and handed to the rules
-        # editor; my_rules.ini is only written when the user presses Save there.
+        # Eine eingefügte LLM-Antwort wird geprüft und an den Regel-Editor
+        # übergeben; my_rules.ini wird erst beim Speichern dort geschrieben.
         rules_file = config.RULES_FILE
         existed = rules_file.exists()
         gui._llm_rules_import()
@@ -489,3 +489,22 @@ def test_gui_aux_windows_follow_language() -> None:
                 root.destroy()
             except tk.TclError:
                 pass
+
+
+def test_dialog_timeout_falls_back_to_tkinter() -> None:
+    """Ein hängender nativer Dialog fällt auf Tkinter zurück statt zu blockieren."""
+    import subprocess
+    import unittest.mock as mock
+
+    from sortiton.gui import dialogs
+
+    timeout = subprocess.TimeoutExpired(cmd="kdialog", timeout=1)
+    with mock.patch.object(dialogs, "_command_available", return_value=True), \
+            mock.patch.object(dialogs.subprocess, "run", side_effect=timeout) as run, \
+            mock.patch.object(dialogs.messagebox, "askyesno", return_value=True) as fallback:
+        answer = dialogs._ask_yes_no("Title", "Text")
+    check("dialog timeout falls back", answer is True and fallback.called,
+          f"answer={answer}, calls={run.call_count}")
+    check("dialog timeout is passed to subprocess",
+          run.call_count == 2 and all(call.kwargs.get("timeout") for call in run.call_args_list),
+          str(run.call_args_list))

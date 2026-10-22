@@ -17,7 +17,6 @@ from _support import (
 
 
 def test_cli() -> None:
-    print("command line")
     help_out = subprocess.run([sys.executable, str(BASE / "sortiton.py"), "--help"],
                               capture_output=True, text=True, check=False)
     check("--help works", help_out.returncode == 0 and "tags" in help_out.stdout)
@@ -35,7 +34,6 @@ def test_cli() -> None:
 
 
 def test_german_cli() -> None:
-    print("german output")
     out = subprocess.run(
         [sys.executable, str(BASE / "sortiton.py"), "rules"],
         capture_output=True, text=True, check=False,
@@ -44,8 +42,7 @@ def test_german_cli() -> None:
 
 
 def test_console_progress() -> None:
-    """Step 1.9: the stderr sink throttles, ends the line and obeys ``--quiet``."""
-    print("console progress")
+    """Der stderr-Sink drosselt, beendet die Zeile und beachtet ``--quiet``."""
     import unittest.mock as mock
 
     from sortiton import cli
@@ -108,3 +105,44 @@ def test_cli_tags_and_rename_target() -> None:
     check("cli rename target parsed", args_ren.target == "/dst")
     check("cli rename move parsed", args_ren.move is True)
     check("cli rename pattern parsed", args_ren.pattern == "%title%")
+
+
+def test_tags_apply_requires_a_writing_tool() -> None:
+    """``tags --apply`` bricht früh ab, wenn nur ein Leser installiert ist."""
+    import unittest.mock as mock
+
+    from sortiton import cli, external
+
+    def available(tool):
+        return tool is external.FFPROBE  # lesen ja, schreiben nein
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with mock.patch.object(external, "available", available), \
+                mock.patch("sys.argv", ["sortiton", "tags", tmp, "--apply"]), \
+                mock.patch("sortiton.output.message"):
+            rc = cli.main()
+
+    check("tags --apply stops before the first file", rc == 2, str(rc))
+
+
+def test_write_command_aborts_when_the_journal_cannot_open() -> None:
+    """Ein Schreibkommando startet nicht ohne das erforderliche Journal."""
+    import unittest.mock as mock
+
+    from sortiton import cli
+
+    called = []
+    args = SimpleNamespace(command="rename", apply=True, quiet=True,
+                           func=lambda _args: called.append(True) or 0)
+    parser = mock.Mock()
+    parser.parse_args.return_value = args
+    with mock.patch.object(cli, "_build_parser", return_value=parser), \
+            mock.patch.object(cli.external, "available", return_value=True), \
+            mock.patch.object(cli, "open_log_file", return_value=None), \
+            mock.patch.object(cli.journal, "enabled", return_value=True), \
+            mock.patch.object(cli, "message"), \
+            mock.patch.object(cli, "close_log_file"):
+        rc = cli.main()
+
+    check("the command exits before applying", rc == 2, str(rc))
+    check("the write function is not called", not called, str(called))

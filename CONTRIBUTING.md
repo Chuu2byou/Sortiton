@@ -43,8 +43,7 @@ detect-secrets scan  # exit is always 0; checks.sh inspects the report instead
 npx markdownlint-cli2 README.md CONTRIBUTING.md
 ```
 
-Without a display the GUI test is skipped and pytest reports it. `tests/smoke.py`
-still works as a thin wrapper around the same suite.
+Without a display the GUI test is skipped and pytest reports it.
 
 Notes:
 
@@ -56,8 +55,7 @@ Notes:
   naming and dead code are not checked.
 - Markdown prose stays at 80 columns; tables and code blocks are exempt.
 - CI: `.github/workflows/pylint.yml` runs Pylint on Python 3.14 and the pytest
-  suite on Python 3.12 / 3.13 / 3.14 (during the transition also the smoke
-  wrapper).
+  suite on Python 3.12 / 3.13 / 3.14.
 - Security: `.github/workflows/security.yml` runs bandit at medium severity and
   above, pip-audit over both requirement files and detect-secrets. No CodeQL -
   code scanning is not available for private repositories, so the tools report
@@ -126,8 +124,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | `tools/build_app.sh` | Freezes the program for the release (tar.gz, `--appimage`) |
 | `packaging/` | AppImage glue: `AppRun` and the `.desktop` entry |
 | `tools/screenshot.sh` | Takes the README screenshot on a synthetic demo library |
-| `tests/test_*.py` | Pytest modules (public API, rules, CLI, features, export, journal, regressions, GUI) |
-| `tests/smoke.py` | Compatibility wrapper that runs the pytest suite |
+| `tests/test_*.py` | Pytest modules, one per topic (public API, config, rules, CLI, i18n, file ops, tags, tasks, features, export, journal, redaction, GUI) |
 | `my_rules.ini` | Your own rules (read automatically) |
 | `assets/` | Icons in three colours: `icon*.svg` (source) and `icon*.png`; copy one over `assets/icon.png` to switch, plus the screenshot |
 | `requirements.txt` | Optional Python dependency (`mutagen`) |

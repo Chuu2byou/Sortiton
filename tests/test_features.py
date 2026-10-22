@@ -32,7 +32,6 @@ from _support import (
 
 
 def test_external_tools() -> None:
-    print("external tools")
     import unittest.mock as mock
 
     from sortiton import external
@@ -57,7 +56,7 @@ def test_external_tools() -> None:
         check("available(MUTAGEN) follows config (on)",
               external.available(external.MUTAGEN))
 
-    # The registry lists every tool once, and yt-dlp is part of it (step 4.1).
+    # Die Registry listet jedes Werkzeug einmal, und yt-dlp gehört dazu.
     keys = [tool.key for tool in external.TOOLS]
     check("TOOLS lists every tool once", len(keys) == len(set(keys)), ", ".join(keys))
     check("TOOLS contains yt-dlp", external.YT_DLP in external.TOOLS)
@@ -128,7 +127,6 @@ def test_external_tools() -> None:
 
 
 def test_features_base() -> None:
-    print("feature description (base)")
     from sortiton.features import base, get
 
     def _noop(args) -> int:
@@ -197,8 +195,7 @@ def test_features_base() -> None:
 
 
 def test_features_registry() -> None:
-    """Step 1.9: the registry is well-formed and every key is translated."""
-    print("feature registry")
+    """Die Registry ist wohlgeformt und jeder Schlüssel ist übersetzt."""
     from sortiton.features import FEATURES
 
     keys = [feature.key for feature in FEATURES]
@@ -234,12 +231,11 @@ def test_features_registry() -> None:
 
 
 def test_fetch() -> None:
-    """Step 4.2: the fetch feature is registered and its options parse.
+    """Das fetch-Feature ist registriert und seine Optionen parsen sauber.
 
-    The network part (preview, confirmation, download) is step 4.3; here only
-    the description is checked, never yt-dlp itself.
+    Der Netzteil (Vorschau, Bestätigung, Download) wird in ``test_fetch_run``
+    geprüft; hier geht es nur um die Beschreibung, nie um yt-dlp selbst.
     """
-    print("fetch feature")
     from sortiton import external
     from sortiton.features import base, get
     from sortiton.features.fetch import AUDIO_FORMATS, FEATURE
@@ -283,8 +279,8 @@ def test_fetch() -> None:
     check("apply default is False", defaults.apply is False)
     check("confirm default is False", defaults.confirm is False)
 
-    # An audio format outside the choice list is refused by argparse (step 4.2
-    # fixes the choices; yt-dlp also supports aac/alac/vorbis/wav/best).
+    # Ein Audioformat außerhalb der Auswahlliste lehnt argparse ab; yt-dlp
+    # selbst könnte auch aac/alac/vorbis/wav/best.
     refused = False
     with contextlib.redirect_stderr(io.StringIO()):
         try:
@@ -296,14 +292,13 @@ def test_fetch() -> None:
 
 @pytest.mark.external
 def test_fetch_run() -> None:
-    """Step 4.3/4.7: preview, the confirmation gate, download and journal.
+    """Vorschau, Bestätigungs-Gate, Download und Journal.
 
-    The fake yt-dlp (``tests/fixtures/fake_ytdlp/yt-dlp``, step 4.7) stands in
-    for the real program: the preview prints one metadata line, the download
-    writes a small file and prints progress plus the finished path. No network
-    and no real yt-dlp is used.
+    Das Fake-yt-dlp (``tests/fixtures/fake_ytdlp/yt-dlp``) vertritt das echte
+    Programm: die Vorschau druckt eine Metadatenzeile, der Download schreibt
+    eine kleine Datei und meldet Fortschritt plus fertigen Pfad. Kein Netz,
+    kein echtes yt-dlp.
     """
-    print("fetch: preview, confirmation, download")
     import unittest.mock as mock
 
     from sortiton import external, journal, output
@@ -379,14 +374,13 @@ def test_fetch_run() -> None:
 
 @pytest.mark.external
 def test_fetch_cancel() -> None:
-    """Step 4.7: cancelling a fetch terminates the running yt-dlp process.
+    """Ein Abbruch beendet den laufenden yt-dlp-Prozess.
 
-    The fake yt-dlp switches to a slow mode, writes its pid and waits for
-    ``SIGTERM``. The test runs ``cmd_fetch`` in a thread, waits for the first
-    progress line, cancels the token and checks: code 130, a SIGTERM marker
-    from the fake, and a process that is really gone. No network.
+    Das Fake-yt-dlp schaltet in einen langsamen Modus, schreibt seine PID und
+    wartet auf ``SIGTERM``. Der Test startet ``cmd_fetch`` in einem Thread,
+    wartet auf die erste Fortschrittszeile, bricht ab und prüft: Code 130, eine
+    SIGTERM-Marke vom Fake und einen Prozess, der wirklich weg ist. Kein Netz.
     """
-    print("fetch: cancellation")
     import unittest.mock as mock
 
     from sortiton.cancel import CancelToken
@@ -440,13 +434,12 @@ def test_fetch_cancel() -> None:
 
 @pytest.mark.external
 def test_fetch_restore() -> None:
-    """Step 4.7: the fetch -> restore loop, driven by the fake yt-dlp.
+    """Der Kreis fetch -> restore, angetrieben vom Fake-yt-dlp.
 
-    A confirmed download writes the file and an archive line. ``restore`` has
-    to delete the file and drop the archive line, so the archive does not block
-    a later run. No network and no real yt-dlp is used.
+    Ein bestätigter Download schreibt die Datei und eine Archiv-Zeile.
+    ``restore`` muss die Datei löschen und die Archiv-Zeile entfernen, damit das
+    Archiv einen späteren Lauf nicht blockiert. Kein Netz, kein echtes yt-dlp.
     """
-    print("fetch: download then restore")
     import unittest.mock as mock
 
     from sortiton import tasks
@@ -491,79 +484,170 @@ def test_fetch_restore() -> None:
                   str(output.last_stats("restore")))
 
 
-def test_all_pipeline() -> None:
-    """Step 4.5: cmd_all runs an optional fetch stage before tags/rename/sort.
-
-    The stages are stubbed, so the test never calls yt-dlp or touches a file -
-    it only checks the stage sequence ``cmd_all`` builds from the arguments,
-    with and without ``fetch_url`` and with a missing confirmation.
-    """
-    print("all-in-one pipeline")
+def test_fetch_rejects_option_like_url() -> None:
+    """Eine "URL", die mit "-" beginnt, läse yt-dlp als Option."""
     import unittest.mock as mock
 
-    from sortiton import tasks
+    from sortiton.features.fetch import cmd_fetch
 
-    order: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp, \
+            mock.patch("sortiton.features.fetch.download.preview",
+                       side_effect=AssertionError("yt-dlp must not be called")):
+        rc = cmd_fetch(SimpleNamespace(url="--exec=touch x", target=tmp))
+    check("an option-like URL is rejected", rc == 2, str(rc))
 
-    def recorder(name: str):
-        def run(_args) -> int:
-            order.append(name)
-            return 0
-        return run
 
-    def all_args(**extra):
-        data = dict(source="/src", target="/dst", pattern="%artist% - %title%",
-                    move=False, apply=True, backup=False)
-        data.update(extra)
-        return SimpleNamespace(**data)
+def test_download_keeps_partial_results() -> None:
+    """Eine Playlist, die mittendrin scheitert, meldet trotzdem ihre fertigen Dateien.
 
-    with mock.patch.object(tasks, "cmd_tags", recorder("tags")), \
-            mock.patch.object(tasks, "cmd_rename", recorder("rename")), \
-            mock.patch.object(tasks, "cmd_sort", recorder("sort")), \
-            mock.patch.object(tasks, "cmd_fetch", recorder("fetch")):
-        # Without a URL the pipeline is the three classic stages, unchanged.
-        order.clear()
-        rc = tasks.cmd_all(all_args())
-        check("all without fetch_url returns 0", rc == 0, str(rc))
-        check("all without fetch_url is tags -> rename -> sort",
-              order == ["tags", "rename", "sort"], str(order))
-        keys = [step.title_key for step in tasks._pipeline_steps(all_args())]
-        check("pipeline has no fetch stage without fetch_url",
-              keys == ["task.step.tags", "task.step.rename", "task.step.sort"], str(keys))
+    Sonst existieren diese Dateien auf der Platte und im yt-dlp-Archiv, aber
+    ohne Journal-Eintrag - ``restore`` könnte sie nicht zurücknehmen.
+    """
+    import unittest.mock as mock
 
-        # A confirmed URL puts the fetch stage in front of the others.
-        order.clear()
-        rc = tasks.cmd_all(all_args(fetch_url="https://example.org/x",
-                                    fetch_confirmed=True))
-        check("all with fetch_url returns 0", rc == 0, str(rc))
-        check("fetch runs before the classic stages",
-              order == ["fetch", "tags", "rename", "sort"], str(order))
-        keys = [step.title_key for step in tasks._pipeline_steps(
-            all_args(fetch_url="https://example.org/x", fetch_confirmed=True))]
-        check("pipeline puts the fetch stage first",
-              keys == ["task.step.fetch", "task.step.tags", "task.step.rename",
-                       "task.step.sort"], str(keys))
+    from sortiton.features.fetch import download
 
-        # A URL without the explicit confirmation must download nothing (step 4.3).
-        order.clear()
-        messages: list[str] = []
-        with mock.patch.object(tasks, "message",
-                               side_effect=lambda text="": messages.append(str(text))):
-            rc = tasks.cmd_all(all_args(fetch_url="https://example.org/x"))
-        check("all refuses an unconfirmed fetch", rc == 2, str(rc))
-        check("an unconfirmed fetch downloads nothing", order == [], str(order))
-        check("the refusal names the confirmation",
-              any("confirm" in text.lower() for text in messages), str(messages[:3]))
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "partial.mp3"
+        saved: list[Path] = []
+
+        def fake_stream(_argv, _cancel, handle):
+            # Nur neu entstandene Dateien kommen ins Journal.
+            target.write_bytes(b"audio")
+            handle("SORTITON_FILE\t" + str(target))
+            return 1, "boom"
+
+        with mock.patch.object(download, "_stream", fake_stream):
+            files, error = download.download("https://example.org/x", Path(tmp),
+                                             audio_format="mp3", playlist=True,
+                                             on_saved=lambda item: saved.append(item.path))
+
+    check("the error is reported", error == "boom", error)
+    check("the finished file is returned", [item.path for item in files] == [target],
+          str(files))
+    check("the callback saw the finished file", saved == [target], str(saved))
+
+
+def test_fetch_download_drops_foreign_reported_files() -> None:
+    """Nur im Lauf entstandene Dateien in ``target`` werden übernommen.
+
+    Der Fake meldet vier Pfade: eine fremde Datei im Ziel, eine neue Datei,
+    eine Datei außerhalb des Ziels und einen Pfad, den es nicht gibt. Nur die
+    neue Datei darf Ergebnis und Journal erreichen.
+    """
+    import unittest.mock as mock
+
+    from sortiton.features.fetch import download
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        target = work / "target"
+        target.mkdir()
+        foreign = target / "fremd.mp3"
+        foreign.write_bytes(b"schon da")
+        outside = work / "aussen.mp3"
+        outside.write_bytes(b"aussen")
+        fresh = target / "neu.mp3"
+        saved: list[Path] = []
+
+        def fake_stream(_argv, _cancel, handle):
+            fresh.write_bytes(b"frisch")
+            for path in (foreign, fresh, outside, target / "fehlt.mp3"):
+                handle("SORTITON_FILE\t" + str(path))
+            return 0, ""
+
+        with mock.patch.object(download, "_stream", fake_stream):
+            files, error = download.download(
+                "https://example.org/x", target, audio_format="mp3", playlist=False,
+                on_saved=lambda item: saved.append(item.path))
+
+        check("the run reports no error", error == "", error)
+        check("only the file created in this run is returned",
+              [item.path for item in files] == [fresh], str(files))
+        check("the journal callback sees only the own file", saved == [fresh], str(saved))
+        check("the foreign file is untouched", foreign.read_bytes() == b"schon da")
+
+
+def test_fetch_download_drops_foreign_files_on_cancel_and_error() -> None:
+    """Auch Abbruch und Rückgabecode != 0 übernehmen nichts Fremdes."""
+    import unittest.mock as mock
+
+    from sortiton.cancel import Cancelled
+    from sortiton.features.fetch import download
+
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "target"
+        target.mkdir()
+        foreign = target / "fremd.mp3"
+        foreign.write_bytes(b"schon da")
+
+        def cancelled_stream(_argv, _cancel, handle):
+            handle("SORTITON_FILE\t" + str(foreign))
+            raise Cancelled
+
+        saved: list[Path] = []
+        with mock.patch.object(download, "_stream", cancelled_stream):
+            with pytest.raises(Cancelled):
+                download.download("https://example.org/x", target, audio_format="mp3",
+                                  playlist=False,
+                                  on_saved=lambda item: saved.append(item.path))
+        check("a cancelled run journals nothing foreign", saved == [], str(saved))
+
+        def failing_stream(_argv, _cancel, handle):
+            handle("SORTITON_FILE\t" + str(foreign))
+            return 1, "boom"
+
+        saved.clear()
+        with mock.patch.object(download, "_stream", failing_stream):
+            files, error = download.download("https://example.org/x", target,
+                                             audio_format="mp3", playlist=False,
+                                             on_saved=lambda item: saved.append(item.path))
+        check("a failed run returns nothing foreign", files == [], str(files))
+        check("a failed run journals nothing foreign", saved == [], str(saved))
+        check("the error is still reported", error == "boom", error)
+
+
+def test_resolve_args_accepts_a_mapping() -> None:
+    """Ein Mapping wird gelesen, ein Objekt ohne Attribute klar abgelehnt."""
+    from sortiton.features import get as feature_by_key
+    from sortiton.features.base import resolve_args
+
+    export = feature_by_key("export")
+    options = resolve_args(export, {"folder": "/music"})
+    check("the given value is kept", options.folder == "/music", str(vars(options)))
+    check("the defaults are filled", options.chunk_chars == 60000, str(vars(options)))
+
+    with pytest.raises(TypeError):
+        resolve_args(export, object())
+
+
+def test_fetch_requires_ffmpeg_only_when_applying() -> None:
+    """Eine Vorschau fragt nur yt-dlp; ffmpeg ist eine Anforderung des Schreibens."""
+    import unittest.mock as mock
+
+    from sortiton import external
+    from sortiton.features.fetch import FEATURE
+
+    def available(tool):
+        return tool == external.YT_DLP
+
+    with mock.patch.object(external, "available", side_effect=available):
+        preview = external.missing(FEATURE, SimpleNamespace(apply=False))
+        applied = external.missing(FEATURE, SimpleNamespace(apply=True))
+
+    check("a preview does not need ffmpeg", not preview, str(preview))
+    check("an applied fetch needs ffmpeg",
+          any(external.FFMPEG in requirement.any_of for requirement in applied),
+          str(applied))
 
 
 def test_features_isolation() -> None:
-    """Step 1.9: a feature must stay loadable without the GUI or the tasks.
+    """Ein Feature bleibt ohne GUI und ohne ``tasks`` ladbar.
 
-    Scans every module of ``sortiton/features`` for imports of the GUI or
-    ``tasks`` and for ``print``/``sys.exit``/``global QUIET`` - the rules that
-    keep a feature a loose plugin.
+    Geprüft wird jedes Modul unter ``sortiton/features`` auf Importe der GUI
+    oder von ``tasks`` sowie auf ``print``/``sys.exit``/``global QUIET`` - die
+    Regeln, die ein Feature ein loses Plugin bleiben lassen.
     """
-    print("feature isolation")
     import ast
 
     imports: list[str] = []
@@ -601,8 +685,7 @@ def test_features_isolation() -> None:
 
 @pytest.mark.external
 def test_fixes() -> None:
-    """Step 3.4: the CSV fixes - preview, apply, skips, safety and undo."""
-    print("csv fixes")
+    """Die CSV-Korrekturen: Vorschau, Anwenden, Überspringen, Sicherheit, Undo."""
     from sortiton import external
     from sortiton.features.fixes import cmd_fixes, parse
     from sortiton.tags import read_info
@@ -713,3 +796,140 @@ def test_fixes() -> None:
         check("a missing CSV returns 2",
               cmd_fixes(SimpleNamespace(file=str(Path(tmp) / "nope.csv"),
                                         root=str(root))) == 2)
+
+
+def test_fixes_normalises_exported_multivalues_but_preserves_literal_titles() -> None:
+    """Export-Separatoren gelten nur für Mehrfachwerte, nicht für wörtliche Titel."""
+    import csv
+    import io
+    import unittest.mock as mock
+
+    from sortiton.features import fixes
+    from sortiton.tags import TrackInfo
+
+    cases = [(field, ["Alice", "Bob"], "Alice | Bob", "Alice | Carol", "Alice; Carol")
+             for field in ("artist", "album_artist", "genre")]
+    cases += [("title", ["Alice | Bob"], "Alice | Bob", "Song | Remix", "Song | Remix"),
+              ("title", ["Alice | Bob"], "Alice; Bob", "Song", None),
+              ("artist", ["Alice", "Bob"], "Bob | Alice", "Carol", None)]
+    with tempfile.TemporaryDirectory() as tmp:
+        song = Path(tmp) / "song.mp3"
+        song.write_bytes(b"audio")
+        for field, current, old, new, expected in cases:
+            csv_text = io.StringIO()
+            csv.writer(csv_text, delimiter=";").writerow([song.name, field, old, new])
+            rows = fixes.parse.read_csv(csv_text.getvalue())
+            info = TrackInfo()
+            setattr(info, field, current)
+            with mock.patch.object(fixes, "read_info", return_value=info):
+                actions, skipped, errors = fixes._prepare(rows, Path(tmp))
+
+            check("CSV values remain valid", not errors, str(errors))
+            if expected is None:
+                check("a mismatching old value is skipped", not actions and len(skipped) == 1)
+                continue
+            check("the exported old value matches", len(actions) == 1 and not skipped)
+            action = actions[0]
+            check("the planned new value is normalised", action.new == expected, action.new)
+            with mock.patch.object(fixes, "write_tags", return_value=True) as write, \
+                    mock.patch.object(fixes.journal, "record_tags") as record:
+                fixes._write(action)
+            write.assert_called_once_with(song, {field: expected})
+            record.assert_called_once_with(song, {field: "; ".join(current)}, {field: expected})
+
+
+def test_fixes_counts_only_successful_writes() -> None:
+    """Die Zähler zeigen geschriebene Korrekturen, nicht die Größe des Plans."""
+    import unittest.mock as mock
+
+    from sortiton.features import fixes
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first = root / "first.mp3"
+        second = root / "second.mp3"
+        first.write_bytes(b"a")
+        second.write_bytes(b"b")
+        csv_file = root / "fixes.csv"
+        csv_file.write_text("path;field;old;new\nfirst.mp3;artist;A;B\n"
+                            "second.mp3;title;C;D\n", encoding="utf-8")
+        actions = [fixes._Action(2, first, "artist", "A", "B"),
+                   fixes._Action(3, second, "title", "C", "D")]
+
+        def write(action):
+            if action.path == second:
+                raise OSError("write failed")
+
+        args = SimpleNamespace(file=str(csv_file), root=tmp, apply=True,
+                               backup=False)
+        with mock.patch.object(fixes.external, "missing", return_value=[]), \
+                mock.patch.object(fixes, "_prepare", return_value=(actions, [], [])), \
+                mock.patch.object(fixes, "_write", side_effect=write):
+            rc = fixes.cmd_fixes(args)
+
+    stats = output.last_stats("fixes")
+    check("the mixed run reports its failure", rc == 1, str(rc))
+    check("only the successful correction is counted", stats.get("changed") == 1, str(stats))
+    check("the failed write is counted as an error", stats.get("errors") == 1, str(stats))
+
+
+def test_fixes_backup_does_not_mix_two_runs_in_one_second() -> None:
+    """Zwei ``fixes --backup``-Läufe in derselben Sekunde bekommen getrennte Ordner."""
+    from sortiton.features import fixes
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "track.flac"
+        source.write_bytes(b"tag data")
+        first = fixes._backup_files(root, [source])
+        second = fixes._backup_files(root, [source])
+        check("the first backup exists", first is not None and first.is_dir(), str(first))
+        check("the second backup exists", second is not None and second.is_dir(), str(second))
+        check("the two runs do not share a folder", first != second,
+              f"{first} == {second}")
+        check("the file was copied",
+              first is not None and (first / source.name).read_bytes() == b"tag data")
+
+
+def test_fixes_backup_failure_aborts_before_writing() -> None:
+    """``fixes --apply --backup`` schreibt nicht, wenn die Sicherung scheiterte."""
+    import unittest.mock as mock
+
+    from sortiton.features import fixes
+
+    with tempfile.TemporaryDirectory() as tmp:
+        csv_file = Path(tmp) / "fixes.csv"
+        csv_file.write_text("path;field;old;new\n", encoding="utf-8")
+        action = fixes._Action(2, Path(tmp) / "a.flac", "artist", "A", "B")
+        args = SimpleNamespace(file=str(csv_file), root=tmp, apply=True, backup=True)
+        with mock.patch.object(fixes.external, "missing", return_value=[]), \
+                mock.patch.object(fixes.parse, "read_csv", return_value=[object()]), \
+                mock.patch.object(fixes, "_prepare",
+                                  return_value=([action], [], [])), \
+                mock.patch.object(fixes, "_backup_files", return_value=None), \
+                mock.patch.object(fixes, "_report"), \
+                mock.patch.object(fixes, "_write") as writer:
+            rc = fixes.cmd_fixes(args)
+
+    check("the run reports an input error", rc == 2, str(rc))
+    check("no tag was written", not writer.called, str(writer.call_args_list))
+
+
+def test_fixes_prepare_handles_unresolved_path() -> None:
+    """Ein ``None``-Pfad aus ``resolve_path`` wird als fehlende Datei gemeldet."""
+    import unittest.mock as mock
+
+    from sortiton.features.fixes import _prepare
+    from sortiton.features.fixes.parse import FixRow
+
+    row = FixRow(1, "kaputt.mp3", "artist", "Alt", "Neu", field="artist")
+
+    with mock.patch("sortiton.features.fixes.parse.resolve_path",
+                    return_value=(None, "")):
+        actions, skipped, problems = _prepare([row], None)
+
+    check("no action is planned", actions == [], str(actions))
+    check("nothing is silently skipped", skipped == [], str(skipped))
+    check("the row reports a missing path",
+          [(line, key) for line, key, _args in problems] == [(1, "fixes.error.missing_file")],
+          str(problems))
