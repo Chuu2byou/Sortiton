@@ -34,12 +34,6 @@ _ARTIST_FIXES_COMPILED: tuple[tuple[re.Pattern, str], ...] = tuple(
 MAX_CUSTOM_REGEX_LENGTH = 500
 MAX_CUSTOM_REGEX_INPUT = 512
 
-CUSTOM_ARTISTS: list[tuple[re.Pattern, str]] = []
-CUSTOM_ARTIST_REGEX: list[tuple[re.Pattern, str]] = []
-CUSTOM_GENRES: dict[str, str] = {}
-CUSTOM_PROTECTED: list[tuple[re.Pattern, str]] = []
-
-
 
 def builtin_rules_text() -> str:
     """Commented overview of ALL built-in rules (template, GUI and CLI)."""
@@ -63,6 +57,7 @@ def builtin_rules_text() -> str:
         i18n.t("rules.overview.artist_title"),
         i18n.t("rules.overview.artist_sub1"),
         i18n.t("rules.overview.artist_sub2"),
+        i18n.t("rules.overview.artist_sub3"),
     ]
     for pattern, replacement in ARTIST_FIXES:
         lines.append(f'#      "{pattern}" = "{replacement}"')
@@ -152,14 +147,10 @@ def snapshot() -> CustomRules:
 
 
 def _set_custom_rules(rules: CustomRules) -> None:
-    """Swap the active rule set atomically and refresh the compatibility names."""
-    global _CUSTOM, CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
+    """Die aktive Regelmenge atomar tauschen (Leser sehen alt oder neu, nie halb)."""
+    global _CUSTOM  # pylint: disable=global-statement
     with _custom_lock:
         _CUSTOM = rules
-    CUSTOM_ARTISTS = list(rules.artists)
-    CUSTOM_ARTIST_REGEX = list(rules.regex)
-    CUSTOM_GENRES = dict(rules.genres)
-    CUSTOM_PROTECTED = list(rules.protected)
 
 
 def _regex_risk(pattern: str) -> bool:
@@ -433,6 +424,9 @@ def clean_artist(value: str, custom: CustomRules | None = None) -> str:
     new = re.sub(r"  +", " ", new)
     new = new.strip()
 
+    # Einzelfall aus der Praxis, bewusst fest verdrahtet: falsch gesplittete
+    # Interpretennamen ergeben genau diese Kette. Die Regel steht deshalb auch
+    # in der eingebauten Übersicht (``rules --builtin``).
     if new == "Orchestr; a; Plays":
         new = "Orchestra Plays"
 

@@ -17,7 +17,6 @@ from _support import (
     cmd_restore,
     config,
     contextlib,
-    files,
     i18n,
     io,
     journal,

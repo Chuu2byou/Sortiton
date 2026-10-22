@@ -92,6 +92,14 @@ def prune_backups(keep: int = config.BACKUP_KEEP) -> None:
 
 def backup_files(root: Path, paths: list[Path]) -> Path | None:
     """Copy the files that are about to change into a fresh backup folder."""
+    unique_paths = []
+    seen_paths = set()
+    for path in paths:
+        key = path.resolve()
+        if key not in seen_paths:
+            unique_paths.append(path)
+            seen_paths.add(key)
+    paths = unique_paths
     stamp = f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
     folder: Path | None = None
     backup_root = _backup_root()

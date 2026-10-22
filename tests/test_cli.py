@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from _support import (
     BASE,
     Path,
@@ -95,3 +93,18 @@ def test_console_progress() -> None:
     rc, installed = _run_main(True)
     check("main runs with --quiet", rc == 0, str(rc))
     check("--quiet installs no progress sink", not installed.called)
+
+
+def test_cli_tags_and_rename_target() -> None:
+    """tags and rename accept an optional target directory and --move."""
+    from sortiton import cli
+
+    parser = cli._build_parser()
+    args_tags = parser.parse_args(["tags", "/src", "/dst", "--move", "--apply"])
+    check("cli tags target parsed", args_tags.target == "/dst")
+    check("cli tags move parsed", args_tags.move is True)
+
+    args_ren = parser.parse_args(["rename", "/src", "/dst", "--move", "--pattern", "%title%"])
+    check("cli rename target parsed", args_ren.target == "/dst")
+    check("cli rename move parsed", args_ren.move is True)
+    check("cli rename pattern parsed", args_ren.pattern == "%title%")

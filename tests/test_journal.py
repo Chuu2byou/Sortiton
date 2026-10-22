@@ -24,6 +24,39 @@ from _support import (
 )
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_download_undo_preserves_modified_or_unverified_files(legacy: bool) -> None:
+      """Undo entfernt weder geänderte Downloads noch Dateien ohne Inhaltsnachweis."""
+      from unittest import mock
+      from sortiton import tasks
+
+      with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            downloaded = work / "download.mp3"
+            downloaded.write_bytes(b"before")
+            opened = _open_journal(work, 11)
+            try:
+                  if legacy:
+                        journal.record("download", path=str(downloaded), archive_id="youtube track")
+                  else:
+                        journal.record_download(downloaded, "https://example.org/track", "youtube track")
+            finally:
+                  journal.close()
+
+            if not legacy:
+                  downloaded.write_bytes(b"edited")
+            with mock.patch.object(tasks, "_drop_archive_id") as drop:
+                  rc = cmd_restore(_restore_args(opened, apply=True))
+
+            check("unverified download undo succeeds without deleting", rc == 0, str(rc))
+            check("the download contents survive",
+                    downloaded.read_bytes() == (b"before" if legacy else b"edited"))
+            check("the archive is left untouched", not drop.called)
+            check("the download is counted as skipped",
+                    output.last_stats("restore").get("skipped") == 1,
+                    str(output.last_stats("restore")))
+
+
 def test_journal() -> None:
     print("run journal")
     with tempfile.TemporaryDirectory() as tmp:

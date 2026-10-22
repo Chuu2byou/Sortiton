@@ -96,8 +96,10 @@ before anything is changed.
 Without `--apply`, every command runs as a preview only. Nothing is changed.
 
 ```bash
-sortiton tags   ~/Downloads/Music              # clean tags
-sortiton rename ~/Downloads/Music --apply      # %artist% - %title%
+sortiton tags   ~/Downloads/Music              # clean tags (in-place)
+sortiton tags   ~/Downloads/Music ~/Music --move --apply  # clean tags and sort
+sortiton rename ~/Downloads/Music --apply      # %artist% - %title% (in-place)
+sortiton rename ~/Downloads/Music ~/Music --move --apply  # rename and sort
 sortiton sort   ~/Downloads/Music ~/Music --move --apply
 sortiton all    ~/Downloads/Music ~/Music --move --apply
 sortiton scan   ~/Music                        # count files/albums/artists
@@ -208,6 +210,9 @@ sortiton restore --apply           # perform the undo
 
 A step whose original name is occupied again is skipped, never overwritten.
 For a run that copied files, the copies are deleted and the originals remain.
+Downloads werden nur gelöscht, wenn ihr Inhalt noch dem SHA-256-Fingerabdruck
+im Journal entspricht. Veränderte Dateien und ältere Download-Einträge ohne
+Fingerabdruck bleiben ebenso wie ihre Archiv-IDs erhalten.
 As with other commands, nothing changes without `--apply`. `restore` writes its
 own journal, so an undo remains traceable. `SORTITON_JOURNAL=false`
 disables the journal.

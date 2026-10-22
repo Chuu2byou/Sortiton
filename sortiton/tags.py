@@ -14,10 +14,13 @@ from pathlib import Path
 from .cancel import NO_CANCEL, Cancelled
 from .config import MUTAGEN_AVAILABLE, READ_WORKERS
 
-EMPTY_TAGS = {"artist": "", "album_artist": "", "album": "", "title": "", "genre": ""}
-
 TAG_FIELDS = ("artist", "album_artist", "album", "title", "genre",
               "track", "disc", "year")
+
+EMPTY_TAGS = dict.fromkeys(TAG_FIELDS, "")
+
+MULTI_VALUE_FIELDS = frozenset({"artist", "album_artist", "genre"})
+"""Felder, die mehrere Werte haben dürfen - nur sie werden an ``;`` getrennt."""
 
 UNREADABLE = "unreadable"
 
@@ -69,16 +72,14 @@ class TrackInfo:
         return sep.join(getattr(self, tag_field))
 
 
+def tag_values(info: TrackInfo) -> dict:
+    """All tag placeholders of one file as text, joined by ``"; "``."""
+    return {name: info.joined(name, "; ") for name in TAG_FIELDS}
+
+
 def probe_tags(path: Path) -> dict:
-    """Read the five tag fields of one file (mutagen preferred, else ffprobe)."""
-    info = read_info(path)
-    return {
-        "artist": info.joined("artist", "; "),
-        "album_artist": info.joined("album_artist", "; "),
-        "album": info.joined("album", "; "),
-        "title": info.joined("title", "; "),
-        "genre": info.joined("genre", "; "),
-    }
+    """Read the tag fields used by naming and sorting."""
+    return tag_values(read_info(path))
 
 
 def read_info(path: Path) -> TrackInfo:
@@ -326,13 +327,7 @@ def probe_many(files: list[Path], report=None, cancel=None,
         info = read_info(path)
         if info.error and unreadable is not None:
             unreadable.append(path)
-        return {
-            "artist": info.joined("artist", "; "),
-            "album_artist": info.joined("album_artist", "; "),
-            "album": info.joined("album", "; "),
-            "title": info.joined("title", "; "),
-            "genre": info.joined("genre", "; "),
-        }
+        return tag_values(info)
 
     pool = ThreadPoolExecutor(max_workers=workers)
     futures = {pool.submit(read, path): i for i, path in enumerate(files)}
@@ -360,10 +355,15 @@ def probe_many(files: list[Path], report=None, cancel=None,
 
 
 def write_tags(path: Path, updates: dict) -> bool:
-    """Write tags: mutagen preferred, otherwise an ffmpeg remux."""
+    """Write tags: mutagen preferred, otherwise an ffmpeg remux.
+
+    Liefert bei Erfolg ``True`` und wirft bei jedem Fehler ``RuntimeError`` -
+    auch dann, wenn gar kein Schreibprogramm vorhanden ist. Der Rückgabewert
+    lügt damit nie über einen Fehlerpfad hinweg.
+    """
     try:
         return _write_mutagen(path, updates)
-    except Exception:
+    except Exception:  # noqa: BLE001 - mutagen darf fehlen oder scheitern
         pass
     return _write_ffmpeg(path, updates)
 
@@ -401,7 +401,16 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
     from mutagen.id3 import ID3
     from mutagen.mp4 import MP4
 
-    def as_list(value: str) -> list[str]:
+    def values_of(key: str, value: str) -> list[str]:
+        """Mehrfachwerte nur dort trennen, wo auch so gelesen wird.
+
+        ``artist``/``album_artist``/``genre`` werden beim Lesen mit ``"; "``
+        verbunden; ``title``/``album``/``year`` sind Einzelwerte, in denen ein
+        Semikolon zum Text gehört und keinen zweiten Frame erzeugen darf.
+        """
+        if key not in MULTI_VALUE_FIELDS:
+            text = value.strip()
+            return [text] if text else []
         return [part.strip() for part in value.split(";") if part.strip()]
 
     handle = mutagen.File(path, easy=False)
@@ -424,7 +433,7 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
             if frame_name is None:
                 continue
             frame = getattr(id3_module, frame_name)
-            values = as_list(value)
+            values = values_of(key, value)
             if values:
                 id3.setall(frame_name, [frame(encoding=3, text=values)])
             else:
@@ -444,7 +453,7 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
             text_key = _MP4_TEXT_KEYS.get(key)
             if text_key is None:
                 continue
-            values = as_list(value)
+            values = values_of(key, value)
             if values:
                 handle[text_key] = values
             else:
@@ -462,7 +471,7 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
             asf_key = _ASF_KEYS.get(key)
             if asf_key is None:
                 continue
-            values = as_list(value)
+            values = values_of(key, value)
             if values:
                 handle.tags[asf_key] = values
             else:
@@ -477,7 +486,7 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
         vorbis_key = _VORBIS_KEYS.get(key)
         if vorbis_key is None:
             continue
-        values = as_list(value)
+        values = values_of(key, value)
         if not values:
             try:
                 del handle[vorbis_key]
@@ -508,6 +517,9 @@ def _write_ffmpeg(path: Path, updates: dict) -> bool:
     try:
         try:
             subprocess.run(command, check=True, capture_output=True)
+        except FileNotFoundError as error:
+            raise RuntimeError(
+                f"ffmpeg is missing - cannot write {path.name}") from error
         except subprocess.CalledProcessError as error:
             stderr = error.stderr or b""
             if isinstance(stderr, bytes):

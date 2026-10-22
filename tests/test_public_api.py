@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from _support import (
     BASE,
     KEY_RE,

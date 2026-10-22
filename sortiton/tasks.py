@@ -18,7 +18,7 @@ from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, FETCH_ARCHIVE,
                      LOG_DIR, RULES_FILE, WRITE_WORKERS)
 from .features.fetch import cmd_fetch
 from .fileops import atomic_write_text, copy_new, move_no_clobber
-from .files import build_name, free_target, iter_audio, safe_name, same_content
+from .files import build_name, content_digest, free_target, iter_audio, safe_name, same_content
 from .output import (progress, banner, clear_stats, last_stats, message,
                      report_plan, report_stats)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
@@ -52,6 +52,94 @@ def _prune_backups(keep: int = BACKUP_KEEP) -> None:
     prune_backups(keep)
 
 
+def _library_path(target: Path, tags: dict, name: str) -> Path:
+    """Destination in ``target``: artist/album/file (artist/file without album)."""
+    artist = tags["album_artist"] or tags["artist"] or FALLBACK_ARTIST
+    album = tags["album"]
+    folder = Path(safe_name(artist))
+    if album:
+        folder = folder / safe_name(album)
+    return target / folder / name
+
+
+def _placement(source: Path, tags: dict, target: Path, used: set[str],
+               name: str | None = None, *, skip_identical: bool = True
+               ) -> Path | None:
+    """Free destination for ``source`` - or None when it already is in place."""
+    destination = _library_path(target, tags, name or source.name)
+    try:
+        if destination.resolve() == source.resolve():
+            return None
+    except OSError:
+        if destination == source:
+            return None
+    if skip_identical and destination.exists() and same_content(source, destination):
+        return None
+    return free_target(destination, used, ignore=source)
+
+
+def _target_name(target: Path, path: Path) -> str:
+    """Path relative to the library root, for log lines."""
+    try:
+        return str(path.relative_to(target))
+    except (ValueError, OSError):
+        return path.name
+
+
+def _place_files(plan: list[tuple[Path, Path]], target: Path, move: bool,
+                 apply: bool, cancel) -> tuple[int, int]:
+    """Copy/move planned files into the library; returns (placed, errors)."""
+    if not plan:
+        return 0, 0
+    if not apply:
+        for source, destination in plan:
+            message(f"  {source.name}  ->  {_target_name(target, destination)}")
+        return 0, 0
+
+    placed = 0
+    errors = 0
+    lock = threading.Lock()
+
+    def place(source: Path, destination: Path) -> None:
+        nonlocal placed, errors
+        cancel.check()
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            cancel.check()
+            if move:
+                _no_clobber_move(source, destination)
+            else:
+                _no_clobber_copy(source, destination)
+            journal.record_move("sort" if move else "copy", source, destination,
+                                mode="move" if move else "copy")
+            with lock:
+                placed += 1
+                message(f"  {source.name}  ->  {_target_name(target, destination)}")
+        except Cancelled:
+            raise
+        except Exception as error:
+            journal.record_failure("sort", error, source=str(source),
+                                   target=str(destination))
+            with lock:
+                errors += 1
+                message(i18n.t("task.error.file", name=source.name, error=error))
+
+    pool = ThreadPoolExecutor(max_workers=COPY_WORKERS)
+    futures = [pool.submit(place, source, destination) for source, destination in plan]
+    try:
+        for done, future in enumerate(as_completed(futures), start=1):
+            cancel.check()
+            future.result()
+            progress(done, len(plan), i18n.t("task.progress.sorting"))
+    except Cancelled:
+        for future in futures:
+            future.cancel()
+        raise
+    finally:
+        pool.shutdown(wait=True)
+    return placed, errors
+
+
 def _finish(key: str, fields: dict, *, changed: int, errors: int, applied: bool,
             hint: str = "task.hint.apply_run") -> None:
     """Close a run: the summary block every command ends with."""
@@ -72,11 +160,21 @@ def cmd_tags(args: CmdArgs) -> int:
     if not root.is_dir():
         message(i18n.t("task.error.folder", path=root))
         return 2
+    target = Path(args.target).expanduser() if getattr(args, "target", None) else None
+    move = bool(getattr(args, "move", False))
+    if move and target is None:
+        message(i18n.t("task.error.target_required"))
+        return 2
 
     banner(i18n.t("task.title.tags"), not args.apply)
     files = list(iter_audio(root))
     total = len(files)
     message(i18n.t("task.label.folder", value=root))
+    if target is not None:
+        message(i18n.t("task.label.target", value=target))
+        message(i18n.t("task.label.mode",
+                       value=i18n.t("task.action.move") if move
+                       else i18n.t("task.action.copy")))
     message(i18n.t("task.label.files", value=total))
     message()
 
@@ -89,6 +187,8 @@ def cmd_tags(args: CmdArgs) -> int:
         return 130
 
     plan: list[tuple[Path, dict, dict]] = []
+    placements: list[tuple[Path, Path]] = []
+    used: set[str] = set()
     bad = set(unreadable)
     custom = rules_snapshot()
     try:
@@ -103,13 +203,28 @@ def cmd_tags(args: CmdArgs) -> int:
                 "album":        clean_text_field(tags["album"]),
                 "genre":        clean_genre(tags["genre"], custom),
             }
+            pipeline_state = getattr(args, "pipeline_state", None)
+            if pipeline_state is not None:
+                pipeline_state["tags"][path] = {**tags, **new}
+                pipeline_state["paths"].setdefault(path, path)
             diff = {k: v for k, v in new.items() if v != tags[k]}
+            destination = None
+            if target is not None:
+                destination = _placement(path, {**tags, **new}, target, used,
+                                          skip_identical=not diff)
+                if destination is not None:
+                    placements.append((path, destination))
+
+            if diff or destination is not None:
+                report_plan("tags", path=path,
+                            changes={key: (tags[key], value)
+                                     for key, value in diff.items()},
+                            source=str(path),
+                            target=str(destination) if destination is not None else "")
             if not diff:
                 continue
 
             plan.append((path, tags, diff))
-            report_plan("tags", path=path,
-                        changes={key: (tags[key], value) for key, value in diff.items()})
             message(f"  {path.name}")
             for key, value in diff.items():
                 message(f"      {key:<13} '{tags[key]}'  ->  '{value}'")
@@ -123,6 +238,7 @@ def cmd_tags(args: CmdArgs) -> int:
         message(i18n.t("task.error.unreadable", name=path.name))
     backup_folder: Path | None = None
     done_count = 0
+    failed: set[Path] = set()
 
     if args.apply and plan:
         if getattr(args, "backup", False):
@@ -139,15 +255,19 @@ def cmd_tags(args: CmdArgs) -> int:
             nonlocal done_count, errors
             old = {key: before[key] for key in diff}
             try:
+                cancel.check()
                 if write_tags(path, diff) is False:
                     raise RuntimeError(f"tags could not be written: {path.name}")
                 journal.record_tags(path, old, diff)
                 with lock:
                     done_count += 1
                     message(i18n.t("task.ok", name=path.name))
+            except Cancelled:
+                raise
             except Exception as error:
                 journal.record_failure("tags", error, path=str(path), before=old)
                 with lock:
+                    failed.add(path)
                     errors += 1
                     message(i18n.t("task.error.file", name=path.name, error=error))
 
@@ -169,11 +289,26 @@ def cmd_tags(args: CmdArgs) -> int:
 
     if args.apply:
         changed = done_count
+        placements = [(path, destination) for path, destination in placements
+                      if path not in failed]
+
+    placed = 0
+    if placements and target is not None:
+        try:
+            placed, place_errors = _place_files(placements, target, move,
+                                                bool(args.apply), cancel)
+        except Cancelled:
+            message(i18n.t("task.cancelled"))
+            return 130
+        errors += place_errors
+
+    if placed:
+        message(i18n.t("task.placed", count=placed))
 
     _finish("task.tags.done", {"changed": changed, "total": total},
             changed=changed, errors=errors, applied=args.apply,
             hint="task.hint.apply")
-    report_stats("tags", files=total, changed=changed,
+    report_stats("tags", files=total, changed=changed, placed=placed,
                  skipped=total - changed, errors=errors, applied=bool(args.apply),
                  backup=str(backup_folder) if backup_folder else "")
     return 1 if errors else 0
@@ -186,10 +321,20 @@ def cmd_rename(args: CmdArgs) -> int:
     if not root.is_dir():
         message(i18n.t("task.error.folder", path=root))
         return 2
+    target = Path(args.target).expanduser() if getattr(args, "target", None) else None
+    move = bool(getattr(args, "move", False))
+    if move and target is None:
+        message(i18n.t("task.error.target_required"))
+        return 2
 
     banner(i18n.t("task.title.rename"), not args.apply)
     message(i18n.t("task.label.folder", value=root))
     message(i18n.t("task.label.pattern", value=args.pattern))
+    if target is not None:
+        message(i18n.t("task.label.target", value=target))
+        message(i18n.t("task.label.mode",
+                       value=i18n.t("task.action.move") if move
+                       else i18n.t("task.action.copy")))
     message()
 
     files = list(iter_audio(root))
@@ -209,7 +354,10 @@ def cmd_rename(args: CmdArgs) -> int:
     for path in unreadable:
         message(i18n.t("task.error.unreadable", name=path.name))
     done = 0
+    failed: set[Path] = set()
+    placements: list[tuple[Path, Path, Path]] = []
     bad = set(unreadable)
+    pipeline_state = getattr(args, "pipeline_state", None)
 
     try:
         for index, (path, tags) in enumerate(zip(files, tags_list), start=1):
@@ -217,36 +365,53 @@ def cmd_rename(args: CmdArgs) -> int:
             progress(index, total, path.name)
             if path in bad:
                 continue
+            if pipeline_state is not None:
+                tags = pipeline_state["tags"].get(path, tags)
             base = build_name(tags, path.stem, args.pattern)
-            target = path.parent / f"{base}{path.suffix}"
+            candidate = path.parent / f"{base}{path.suffix}"
 
-            if str(target) == str(path):
+            final = candidate
+            if str(candidate) != str(path):
+                final = free_target(candidate, used, ignore=path)
+            needs_rename = str(final) != str(path)
+            if needs_rename:
+                renamed += 1
+            else:
                 skipped += 1
+
+            destination = None
+            if target is not None:
+                destination = _placement(final, tags, target, used)
+                if destination is not None:
+                    placements.append((path, final, destination))
+
+            if target is not None:
+                if destination is not None or needs_rename:
+                    report_plan("rename", source=path,
+                                target=destination if destination is not None else final)
+            elif needs_rename:
+                report_plan("rename", source=path, target=final)
+
+            if not needs_rename:
+                if pipeline_state is not None:
+                    pipeline_state["paths"][path] = path
                 continue
-
-            target = free_target(target, used, ignore=path)
-
-            if str(target) == str(path):
-                skipped += 1
-                continue
-
-            renamed += 1
-            report_plan("rename", source=path, target=target)
+            if pipeline_state is not None:
+                pipeline_state["paths"][path] = final
             if args.apply:
                 try:
-                    if target.exists():
-                        raise FileExistsError(f"target already exists: {target}")
-                    path.rename(target)
-                    journal.record_move("rename", path, target)
+                    _no_clobber_move(path, final)
+                    journal.record_move("rename", path, final)
                     done += 1
-                    message(f"  OK: '{path.name}'  ->  '{target.name}'")
+                    message(f"  OK: '{path.name}'  ->  '{final.name}'")
                 except Exception as error:
                     journal.record_failure("rename", error, source=str(path),
-                                           target=str(target))
+                                           target=str(final))
+                    failed.add(path)
                     errors += 1
                     message(i18n.t("task.error.file", name=path.name, error=error))
             else:
-                message(f"  '{path.name}'  ->  '{target.name}'")
+                message(f"  '{path.name}'  ->  '{final.name}'")
     except Cancelled:
         message(i18n.t("task.cancelled"))
         return 130
@@ -254,10 +419,25 @@ def cmd_rename(args: CmdArgs) -> int:
     if args.apply:
         renamed = done
 
+    ready = [(final, destination) for original, final, destination in placements
+             if original not in failed]
+    placed = 0
+    if ready and target is not None:
+        try:
+            placed, place_errors = _place_files(ready, target, move,
+                                                bool(args.apply), cancel)
+        except Cancelled:
+            message(i18n.t("task.cancelled"))
+            return 130
+        errors += place_errors
+
+    if placed:
+        message(i18n.t("task.placed", count=placed))
+
     _finish("task.rename.done", {"renamed": renamed, "skipped": skipped},
             changed=renamed, errors=errors, applied=args.apply)
-    report_stats("rename", files=total, changed=renamed, skipped=skipped,
-                 errors=errors, applied=bool(args.apply))
+    report_stats("rename", files=total, changed=renamed, placed=placed,
+                 skipped=skipped, errors=errors, applied=bool(args.apply))
     return 1 if errors else 0
 
 
@@ -295,12 +475,20 @@ def cmd_sort(args: CmdArgs) -> int:
     for path in unreadable:
         message(i18n.t("task.error.unreadable", name=path.name))
     bad = set(unreadable)
+    pipeline_state = getattr(args, "pipeline_state", None)
 
     try:
         for path, tags in zip(files, tags_list):
             cancel.check()
             if path in bad:
                 continue
+            tags_changed = False
+            if pipeline_state is not None:
+                planned_tags = pipeline_state["tags"].get(path, tags)
+                tags_changed = planned_tags != tags
+                tags = planned_tags
+            planned_source = (pipeline_state["paths"].get(path, path)
+                              if pipeline_state is not None else path)
             artist = tags["album_artist"] or tags["artist"] or FALLBACK_ARTIST
             album = tags["album"]
             base = build_name(tags, path.stem, args.pattern)
@@ -311,15 +499,16 @@ def cmd_sort(args: CmdArgs) -> int:
             target_path = target / relative / f"{base}{path.suffix}"
 
             if target_path.exists():
-                if target_path.resolve() == path.resolve() or same_content(path, target_path):
+                if (target_path.resolve() == planned_source.resolve()
+                        or (not tags_changed and same_content(path, target_path))):
                     skipped += 1
                     continue
 
             target_path = free_target(target_path, used)
             plan.append((path, target_path))
-            report_plan("sort", source=path, target=target_path)
+            report_plan("sort", source=planned_source, target=target_path)
             if not args.apply:
-                message(f"  {path.name}  ->  {target_path.relative_to(target)}")
+                message(f"  {planned_source.name}  ->  {target_path.relative_to(target)}")
     except Cancelled:
         message(i18n.t("task.cancelled"))
         return 130
@@ -333,7 +522,9 @@ def cmd_sort(args: CmdArgs) -> int:
         def place(path: Path, target_path: Path) -> None:
             nonlocal errors, placed
             try:
+                cancel.check()
                 target_path.parent.mkdir(parents=True, exist_ok=True)
+                cancel.check()
                 if args.move:
                     _no_clobber_move(path, target_path)
                 else:
@@ -343,6 +534,8 @@ def cmd_sort(args: CmdArgs) -> int:
                 with lock:
                     placed += 1
                     message(f"  {path.name}  ->  {target_path.relative_to(target)}")
+            except Cancelled:
+                raise
             except Exception as error:
                 journal.record_failure("sort", error, source=str(path),
                                        target=str(target_path))
@@ -387,21 +580,24 @@ class Step:
 def _pipeline_steps(args: CmdArgs) -> list[Step]:
     """The stages ``cmd_all`` runs, in order."""
     cancel = getattr(args, "cancel", NO_CANCEL)
+    pipeline_state = {"tags": {}, "paths": {}} if not args.apply else None
+
+    def stage(**values) -> SimpleNamespace:
+        """Argumente einer Stufe: gemeinsame Werte plus die der Stufe."""
+        return SimpleNamespace(cancel=cancel, pipeline_state=pipeline_state, **values)
+
     steps: list[Step] = []
     if getattr(args, "fetch_url", None):
         steps.append(Step("task.step.fetch", lambda: _run_fetch_step(args, cancel)))
     steps.extend([
-        Step("task.step.tags",
-             lambda: cmd_tags(SimpleNamespace(folder=args.source, apply=args.apply,
-                                              backup=getattr(args, "backup", False),
-                                              cancel=cancel))),
-        Step("task.step.rename",
-             lambda: cmd_rename(SimpleNamespace(folder=args.source, pattern=args.pattern,
-                                                apply=args.apply, cancel=cancel))),
-        Step("task.step.sort",
-             lambda: cmd_sort(SimpleNamespace(source=args.source, target=args.target,
-                                              pattern=args.pattern, move=args.move,
-                                              apply=args.apply, cancel=cancel))),
+        Step("task.step.tags", lambda: cmd_tags(stage(
+            folder=args.source, apply=args.apply,
+            backup=getattr(args, "backup", False)))),
+        Step("task.step.rename", lambda: cmd_rename(stage(
+            folder=args.source, pattern=args.pattern, apply=args.apply))),
+        Step("task.step.sort", lambda: cmd_sort(stage(
+            source=args.source, target=args.target, pattern=args.pattern,
+            move=args.move, apply=args.apply))),
     ])
     return steps
 
@@ -512,16 +708,20 @@ def cmd_rules(args: CmdArgs) -> int:
 
 def cmd_scan(args: CmdArgs) -> int:
     """Count files, albums and artists below ``args.folder``."""
+    cancel = getattr(args, "cancel", NO_CANCEL)
     root = Path(args.folder).expanduser()
     if not root.is_dir():
         message(i18n.t("task.error.folder", path=root))
         return 2
 
-    files = list(iter_audio(root))
+    files: list[Path] = []
+    for path in iter_audio(root):
+        cancel.check()
+        files.append(path)
     total = len(files)
     unreadable: list[Path] = []
     tags_list = probe_many(files, report=lambda i, name: progress(i, total, name),
-                           unreadable=unreadable)
+                           cancel=cancel, unreadable=unreadable)
 
     albums: set[tuple[str, str]] = set()
     artists: set[str] = set()
@@ -643,6 +843,10 @@ def _undo_step(step: dict) -> str:
             path = step["path"]
             if not path.is_file():
                 message(i18n.t("restore.skip.missing", name=path.name))
+                return "skipped"
+            expected = step.get("sha256")
+            if not expected or content_digest(path) != expected:
+                message(i18n.t("restore.skip.modified", name=path.name))
                 return "skipped"
             if not _drop_archive_id(step["archive_id"]):
                 message(i18n.t("restore.error.archive", name=path.name))
@@ -812,6 +1016,7 @@ def cmd_restore(args: CmdArgs) -> int:
                 skipped += 1
                 continue
             steps.append({"op": "download", "path": target, "archive_id": archive_id,
+                          "sha256": str(event.get("sha256") or ""),
                           "backup": now(target)})
             state[target] = False
             report_plan("download", path=target, archive_id=archive_id)

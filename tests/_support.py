@@ -4,7 +4,13 @@
 imports :mod:`sortiton`; the split test modules import the helpers they use from
 here. ``check()`` keeps the wording of the old smoke runner but raises, so a
 failing condition fails the test instead of being collected at the end.
+
+Re-Export-Hub der Testsuite: die Testmodule holen ihre Importe hier, damit jede
+Datei nur eine Quelle hat. Die meisten Namen werden deshalb in dieser Datei
+selbst nicht benutzt - pylint soll sie hier nicht als tot melden.
 """
+
+# pylint: disable=unused-import
 
 from __future__ import annotations
 
@@ -100,9 +106,15 @@ def _load_export_helper():
 
 def _export_texts(directory: Path, helper,
                   keep: tuple[str, ...] = ()) -> dict[str, str]:
-    """Normalized text of every stored file, optionally limited to a prefix."""
+    """Normalized text of every stored file, optionally limited to a prefix.
+
+    Das Herkunfts-Manifest (``.sortiton-export.json``) gehört zum Lauf, nicht
+    zum Bericht, und ist deshalb kein Teil des Golden-Vergleichs.
+    """
     texts: dict[str, str] = {}
     for path in sorted(directory.iterdir()):
+        if path.name.startswith("."):
+            continue
         if path.is_file() and (not keep or path.name.startswith(keep)):
             texts[path.name] = helper.normalize_export_text(
                 path.read_text(encoding="utf-8"))

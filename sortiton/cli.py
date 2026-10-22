@@ -19,6 +19,9 @@ PATTERN_DEFAULT = "%artist% - %title%"
 
 READ_COMMANDS = frozenset({"tags", "rename", "sort", "scan", "all"})
 WRITE_COMMANDS = frozenset({"restore"})
+#: Kommandos, die mit ``--apply`` Tags schreiben - dafür braucht es mutagen
+#: oder ffmpeg, nicht nur einen Leser.
+TAG_WRITE_COMMANDS = frozenset({"tags", "all"})
 
 _PROGRESS_INTERVAL = 0.1
 _progress_last = 0.0
@@ -33,14 +36,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_tags = sub.add_parser("tags", parents=[common], help=i18n.t("cli.tags.help"))
     p_tags.add_argument("folder", help=i18n.t("cli.tags.folder"))
+    p_tags.add_argument("target", nargs="?", default=None, help=i18n.t("cli.tags.target"))
+    p_tags.add_argument("--move", action="store_true", help=i18n.t("cli.tags.move"))
     p_tags.add_argument("--apply", action="store_true", help=i18n.t("cli.tags.apply"))
     p_tags.add_argument("--backup", action="store_true", help=i18n.t("cli.tags.backup"))
     p_tags.set_defaults(func=cmd_tags)
 
     p_rename = sub.add_parser("rename", parents=[common], help=i18n.t("cli.rename.help"))
     p_rename.add_argument("folder", help=i18n.t("cli.rename.folder"))
+    p_rename.add_argument("target", nargs="?", default=None,
+                          help=i18n.t("cli.rename.target"))
     p_rename.add_argument("--pattern", default=PATTERN_DEFAULT,
                           help=i18n.t("cli.rename.pattern"))
+    p_rename.add_argument("--move", action="store_true", help=i18n.t("cli.rename.move"))
     p_rename.add_argument("--apply", action="store_true", help=i18n.t("cli.rename.apply"))
     p_rename.set_defaults(func=cmd_rename)
 
@@ -133,8 +141,9 @@ def main() -> int:
         if args.command in READ_COMMANDS:
             requirements.append(external.Requirement(
                 (external.MUTAGEN, external.FFPROBE)))
-        elif (args.command in WRITE_COMMANDS
-              and getattr(args, "apply", False)):
+        if getattr(args, "apply", False) and (
+                args.command in WRITE_COMMANDS
+                or args.command in TAG_WRITE_COMMANDS):
             requirements.append(external.Requirement(
                 (external.MUTAGEN, external.FFMPEG)))
         lacking = [item for item in requirements
@@ -149,8 +158,8 @@ def main() -> int:
     log = open_log_file(" ".join(redact.command(sys.argv[1:])))
     if log:
         message(i18n.t("cli.log_file", path=log))
-    if log and getattr(args, "apply", False):
-        if journal.enabled() and journal.open_for(log) is None:
+    if getattr(args, "apply", False) and journal.enabled():
+        if log is None or journal.open_for(log) is None:
             message(i18n.t("journal.error.open"))
             close_log_file(2)
             return 2

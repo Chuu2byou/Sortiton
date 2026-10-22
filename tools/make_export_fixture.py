@@ -332,7 +332,7 @@ def build_library(out_dir: Path, *, force: bool = False) -> int:
               file=sys.stderr)
         return 2
     try:
-        import mutagen                                # noqa: PLC0415,F401
+        import mutagen  # noqa: PLC0415,F401  # pylint: disable=unused-import
     except ImportError:
         print("error: the Python package 'mutagen' is needed (pip install mutagen)",
               file=sys.stderr)
@@ -390,7 +390,7 @@ def tag_differences(path: Path, track: Track) -> str:
 
 def check_library(out_dir: Path, limit_bytes: int) -> int:
     try:
-        import mutagen                                # noqa: PLC0415,F401
+        import mutagen  # noqa: PLC0415,F401  # pylint: disable=unused-import
     except ImportError:
         print("error: the Python package 'mutagen' is needed for --check "
               "(pip install mutagen)", file=sys.stderr)

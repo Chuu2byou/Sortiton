@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Callable, Literal
 
 from .. import i18n
-from ..external import Requirement, Tool
+from ..external import Requirement
 
 CmdArgs = argparse.Namespace | SimpleNamespace
 
@@ -45,7 +46,12 @@ class Feature:
 
 
 def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:
-    """Add one :class:`Option` to ``parser``."""
+    """Add one :class:`Option` to ``parser``.
+
+    Eine eigene ``add_argument``-Zeile je ``kind``: so bleibt der Typvertrag
+    konkret (``type=str``/``int``/``float``, ``choices``) statt in einem
+    untypisierten ``**kwargs``-Dictionary zu verschwinden.
+    """
     help_text = i18n.t(option.help_key) if option.help_key else None
 
     if option.positional:
@@ -61,21 +67,20 @@ def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:
                 f"bool option {option.name!r} with default True is not supported")
         parser.add_argument(*option.flags, dest=option.name, action="store_true",
                             default=False, help=help_text)
-        return
-
-    kwargs: dict[str, object] = {"dest": option.name, "default": option.default,
-                                 "help": help_text}
-    if option.kind in ("folder", "text", "choice"):
-        kwargs["type"] = str
+    elif option.kind in ("folder", "text"):
+        parser.add_argument(*option.flags, dest=option.name, default=option.default,
+                            help=help_text, type=str)
+    elif option.kind == "choice":
+        parser.add_argument(*option.flags, dest=option.name, default=option.default,
+                            help=help_text, type=str, choices=option.choices)
     elif option.kind == "int":
-        kwargs["type"] = int
+        parser.add_argument(*option.flags, dest=option.name, default=option.default,
+                            help=help_text, type=int)
     elif option.kind == "float":
-        kwargs["type"] = float
+        parser.add_argument(*option.flags, dest=option.name, default=option.default,
+                            help=help_text, type=float)
     else:
         raise ValueError(f"unknown option kind: {option.kind!r}")
-    if option.kind == "choice":
-        kwargs["choices"] = option.choices
-    parser.add_argument(*option.flags, **kwargs)
 
 
 def add_feature_parser(subparsers, feature: Feature,
@@ -92,8 +97,18 @@ def add_feature_parser(subparsers, feature: Feature,
 
 
 def resolve_args(feature: Feature, args: CmdArgs) -> SimpleNamespace:
-    """Fill every option the caller left out with its default."""
-    values = dict(vars(args))
+    """Fill every option the caller left out with its default.
+
+    ``args`` darf ein ``Namespace``, ein ``SimpleNamespace`` oder ein Mapping
+    sein. Ein Objekt ohne Attribute wird laut abgelehnt: still mit lauter
+    Standardwerten weiterzulaufen wäre schlimmer als ein klarer Fehler.
+    """
+    if isinstance(args, Mapping):
+        values = dict(args)
+    elif hasattr(args, "__dict__"):
+        values = dict(vars(args))
+    else:
+        raise TypeError(f"cannot read options from {type(args).__name__}")
     for option in feature.options:
         if option.name not in values:
             values[option.name] = option.default

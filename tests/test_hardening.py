@@ -86,22 +86,27 @@ def test_redaction_covers_option_urls_and_scheme_less_queries() -> None:
 
 
 def test_fixes_write_failure_is_a_nonzero_exit() -> None:
-    """A failed write must be visible to shell scripts and the GUI."""
+    """A failed correction is not counted as a completed change."""
     from sortiton.features import fixes
 
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "song.mp3"
         path.write_bytes(b"x")
+        second_path = Path(tmp) / "song-2.mp3"
+        second_path.write_bytes(b"y")
         csv_file = Path(tmp) / "fixes.csv"
         csv_file.write_text("path;field;old;new\nsong.mp3;track;1;2\n",
                             encoding="utf-8")
         action = fixes._Action(2, path, "track", "1", "2")
+        failed_action = fixes._Action(3, second_path, "track", "3", "4")
 
         args = SimpleNamespace(file=str(csv_file), root=tmp, apply=True,
                                backup=False)
         with mock.patch.object(fixes.external, "missing", return_value=[]), \
-             mock.patch.object(fixes, "_prepare", return_value=([action], [], [])), \
-             mock.patch.object(fixes, "_write", side_effect=RuntimeError("write failed")):
+               mock.patch.object(fixes, "_prepare",
+                             return_value=([action, failed_action], [], [])), \
+               mock.patch.object(fixes, "_write",
+                             side_effect=[None, RuntimeError("write failed")]):
             rc = fixes.cmd_fixes(args)
 
         check("a failed write returns 1", rc == 1, str(rc))

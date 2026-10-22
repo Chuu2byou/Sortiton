@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import configparser
-import io
 import os
+import re
 
 from . import i18n
 from .config import DEFAULT_LANGUAGE, OFF_VALUES, SETTINGS_FILE
@@ -16,6 +16,9 @@ KEY_BACKUP = "backup"
 
 SECTION_TOOLS = "tools"
 
+#: ``key<sep>value`` einer Zeile; ``sep`` bleibt beim Ersetzen erhalten.
+_KEY_LINE = re.compile(r"^(?P<key>[^=:#\s][^=:]*?)(?P<sep>\s*[=:]\s*)(?P<value>.*)$")
+
 
 def _parser() -> configparser.ConfigParser:
     parser = configparser.ConfigParser(interpolation=None)
@@ -26,12 +29,67 @@ def _parser() -> configparser.ConfigParser:
     return parser
 
 
+def _merge_settings(text: str, parser: configparser.ConfigParser) -> str:
+    """Ersetzt Werte in ``text`` und ergänzt fehlende Schlüssel.
+
+    ``ConfigParser.write`` würde die Datei neu formatieren und dabei alle
+    Kommentare und die Reihenfolge verlieren - ``settings.ini`` darf aber von
+    Hand gepflegt werden. Deshalb bleiben alle anderen Zeilen unangetastet:
+    nur der Wert bekannter Schlüssel wird ausgetauscht, Schlüssel, die der
+    Parser nicht mehr kennt, fallen weg (das ist das "Ersetzen" von
+    ``[tools]``), und fehlende Zeilen werden am Abschnittsende angehängt.
+    """
+    wanted = {section: dict(parser.items(section)) for section in parser.sections()}
+    done: set[tuple[str, str]] = set()
+    seen: set[str] = set()
+    out: list[str] = []
+    current: str | None = None
+
+    def flush() -> None:
+        """Fehlende Schlüssel des laufenden Abschnitts anhängen."""
+        if current is None or current not in wanted:
+            return
+        for key, value in wanted[current].items():
+            if (current, key) not in done:
+                out.append(f"{key} = {value}")
+                done.add((current, key))
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            flush()
+            current = stripped[1:-1].strip()
+            seen.add(current)
+            out.append(line)
+            continue
+        match = _KEY_LINE.match(stripped) if current in wanted else None
+        if match is not None and not line[:1].isspace():
+            key = match.group("key").strip()
+            if key.lower() not in wanted[current]:
+                continue  # absichtlich entfernt (z. B. altes Werkzeug-Option)
+            out.append(f"{key}{match.group('sep')}{wanted[current][key.lower()]}")
+            done.add((current, key.lower()))
+            continue
+        out.append(line)
+    flush()
+    for name, values in wanted.items():
+        if name in seen:
+            continue
+        if out:
+            out.append("")
+        out.append(f"[{name}]")
+        out.extend(f"{key} = {value}" for key, value in values.items())
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
 def _write(parser: configparser.ConfigParser) -> bool:
     """Write the parser back to settings.ini. False if that failed."""
     try:
-        buffer = io.StringIO()
-        parser.write(buffer)
-        atomic_write_text(SETTINGS_FILE, buffer.getvalue())
+        try:
+            text = SETTINGS_FILE.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        atomic_write_text(SETTINGS_FILE, _merge_settings(text, parser))
     except OSError:
         return False
     return True

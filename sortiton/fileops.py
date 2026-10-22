@@ -12,9 +12,32 @@ from pathlib import Path
 
 def copy_new(source: Path, target: Path) -> None:
     """Copy ``source`` to a target that must not exist yet."""
-    with source.open("rb") as reader, target.open("xb") as writer:
-        shutil.copyfileobj(reader, writer)
-    shutil.copystat(source, target)
+    descriptor, temporary = tempfile.mkstemp(dir=target.parent,
+                                               prefix=f".{target.name}.",
+                                               suffix=".tmp")
+    temp_path = Path(temporary)
+    os.close(descriptor)
+    try:
+        with source.open("rb") as reader, temp_path.open("wb") as writer:
+            shutil.copyfileobj(reader, writer)
+        shutil.copystat(source, temp_path)
+        try:
+            os.link(temp_path, target)
+        except (OSError, NotImplementedError) as error:
+            if isinstance(error, OSError) and error.errno not in {
+                    errno.EXDEV, errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}:
+                raise
+            with temp_path.open("rb") as reader:
+                writer = target.open("xb")
+                try:
+                    with writer:
+                        shutil.copyfileobj(reader, writer)
+                    shutil.copystat(temp_path, target)
+                except BaseException:
+                    target.unlink(missing_ok=True)
+                    raise
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _unlink_after_move(source: Path, target: Path) -> None:

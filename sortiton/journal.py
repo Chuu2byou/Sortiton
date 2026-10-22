@@ -12,7 +12,7 @@ from pathlib import Path
 from . import i18n, output, redact
 from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME, LOG_DIR,
                      LOG_PREFIX, OFF_VALUES)
-from .files import open_new
+from .files import content_digest, open_new
 
 SCHEMA = 1
 
@@ -114,6 +114,10 @@ def _report_write_error(error: object) -> None:
 
 def record(op: str, **data: object) -> None:
     """Append one event. Never raises, never interrupts the run."""
+    for key in ("path", "source", "target"):
+        value = data.get(key)
+        if isinstance(value, (str, Path)) and value:
+            data[key] = str(Path(value).absolute())
     event = {"v": SCHEMA, "ts": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "op": op}
     event.update(data)
     try:
@@ -147,7 +151,11 @@ def record_move(op: str, source: Path, target: Path, mode: str = "") -> None:
 
 def record_download(path: Path, url: str, archive_id: str = "") -> None:
     """Remember a finished download."""
-    record("download", path=str(path), url=url, archive_id=archive_id)
+    try:
+        digest = content_digest(path)
+    except OSError:
+        digest = ""
+    record("download", path=str(path), url=url, archive_id=archive_id, sha256=digest)
 
 
 def record_failure(op: str, error: object, **data: object) -> None:
@@ -192,8 +200,20 @@ def schema_version(path: Path) -> int:
 
 def plan_restore(path: Path) -> list[dict]:
     """Events of ``path`` in the order they have to be undone."""
-    return list(reversed([event for event in read_journal(path)
-                          if event.get("op") != "run"]))
+    events = list(read_journal(path))
+    cwd = read_header(path).get("cwd")
+    base = Path(str(cwd)) if cwd else Path.cwd()
+    planned = []
+    for event in events:
+        if event.get("op") == "run":
+            continue
+        event = dict(event)
+        for key in ("path", "source", "target"):
+            value = event.get(key)
+            if isinstance(value, str) and value and not Path(value).is_absolute():
+                event[key] = str(base / value)
+        planned.append(event)
+    return list(reversed(planned))
 
 
 def summarize(events) -> dict[str, int]:
