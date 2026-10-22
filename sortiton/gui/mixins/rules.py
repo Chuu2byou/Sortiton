@@ -25,9 +25,10 @@ from ..common import (
     tk,
     ttk,
 )
+from .base import GuiBase
 
 
-class RulesMixin:
+class RulesMixin(GuiBase):
     """Rules card, rules editor and the LLM import dialog."""
 
     def _log_rules(self, prefix: str) -> None:

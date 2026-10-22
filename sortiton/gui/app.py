@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# pylint: disable=unused-import  # Re-Export: Tests und Mixins greifen über
+# ``sortiton.gui.app`` auf diese Helfer zu (z. B. ``_pretty_path``).
 from .common import (
     CancelToken,
     Path,
@@ -23,6 +25,7 @@ from .common import (
     shutil,
     tk,
 )
+# pylint: enable=unused-import
 
 from .mixins.layout import LayoutMixin
 from .mixins.log import LogMixin
@@ -36,7 +39,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.queue: queue.Queue = queue.Queue()
+        self.queue = queue.Queue()
         self.running = False
         self.last_path: Path | None = None
         self.action_buttons: list[RoundButton] = []
@@ -68,6 +71,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._job_page = "tags"
         self._dirty = False
         self._scan_page: str | None = None
+        self._scan_cancel: CancelToken | None = None
         self._log_shown = False
         self._prefs_window: PreferencesWindow | None = None
         self._backup_for_run = True

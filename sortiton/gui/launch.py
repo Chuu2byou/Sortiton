@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-
 
 def tkinter_problem() -> "str | None":
     """Return the message for the user when Tkinter cannot be imported."""
     try:
-        import tkinter  # noqa: F401  - availability check only
+        import tkinter  # noqa: F401  # pylint: disable=unused-import
     except ImportError as fehler:
         return (
             "ERROR: Tkinter is not available (libtk is missing).\n"

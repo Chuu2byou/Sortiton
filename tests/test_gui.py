@@ -33,6 +33,33 @@ def _restore_gui_globals():
     i18n.set_language(saved[4])
 
 
+@pytest.mark.parametrize("rc", [0, 1, 130, 99])
+@pytest.mark.parametrize("applied", [False, True])
+def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applied: bool) -> None:
+      """Auch Teilfehler und Abbruch eines Schreiblaufs entwerten andere Vorschauen."""
+      from types import SimpleNamespace
+      from typing import cast
+      from unittest.mock import Mock
+      from sortiton.gui.mixins.run import RunMixin
+
+      app = SimpleNamespace(
+            progress=Mock(), progress_label=Mock(), running=True, _cancel=None,
+            _cancel_button=None, _job_page="tags", _job_applied=applied,
+            _job_signature="current preview", _closing=False,
+            _plans={"tags": {"signature": None}, "sort": {"signature": "old preview"}},
+            _set_buttons=Mock(), _refresh_preview_states=Mock(), _set_state=Mock(), status_var=Mock())
+
+      RunMixin._finish(cast(RunMixin, app), rc)
+
+      check("other previews are invalidated after any applied run",
+              app._plans["sort"]["signature"] == (None if applied else "old preview"))
+      check("only a successful preview receives its signature",
+              app._plans["tags"]["signature"] == ("current preview" if rc == 0 and not applied
+                                                                   else None))
+      check("the run finishes", not app.running and app._cancel is None)
+      app._refresh_preview_states.assert_called_once_with()
+
+
 def test_screenshot_guard() -> None:
     """The screenshot run must never store anything but the Sortiton window."""
     print("screenshot guard")
@@ -81,6 +108,10 @@ def test_gui() -> None:
     try:
         gui = SortitonGUI(root)
         root.update()
+        check("clean tags starts with matching source and target",
+              gui.var_tags_target.get() == gui.var_tags_folder.get())
+        check("rename starts with matching source and target",
+              gui.var_ren_target.get() == gui.var_ren_folder.get())
         region = gui._content_canvas.bbox("all")
         content_overflows = (region is not None
                              and region[3] - region[1]
@@ -149,6 +180,16 @@ def test_gui() -> None:
         check("action locked again when an input changed",
               not gui._execute_buttons["tags"].enabled)
 
+        # Target folder and mode changes also invalidate the preview
+        gui._plans["tags"]["signature"] = gui._signature("tags")
+        gui._render_preview("tags")
+        root.update()
+        check("action unlocked with updated signature", gui._execute_buttons["tags"].enabled)
+        gui.var_tags_target.set("/custom/target")
+        gui._refresh_preview_states()
+        root.update()
+        check("action locked when target changed", not gui._execute_buttons["tags"].enabled)
+
         check("log view is hidden by default", not gui._log_shown)
         gui._show_log_view()
         root.update()
@@ -174,7 +215,14 @@ def test_gui() -> None:
         check("a restore signature can be built", bool(gui._signature("restore")))
 
         check("home is shortened", gui_app._pretty_path(Path.home() / "Musik") == "~/Musik")
-        check("numbers use separators", gui_app._fmt_number(1842) == "1.842")
+        spoken = i18n.get_language()
+        i18n.set_language("en")
+        check("numbers use separators (en)", gui_app._fmt_number(1842) == "1,842",
+              gui_app._fmt_number(1842))
+        i18n.set_language("de")
+        check("numbers use separators (de)", gui_app._fmt_number(1842) == "1.842",
+              gui_app._fmt_number(1842))
+        i18n.set_language(spoken)
 
         # Step 3.2: the tools tab generates a form from the feature list, has no
         # write button and runs the (read-only) export from a single button.
@@ -188,6 +236,11 @@ def test_gui() -> None:
               all((export.key, option.name) in gui._tool_widgets
                   for option in form_options),
               ", ".join(sorted(name for key, name in gui._tool_widgets if key == export.key)))
+        output_field = gui._tool_widgets[(export.key, "output")]
+        check("export output hint shows the configured path",
+              any(isinstance(child, tk.Label)
+                  and str(config.EXPORT_DIR.expanduser().resolve()) in child.cget("text")
+                  for child in output_field.master.winfo_children()))
         check("fine-tuning is not part of the tools form",
               all((feature.key, option.name) not in gui._tool_widgets
                   for feature, option in gui_tools.fine_tuning_items()))

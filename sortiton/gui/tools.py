@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .. import i18n, settings
+from .. import config, i18n, settings
 from ..features import FEATURES
 from ..features.base import Feature, Option
 from . import design
@@ -267,7 +267,11 @@ class OptionForm:
                     feature: Feature, option: Option) -> None:
         """Label above the input; long fields span both columns."""
         variable = self.app.var_tool[feature.key][option.name]
-        label = i18n.t(option.help_key) if option.help_key else option.name
+        if feature.key == "export" and option.name == "output":
+            label = i18n.t("gui.export.output",
+                           path=config.EXPORT_DIR.expanduser().resolve())
+        else:
+            label = i18n.t(option.help_key) if option.help_key else option.name
         wrap = self._wide if span == 2 else self._narrow
         pad_right = design.px(14) if span == 1 and column == 0 else 0
         tk.Label(body, text=label, bg=CARD, fg=TEXT_MUTED, font=design.FONT_SMALL,

@@ -34,9 +34,10 @@ from ..common import (
     tk,
     ttk,
 )
+from .base import GuiBase
 
 
-class LogMixin:
+class LogMixin(GuiBase):
     """Result area, log view, footer and the open-* actions."""
 
     def _build_result_area(self) -> None:

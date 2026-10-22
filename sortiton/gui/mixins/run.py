@@ -6,6 +6,7 @@ import time
 
 from ..common import (
     CancelToken,
+    Cancelled,
     GREEN,
     PATTERN_DEFAULT,
     PLAN_FIELDS,
@@ -41,9 +42,10 @@ from ..common import (
     tool_value,
     traceback,
 )
+from .base import GuiBase
 
 
-class RunMixin:
+class RunMixin(GuiBase):
     """Running tasks: plans, previews, workers, progress and closing."""
 
     _FORCE_CLOSE_AFTER = 10.0
@@ -62,29 +64,36 @@ class RunMixin:
         folder = self.var_tags_folder.get().strip()
         if not self._path_ok(folder):
             return
+        target = self.var_tags_target.get().strip()
+        move = self.var_tags_mode.get() == "move"
         if write and not self._preview_allowed("tags"):
             return
-        if write and not self._confirm_write("tags", folder=folder):
+        if write and not self._confirm_write("tags", folder=folder, target=target):
             return
         self._start("tags", self._job_name("gui.job.tags", write), cmd_tags,
-                    SimpleNamespace(folder=folder, apply=write,
+                    SimpleNamespace(folder=folder, target=target or None,
+                                    move=move, apply=write,
                                     backup=self._backup_for_run),
-                    folder, source=folder)
+                    folder, source=folder, target_root=target)
 
     def _run_rename(self, execute: bool) -> None:
         folder = self.var_ren_folder.get().strip()
         if not self._path_ok(folder):
             return
+        target = self.var_ren_target.get().strip()
+        move = self.var_ren_mode.get() == "move"
         pattern = self.var_ren_pattern.get().strip() or PATTERN_DEFAULT
         if execute and not self._preview_allowed("rename"):
             return
         if execute and not self._confirm_write("rename", folder=folder,
+                                               target=target,
                                                pattern=pattern,
                                                allow_backup=False):
             return
         self._start("rename", self._job_name("gui.job.rename", execute), cmd_rename,
-                    SimpleNamespace(folder=folder, pattern=pattern, apply=execute),
-                    folder, source=folder)
+                    SimpleNamespace(folder=folder, target=target or None,
+                                    pattern=pattern, move=move, apply=execute),
+                    folder, source=folder, target_root=target)
 
     def _run_sort(self, execute: bool) -> None:
         source = self.var_source.get().strip()
@@ -191,7 +200,13 @@ class RunMixin:
                                                                        name=name)
 
     def _mode_text(self, page: str) -> str:
-        variable = self.var_all_mode if page == "all" else self.var_sort_mode
+        mapping = {
+            "all": self.var_all_mode,
+            "sort": self.var_sort_mode,
+            "tags": getattr(self, "var_tags_mode", self.var_sort_mode),
+            "rename": getattr(self, "var_ren_mode", self.var_sort_mode),
+        }
+        variable = mapping.get(page, self.var_sort_mode)
         return (i18n.t("gui.mode.move") if variable.get() == "move"
                 else i18n.t("gui.mode.copy"))
 
@@ -240,10 +255,16 @@ class RunMixin:
 
     def _confirm_text(self, page: str, *, files: str, changes: str, **fields) -> str:
         if page == "tags":
-            return i18n.t("gui.confirm.tags.text", changes=changes, files=files)
+            text = i18n.t("gui.confirm.tags.text", changes=changes, files=files)
+            if fields.get("target"):
+                text += f"\n\n{_pretty_path(fields.get('target', ''))} ({self._mode_text('tags')})"
+            return text
         if page == "rename":
-            return i18n.t("gui.confirm.rename.text", files=files,
+            text = i18n.t("gui.confirm.rename.text", files=files,
                           pattern=fields.get("pattern", ""))
+            if fields.get("target"):
+                text += f"\n\n{_pretty_path(fields.get('target', ''))} ({self._mode_text('rename')})"
+            return text
         if page == "sort":
             return i18n.t("gui.confirm.sort.text", files=files,
                           mode=self._mode_text("sort"),
@@ -305,7 +326,9 @@ class RunMixin:
 
     def _watch_inputs(self) -> None:
         """Invalidate a preview as soon as one of its inputs changes."""
-        for variable in (self.var_tags_folder, self.var_ren_folder, self.var_ren_pattern,
+        for variable in (self.var_tags_folder, self.var_tags_target, self.var_tags_mode,
+                         self.var_ren_folder, self.var_ren_target, self.var_ren_mode,
+                         self.var_ren_pattern,
                          self.var_source, self.var_target, self.var_sort_pattern,
                          self.var_sort_mode, self.var_all_source, self.var_all_target,
                          self.var_all_pattern, self.var_all_mode):
@@ -328,9 +351,13 @@ class RunMixin:
         """Everything a preview depends on - detects outdated previews."""
         rules_id = (self._rules_fingerprint(), rules.rules_status()["custom_total"])
         if page == "tags":
-            return ("tags", self.var_tags_folder.get().strip(), rules_id)
+            return ("tags", self.var_tags_folder.get().strip(),
+                    self.var_tags_target.get().strip(),
+                    self.var_tags_mode.get(), rules_id)
         if page == "rename":
             return ("rename", self.var_ren_folder.get().strip(),
+                    self.var_ren_target.get().strip(),
+                    self.var_ren_mode.get(),
                     self.var_ren_pattern.get().strip(), rules_id)
         if page == "sort":
             return ("sort", self.var_source.get().strip(), self.var_target.get().strip(),
@@ -415,6 +442,9 @@ class RunMixin:
                 extra = (i18n.t("gui.preview.more", count=entry["count"] - 1)
                          if entry["count"] > 1 else "")
                 rows.append((i18n.t("gui.field." + field), old, new, extra))
+            if plan.get("target"):
+                rows.append((i18n.t("gui.field.folder"), _pretty_path(plan.get("source", "")),
+                             _pretty_path(plan.get("target", "")), ""))
             return rows
 
         examples = plan.get("examples") or []
@@ -448,6 +478,8 @@ class RunMixin:
 
         self._scan_page = page
         self._scan_got_stats = False
+        token = CancelToken()
+        self._scan_cancel = token
         label.configure(text=i18n.t("gui.stats.scanning"))
         self.status_var.set(i18n.t("gui.status.scanning"))
         self._set_state(YELLOW)
@@ -455,10 +487,13 @@ class RunMixin:
         def worker() -> None:
             rc = 99
             try:
-                rc = cmd_scan(SimpleNamespace(folder=folder))
-            except Exception:
+                rc = cmd_scan(SimpleNamespace(folder=folder, cancel=token))
+            except Cancelled:
+                rc = 130
+            except Exception:  # noqa: BLE001
                 output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
-            self.queue.put(("scan_done", rc))
+            finally:
+                self.queue.put(("scan_done", rc))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -529,6 +564,7 @@ class RunMixin:
                source: str = "", target_root: str = "") -> bool:
         if self.running:
             return False
+        self._cancel_scan()
         self.running = True
         self._job_page = page
         self._cancel = CancelToken()
@@ -556,11 +592,11 @@ class RunMixin:
                 log_file = output.open_log_file(f"{description} · {self.last_path}")
                 if log_file:
                     output.message(i18n.t("gui.log.log_file", path=log_file))
-                    if getattr(args, "apply", False):
-                        if journal.enabled() and journal.open_for(log_file) is None:
-                            output.message(i18n.t("journal.error.open"))
-                            rc = 2
-                            return
+                if getattr(args, "apply", False) and journal.enabled():
+                    if log_file is None or journal.open_for(log_file) is None:
+                        output.message(i18n.t("journal.error.open"))
+                        rc = 2
+                        return
                 rc = function(args)
             except Exception:
                 output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
@@ -586,7 +622,7 @@ class RunMixin:
         signature = getattr(self, "_job_signature", None)
         if plan is not None:
             plan["signature"] = signature if rc == 0 and not applied else None
-        if rc == 0 and applied:
+        if applied:
             for page, other in self._plans.items():
                 if page != self._job_page:
                     other["signature"] = None
@@ -614,6 +650,7 @@ class RunMixin:
                 self.root.destroy()
             return
         if not self.running:
+            self._cancel_scan()
             self.root.destroy()
             return
         if not _ask_yes_no(i18n.t("gui.dialog.close.title"),
@@ -631,6 +668,11 @@ class RunMixin:
             self._cancel.cancel()
             if self._cancel_button is not None:
                 self._cancel_button.set_enabled(False)
+
+    def _cancel_scan(self) -> None:
+        """Ask a running folder scan to stop (it has no cancel button of its own)."""
+        if self._scan_cancel is not None:
+            self._scan_cancel.cancel()
 
     def _queue_pump(self) -> None:
         try:
@@ -668,6 +710,7 @@ class RunMixin:
     def _scan_finished(self) -> None:
         """A folder scan is over (also when it failed and sent no counters)."""
         page, self._scan_page = self._scan_page, None
+        self._scan_cancel = None
         if page is None:
             return
         if not getattr(self, "_scan_got_stats", False):

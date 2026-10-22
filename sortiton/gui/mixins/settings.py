@@ -17,16 +17,21 @@ from ..common import (
     stored_values,
     tk,
 )
+from .base import GuiBase
 
 
-class SettingsMixin:
+class SettingsMixin(GuiBase):
     """Variables, fine-tuning and the settings window."""
 
     def _make_vars(self) -> None:
         """Create every StringVar once - they survive a language switch."""
         self.var_tags_folder = tk.StringVar(value=str(DEFAULT_FOLDER))
+        self.var_tags_target = tk.StringVar(value=str(DEFAULT_FOLDER))
+        self.var_tags_mode = tk.StringVar(value="copy")
         self.var_ren_folder = tk.StringVar(value=str(DEFAULT_FOLDER))
+        self.var_ren_target = tk.StringVar(value=str(DEFAULT_FOLDER))
         self.var_ren_pattern = tk.StringVar(value=PATTERN_DEFAULT)
+        self.var_ren_mode = tk.StringVar(value="copy")
         self.var_source = tk.StringVar(value=str(DEFAULT_FOLDER))
         self.var_target = tk.StringVar(value=str(TARGET_FOLDER))
         self.var_sort_pattern = tk.StringVar(value=PATTERN_DEFAULT)

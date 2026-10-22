@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tkinter as tk
-from typing import cast
 
 from . import design
 from .design import BACKGROUND, FIELD, TEXT, TEXT_MUTED, YELLOW

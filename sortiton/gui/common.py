@@ -1,4 +1,11 @@
-"""Shared imports, constants and formatters for the GUI modules."""
+"""Shared imports, constants and formatters for the GUI modules.
+
+Re-Export-Hub: die GUI-Module holen ihre Abhängigkeiten hier, damit jede Datei
+nur eine Import-Quelle hat. Ein großer Teil der Importe wird deshalb in dieser
+Datei selbst nicht benutzt - pylint soll sie hier nicht als tot melden.
+"""
+
+# pylint: disable=unused-import
 
 from __future__ import annotations
 
@@ -15,7 +22,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .. import config, i18n, journal, output, rules, settings
-from ..cancel import CancelToken
+from ..cancel import CancelToken, Cancelled
 from ..features import FEATURES, get as feature_by_key
 from ..tasks import cmd_all, cmd_rename, cmd_restore, cmd_scan, cmd_sort, cmd_tags
 from . import design
@@ -62,11 +69,13 @@ _INFO_MARKERS = ("->", "PREVIEW", "VORSCHAU")
 
 
 def _fmt_number(value) -> str:
-    """Format a count with thousands separators (1842 -> 1.842)."""
+    """Format a count in the active language (1842 -> 1,842 en / 1.842 de)."""
     try:
-        return f"{int(value):,}".replace(",", ".")
+        number = int(value)
     except (TypeError, ValueError):
         return str(value)
+    text = f"{number:,}"
+    return text if i18n.get_language() == "en" else text.replace(",", ".")
 
 
 def _fmt_duration(value) -> str:

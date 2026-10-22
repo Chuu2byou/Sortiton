@@ -35,13 +35,13 @@ from ..common import (
     feature_run_label,
     i18n,
     section_label,
-    settings,
     tk,
     ttk,
 )
+from .base import GuiBase
 
 
-class LayoutMixin:
+class LayoutMixin(GuiBase):
     """Window layout, tabs, pages and their small widgets."""
 
     def _content_inset(self) -> int:
@@ -393,10 +393,14 @@ class LayoutMixin:
         """Folder -> active rules -> preview -> actions."""
         page = self._new_page(parent)
         self._page_header(page, 0, i18n.t("gui.tab.tags"), i18n.t("gui.hint.tags"))
-        self._folder_card(page, 1, "tags", [(i18n.t("gui.label.music_folder"),
-                                             self.var_tags_folder)])
-        self._rules_card(page, 2)
-        self._preview_card(page, 3, "tags")
+        self._folder_card(page, 1, "tags", [(i18n.t("gui.label.source_folder"),
+                                             self.var_tags_folder),
+                                            (i18n.t("gui.label.target_folder"),
+                                             self.var_tags_target)])
+        options = self._card(page, 2, i18n.t("gui.section.options"))
+        self._mode_row(options, 0, self.var_tags_mode)
+        self._rules_card(page, 3)
+        self._preview_card(page, 4, "tags")
         self._actions("tags", preview=lambda: self._run_tags(False),
                       execute=lambda: self._run_tags(True),
                       execute_text=i18n.t("gui.button.write_tags"))
@@ -405,11 +409,14 @@ class LayoutMixin:
     def _page_rename(self, parent: tk.Frame) -> tk.Frame:
         page = self._new_page(parent)
         self._page_header(page, 0, i18n.t("gui.tab.rename"), i18n.t("gui.hint.rename"))
-        self._folder_card(page, 1, "rename", [(i18n.t("gui.label.music_folder"),
-                                               self.var_ren_folder)])
+        self._folder_card(page, 1, "rename", [(i18n.t("gui.label.source_folder"),
+                                               self.var_ren_folder),
+                                              (i18n.t("gui.label.target_folder"),
+                                               self.var_ren_target)])
         options = self._card(page, 2, i18n.t("gui.section.options"))
         self._pattern_row(options, 0, self.var_ren_pattern)
-        self._hint(options, 2, i18n.t("gui.hint.rename_placeholders"))
+        self._mode_row(options, 2, self.var_ren_mode)
+        self._hint(options, 4, i18n.t("gui.hint.rename_placeholders"))
         self._preview_card(page, 3, "rename")
         self._actions("rename", preview=lambda: self._run_rename(False),
                       execute=lambda: self._run_rename(True),
