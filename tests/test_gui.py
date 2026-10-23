@@ -93,6 +93,8 @@ def test_screenshot_guard() -> None:
 
 @pytest.mark.gui
 def test_gui() -> None:
+    import unittest.mock as mock
+
     try:
         import tkinter as tk
     except ImportError:
@@ -355,10 +357,18 @@ def test_gui() -> None:
               and "DJ Example = Example DJ" in gui._rules_text.get("1.0", "end-1c"))
         check("llm apply never saves on its own", rules_file.exists() == existed)
 
+        # Der zweite Import landet in einem bereits offenen Editor und fragt
+        # vorher nach ("Text ersetzen?"). Ohne Nutzer wartet diese Rückfrage
+        # endlos: im CI blieb der Lauf hier stehen, bis der Timeout ihn
+        # abbrach. Die Antwort gibt deshalb der Test, nicht ein Dialog.
+        from sortiton.gui.mixins import rules as gui_rules
+
         gui._llm_text.delete("1.0", "end")
         gui._llm_text.insert("1.0", "```ini\n[Genre]\nbroken\n```\n")
-        gui._llm_rules_apply()
-        root.update()
+        with mock.patch.object(gui_rules, "_ask_yes_no", return_value=True) as confirm:
+            gui._llm_rules_apply()
+            root.update()
+        check("llm apply asks before it replaces the editor text", confirm.called)
         check("llm apply reports warnings in the log",
               any("broken" in line for line in gui._log_history))
 
@@ -369,7 +379,6 @@ def test_gui() -> None:
 
         # WM_DELETE_WINDOW: a running task is cancelled, not killed mid-write.
         from sortiton.cancel import CancelToken
-        import unittest.mock as mock
 
         check("a close handler is registered",
               bool(root.protocol("WM_DELETE_WINDOW")))

@@ -41,3 +41,37 @@ def _suite_environment():
     output.close_log_file()
     i18n.set_language("en")
     shutil.rmtree(_TMP, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _no_blocking_dialogs(monkeypatch):
+    """Ein modaler Dialog ohne Nutzer hängt den Lauf bis zum Timeout.
+
+    Auf dem CI-Runner fehlen ``kdialog`` und ``zenity``, deshalb fällt
+    ``sortiton.gui.dialogs._ask_yes_no`` auf ``tkinter.messagebox`` zurück und
+    wartet auf eine Antwort, die nie kommt - belegt durch den faulthandler-Dump
+    des GUI-Jobs (``_llm_rules_apply`` -> ``_rules_editor`` -> ``askyesno``).
+    Tests, die eine Rückfrage brauchen, patchen die Funktion in ihrem Modul;
+    alles andere scheitert hier sofort mit einer lesbaren Meldung.
+    """
+    try:
+        from tkinter import filedialog, messagebox  # noqa: WPS433
+    except ImportError:  # Tkinter fehlt (headless build) - nichts zu schützen
+        return
+
+    def refuse(name: str):
+        def _blocked(*_args, **_kwargs):
+            raise RuntimeError(
+                f"modal tkinter dialog {name}() would block the test run - "
+                "patch the caller's dialog function instead")
+        return _blocked
+
+    patched = (
+        (messagebox, ("askyesno", "askokcancel", "askretrycancel", "askquestion",
+                      "showinfo", "showwarning", "showerror")),
+        (filedialog, ("askopenfilename", "askopenfilenames", "asksaveasfilename",
+                      "askdirectory")),
+    )
+    for module, names in patched:
+        for name in names:
+            monkeypatch.setattr(module, name, refuse(name), raising=False)
