@@ -1,9 +1,14 @@
 name: Pylint
 
-on: [push]
+on: [push, pull_request, workflow_dispatch]
 
 permissions:
   contents: read
+
+# A newer push makes a running check pointless.
+concurrency:
+  group: pylint-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -14,6 +19,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.14"
+        cache: pip
+        cache-dependency-path: requirements*.txt
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -30,9 +37,13 @@ jobs:
         pylint sortiton sortiton_gui.py tests tools
         pylint sortiton.py
 
+  # The suite costs a few seconds; the setup around it is the expensive part.
+  # So the compatibility matrix runs everything except the window tests, and
+  # the GUI runs once below instead of on every interpreter.
   tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
@@ -41,8 +52,11 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    # ffmpeg for the CLI test (without ffprobe it exits with 2), python3-tk and
-    # xvfb for the GUI part.
+        cache: pip
+        cache-dependency-path: requirements*.txt
+    # ffmpeg for the CLI and export tests (without ffprobe they exit with 2),
+    # python3-tk because test_public_api and test_i18n import the GUI modules.
+    # Xvfb is not needed here - no window is opened without test_gui.py.
     - name: Install system packages
       run: |
         # The runner image carries a packages.microsoft.com repository that
@@ -53,12 +67,35 @@ jobs:
         grep -rls 'packages.microsoft.com' /etc/apt/sources.list.d/ \
           | sudo xargs -r rm -f
         sudo apt-get update -o Acquire::Retries=3
-        sudo apt-get install -y ffmpeg python3-tk xvfb
-    # The export tests compare against the mutagen path; requirements.txt pins it.
-    - name: Install runtime dependencies (mutagen)
-      run: python -m pip install -r requirements.txt
+        sudo apt-get install -y ffmpeg python3-tk
+    # requirements-dev.txt also pulls in pyinstaller, bandit, pip-audit and
+    # detect-secrets. The tests need none of them; security.yml runs those.
     - name: Install test dependencies
-      run: python -m pip install -r requirements-dev.txt
-    - name: Run pytest with a virtual display
+      run: python -m pip install pytest -r requirements.txt
+    - name: Run pytest without the GUI tests
+      run: python -m pytest --ignore=tests/test_gui.py
+
+  # Window, screenshot and dialog tests: one interpreter and one Xvfb run are
+  # enough, and tkinter plus a display are only installed here. Splitting by
+  # file, not by the "gui" marker: most tests in test_gui.py do not carry it.
+  gui:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+        cache: pip
+        cache-dependency-path: requirements*.txt
+    - name: Install system packages
       run: |
-        xvfb-run -a python3 -m pytest
+        # Same workaround as in the tests job.
+        grep -rls 'packages.microsoft.com' /etc/apt/sources.list.d/ \
+          | sudo xargs -r rm -f
+        sudo apt-get update -o Acquire::Retries=3
+        sudo apt-get install -y ffmpeg python3-tk xvfb
+    - name: Install test dependencies
+      run: python -m pip install pytest -r requirements.txt
+    - name: Run the GUI tests with a virtual display
+      run: xvfb-run -a python -m pytest tests/test_gui.py

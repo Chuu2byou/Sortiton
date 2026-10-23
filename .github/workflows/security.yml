@@ -14,7 +14,7 @@ name: Security
 # SARIF with `-f sarif -o` and upload-sarif.
 #
 # No Python matrix here - the scanners do not depend on the interpreter, while
-# the smoke-test matrix covers Python 3.12 through 3.14.
+# the test matrix in pylint.yml covers Python 3.12 through 3.14.
 on:
   push:
   pull_request:
