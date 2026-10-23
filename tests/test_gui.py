@@ -33,6 +33,20 @@ def _restore_gui_globals():
     i18n.set_language(saved[4])
 
 
+@pytest.fixture
+def tk_root():
+    tkinter = pytest.importorskip("tkinter")
+    try:
+        root = tkinter.Tk()
+    except tkinter.TclError as error:
+        pytest.skip(f"gui/no display: {error}")
+    yield root
+    try:
+        root.destroy()
+    except tkinter.TclError:
+        pass
+
+
 @pytest.mark.parametrize("rc", [0, 1, 130, 99])
 @pytest.mark.parametrize("applied", [False, True])
 def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applied: bool) -> None:
@@ -92,17 +106,11 @@ def test_screenshot_guard() -> None:
 
 
 @pytest.mark.gui
-def test_gui() -> None:
+def test_gui(tk_root) -> None:
+    import tkinter as tk
     import unittest.mock as mock
 
-    try:
-        import tkinter as tk
-    except ImportError:
-        pytest.skip("tkinter not installed")
-    try:
-        root = tk.Tk()
-    except tk.TclError as error:
-        pytest.skip(f"gui/no display: {error}")
+    root = tk_root
 
     from sortiton.gui import app as gui_app
     from sortiton.gui.app import SortitonGUI
@@ -207,11 +215,16 @@ def test_gui() -> None:
         check("undo window builds", bool(window.winfo_exists()))
         window.destroy()
         root.update()
-        check("undo keeps its list short",
-              len(undo_rows([{"op": "tags", "path": "/x/a.flac"}] * (MAX_ROWS + 2)))
-              == MAX_ROWS + 1)
+        rows = undo_rows([{"op": "tags", "path": "/x/a.flac"}] * (MAX_ROWS + 2))
+        check("undo keeps its list short", len(rows) == MAX_ROWS + 1, str(len(rows)))
+        check("the short list ends in a counter for the rest",
+              rows[-1] == ("", "", "", i18n.t("gui.restore.more", count=2)),
+              str(rows[-1]))
+        summary = undo_summary([{"op": "tags"}] * 6)
         check("undo summary names the count",
-              "6" in undo_summary([{"op": "tags"}] * 6))
+              summary == i18n.t("gui.restore.summary", total=6,
+                                parts=f"{i18n.t('gui.restore.op.tags')} 6"),
+              summary)
         check("restore has no page of its own", "restore" not in gui.pages)
         check("a restore signature can be built", bool(gui._signature("restore")))
 
@@ -323,7 +336,9 @@ def test_gui() -> None:
                 gui.var_tool[export.key]["output"].set(str(outdir))
                 gui.var_tool[export.key]["chunk_chars"].set("1500")
                 gui._run_tools()
-                deadline = time_module.monotonic() + 120
+                # 30 s genug fuer ein Fixture mit einer Handvoll Dateien; ein
+                # Haenger soll nicht zwei Minuten bis zur Fehlermeldung kosten.
+                deadline = time_module.monotonic() + 30
                 while gui.running and time_module.monotonic() < deadline:
                     try:
                         kind, value = gui.queue.get(timeout=0.1)
@@ -332,7 +347,8 @@ def test_gui() -> None:
                     gui._dispatch(kind, value)
                 root.update()
                 stats = output.last_stats("export")
-                check("tools export run finishes", not gui.running)
+                check("tools export run finishes", not gui.running,
+                      " | ".join(gui._log_history[-3:]))
                 check("tools export reports its folder",
                       stats.get("outdir") == str(outdir.resolve()), str(stats))
                 check("tools export points Open folder at the report",
@@ -360,7 +376,7 @@ def test_gui() -> None:
         # Der zweite Import landet in einem bereits offenen Editor und fragt
         # vorher nach ("Text ersetzen?"). Ohne Nutzer wartet diese Rückfrage
         # endlos: im CI blieb der Lauf hier stehen, bis der Timeout ihn
-        # abbrach. Die Antwort gibt deshalb der Test, nicht ein Dialog.
+        # abbrach. Die Antworten gibt deshalb der Test, nicht ein Dialog.
         from sortiton.gui.mixins import rules as gui_rules
 
         gui._llm_text.delete("1.0", "end")
@@ -369,8 +385,26 @@ def test_gui() -> None:
             gui._llm_rules_apply()
             root.update()
         check("llm apply asks before it replaces the editor text", confirm.called)
+        # Die Warnung wird vor der Rückfrage protokolliert; erst der Vergleich
+        # des Editorinhalts belegt, dass der Block wirklich übergeben wurde.
         check("llm apply reports warnings in the log",
               any("broken" in line for line in gui._log_history))
+        editor_text = gui._rules_text.get("1.0", "end-1c")
+        check("a confirmed import replaces the editor text",
+              "broken" in editor_text and "DJ Example" not in editor_text,
+              editor_text)
+
+        gui._llm_text.delete("1.0", "end")
+        gui._llm_text.insert("1.0", "```ini\n[Artist]\nOther = Artist\n```\n")
+        with mock.patch.object(gui_rules, "_ask_yes_no", return_value=False):
+            gui._llm_rules_apply()
+            root.update()
+        editor_text = gui._rules_text.get("1.0", "end-1c")
+        check("a declined import keeps the editor text",
+              "broken" in editor_text and "Other = Artist" not in editor_text,
+              editor_text)
+        check("the rules editor is never saved automatically",
+              rules_file.exists() == existed)
 
         if gui._llm_window is not None and gui._llm_window.winfo_exists():
             gui._llm_window.destroy()
@@ -415,7 +449,8 @@ def test_gui() -> None:
             pass
 
 
-def test_gui_aux_windows_follow_language() -> None:
+@pytest.mark.gui
+def test_gui_aux_windows_follow_language(tk_root) -> None:
     """Language switch reopens Toplevels in the new language, keeping content."""
     import tkinter as tk
     import unittest.mock as mock
@@ -424,7 +459,7 @@ def test_gui_aux_windows_follow_language() -> None:
     import sortiton.gui.app as gui_app
 
     with tempfile.TemporaryDirectory() as tmp:
-        root = tk.Tk()
+        root = tk_root
         gui = None
         try:
             with mock.patch.object(gui_app.config, "MUTAGEN_AVAILABLE", False):
