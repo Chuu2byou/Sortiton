@@ -48,6 +48,34 @@ def test_track_format_setting() -> None:
         check("the language survives", "language = en" in text, text)
         check("the setting is written", "track_format = keep" in text, text)
 
+def test_theme_setting_and_resolution() -> None:
+    """The theme choice persists and Auto resolves the detected system mode."""
+    from sortiton.gui import design
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "settings.ini"
+        path.write_text("[general]\nlanguage = en\n", encoding="utf-8")
+        with mock.patch.object(settings, "SETTINGS_FILE", path), \
+                mock.patch.dict(os.environ, {"SORTITON_THEME": ""}):
+            check("theme defaults to system", settings.resolve_theme() == "auto",
+                  settings.resolve_theme())
+            check("dark mode is stored", settings.save_theme("dark"))
+            check("dark mode is read", settings.resolve_theme() == "dark",
+                  settings.resolve_theme())
+            check("invalid theme falls back to system", settings.save_theme("invalid"))
+            check("system mode is restored", settings.resolve_theme() == "auto",
+                  settings.resolve_theme())
+
+    with mock.patch.object(settings, "resolve_theme", return_value="auto"), \
+            mock.patch.object(design, "_system_theme", return_value="dark"), \
+            mock.patch.dict(os.environ, {"SORTITON_THEME": ""}):
+        check("Auto follows the detected system theme",
+              design._resolve_theme() == "dark", design._resolve_theme())
+    with mock.patch.object(settings, "resolve_theme", return_value="light"), \
+            mock.patch.dict(os.environ, {"SORTITON_THEME": "dark"}):
+        check("environment theme override is preserved",
+              design._resolve_theme() == "dark", design._resolve_theme())
+
 
 def test_settings_keep_percent_values() -> None:
     """settings.ini muss einen Wert mit "%" verlustfrei zurückgeben.

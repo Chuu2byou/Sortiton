@@ -41,13 +41,11 @@ class LogMixin(GuiBase):
     """Result area, log view, footer and the open-* actions."""
 
     def _build_result_area(self) -> None:
-        """One area, two views: the result counters or the full log."""
-        self._result_area = tk.Frame(self.root, bg=BACKGROUND, height=self._result_height)
-        self._result_area.grid(row=ROW_RESULT, column=0, sticky="nsew", padx=design.px(22),
-                               pady=(design.px(4), design.px(6)))
+        """Ergebnis und Log öffnen sich bedarfsgerecht - kein dauerhafter Block."""
+        self._result_area = tk.Frame(self.root, bg=BACKGROUND)
+        self._result_area.grid(row=ROW_RESULT, column=0, sticky="nsew")
         self._result_area.columnconfigure(0, weight=1)
         self._result_area.rowconfigure(0, weight=1)
-        self._result_area.grid_propagate(False)
 
         self.result_panel = ResultPanel(self._result_area, i18n.t("gui.section.result"),
                                         i18n.t("gui.label.last_entries"), recent_lines=3)
@@ -59,6 +57,8 @@ class LogMixin(GuiBase):
             self._render_stats(last_kind, last_values)
         else:
             self._rebuild_result_header()
+            # Noch kein Lauf: der Ergebnisbereich bleibt geschlossen.
+            self._result_area.grid_remove()
 
         view = tk.Frame(self._result_area, bg=LOG_BG, highlightthickness=1,
                         highlightbackground=BORDER, bd=0)
@@ -92,6 +92,9 @@ class LogMixin(GuiBase):
         self.logbox.configure(yscrollcommand=scroll.set)
         self.logbox.grid(row=0, column=0, sticky="nsew")
         scroll.grid(row=0, column=1, sticky="ns")
+        scroll.grid_remove()
+        self._log_scroll = scroll
+        self.logbox.bind("<Configure>", lambda _event: self._update_log_scrollbar())
 
         self.logbox.tag_configure("err", foreground=RED)
         self.logbox.tag_configure("ok", foreground=GREEN)
@@ -99,16 +102,32 @@ class LogMixin(GuiBase):
         self.logbox.tag_configure("dim", foreground=TEXT_MUTED)
         self._log_lines = 0
 
+    def _update_log_scrollbar(self) -> None:
+        """Scrollbalken direkt am Log, nur wenn der Text überläuft."""
+        scroll = getattr(self, "_log_scroll", None)
+        if scroll is None or not self.logbox.winfo_ismapped():
+            return
+        try:
+            visible = self.logbox.yview()[1]
+        except tk.TclError:
+            return
+        if visible < 0.999 and self._log_lines:
+            scroll.grid()
+        else:
+            scroll.grid_remove()
+
     def _show_log_view(self) -> None:
         """Switch the result area to the full log and let it take the space."""
+        self._result_area.grid()
         self.result_panel.grid_remove()
         self._log_view.grid(row=0, column=0, sticky="nsew")
         self._log_shown = True
         self._resize_result_area(self._log_height, weight=1)
+        self.root.after_idle(self._update_log_scrollbar)
         self.logbox.see("end")
 
     def _show_result_view(self) -> None:
-        """Switch back to the counters."""
+        """Switch back to the counters; ohne Ergebnis bleibt der Bereich zu."""
         self._log_view.grid_remove()
         self.result_panel.grid(row=0, column=0, sticky="nsew")
         self._log_shown = False
@@ -116,8 +135,14 @@ class LogMixin(GuiBase):
         self._refresh_recent()
 
     def _resize_result_area(self, height: int, weight: int) -> None:
-        self._result_area.configure(height=height)
-        self.root.rowconfigure(ROW_RESULT, weight=weight, minsize=height)
+        """Ergebnisbereich nur öffnen, wenn ein Ergebnis oder Log existiert."""
+        has_result = bool(getattr(self, "_last_result_kind", None))
+        if self._log_shown or has_result:
+            self._result_area.grid()
+            self.root.rowconfigure(ROW_RESULT, weight=weight, minsize=0)
+        else:
+            self._result_area.grid_remove()
+            self.root.rowconfigure(ROW_RESULT, weight=0, minsize=0)
 
     def _refresh_recent(self) -> None:
         """Show the newest log lines in the result view (not while it is hidden)."""
@@ -152,6 +177,7 @@ class LogMixin(GuiBase):
             self._log_lines -= _LOG_TRIM_LINES
         self.logbox.see("end")
         self.logbox.configure(state="disabled")
+        self.root.after_idle(self._update_log_scrollbar)
 
     def _replay_log(self) -> None:
         for line in self._log_history:
@@ -163,16 +189,19 @@ class LogMixin(GuiBase):
         self.logbox.configure(state="normal")
         self.logbox.delete("1.0", "end")
         self.logbox.configure(state="disabled")
+        self._update_log_scrollbar()
         self._refresh_recent()
 
     def _build_footer(self) -> None:
-        """Status dot, status text, progress with percentage, quick links."""
+        """Stabile untere Zeile: Status, Fortschritt und die Freigabe zusammen."""
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_BOTTOM, column=0,
                                                       sticky="ew")
         footer = tk.Frame(self.root, bg=BACKGROUND)
-        footer.grid(row=ROW_FOOTER, column=0, sticky="ew", padx=design.px(22),
-                    pady=(design.px(8), design.px(14)))
-        footer.columnconfigure(2, weight=1)
+        footer.grid(row=ROW_FOOTER, column=0, sticky="ew",
+                    pady=(design.px(8), design.px(design.SPACE_M)))
+        # Der freie Platz liegt hinter dem Fortschritt. Die Prozentanzeige
+        # wächst in diese Spalte hinein und schiebt die Aktionen nie weg.
+        footer.columnconfigure(3, weight=1)
         self._footer = footer
 
         self._state_dot = tk.Canvas(footer, width=design.px(12), height=design.px(12),
@@ -184,29 +213,102 @@ class LogMixin(GuiBase):
                  font=design.FONT_SMALL).grid(row=0, column=1, sticky="w",
                                               padx=(design.px(8), 0))
         progress_holder = tk.Frame(footer, bg=BACKGROUND)
-        progress_holder.grid(row=0, column=2, sticky="ew",
-                             padx=(design.px(16), design.px(8)))
-        progress_holder.columnconfigure(0, weight=1)
-        self.progress = ProgressBar(progress_holder, width=180)
-        self.progress.grid(row=0, column=0, sticky="ew")
+        progress_holder.grid(row=0, column=2, sticky="w",
+                             padx=(design.px(16), 0))
+        self.progress = ProgressBar(progress_holder, width=220)
+        self.progress.grid(row=0, column=0, sticky="w")
         self.progress_label = tk.Label(footer, text="", bg=BACKGROUND, fg=TEXT_FAINT,
                                        font=design.FONT_SMALL)
         self.progress_label.grid(row=0, column=3, sticky="w",
-                                 padx=(0, design.px(8)))
+                                 padx=(design.px(12), 0))
+
+        # Freigabe (Vorschau/Anwenden der aktiven Funktion) in derselben Zeile;
+        # in_ ist nötig, weil die Fläche unter dem Root hängt, nicht im Footer.
+        self._actions_area.grid(row=0, column=4, sticky="e",
+                                padx=(design.px(design.SPACE_M),
+                                      design.px(design.SPACE_M)),
+                                in_=self._footer)
+        self._actions_area.lift()
 
         self._cancel_button = RoundButton(footer, i18n.t("gui.button.cancel"),
                                           self._cancel_run, style="normal", height=30)
-        self._cancel_button.grid(row=0, column=4, sticky="e", padx=(0, design.px(6)))
+        self._cancel_button.grid(row=0, column=5, sticky="e", padx=(0, design.px(6)))
         self._cancel_button.grid_remove()
 
-        RoundButton(footer, i18n.t("gui.button.undo"), self._open_restore,
-                    style="normal", height=30).grid(row=0, column=5, sticky="e")
-        RoundButton(footer, i18n.t("gui.button.open_logs"), self._open_logs,
-                    style="quiet", height=30).grid(row=0, column=6, sticky="e",
-                                                    padx=(design.px(6), 0))
-        RoundButton(footer, i18n.t("gui.button.open_folder"), self._open_last,
-                    style="quiet", height=30).grid(row=0, column=7, sticky="e",
-                                                    padx=(design.px(6), 0))
+        undo_button = RoundButton(footer, i18n.t("gui.button.undo"),
+                                  self._open_restore, style="normal", height=30)
+        undo_button.grid(row=0, column=6, sticky="e")
+        self._footer_undo = undo_button
+        logs_button = RoundButton(footer, i18n.t("gui.button.open_logs"),
+                                  self._open_logs, style="quiet", height=30)
+        logs_button.grid(row=0, column=7, sticky="e", padx=(design.px(6), 0))
+        self._footer_logs = logs_button
+        folder_button = RoundButton(footer, i18n.t("gui.button.open_folder"),
+                                    self._open_last, style="quiet", height=30)
+        folder_button.grid(row=0, column=8, sticky="e", padx=(design.px(6), 0))
+        self._footer_folder = folder_button
+        footer.bind("<Configure>", self._fit_footer, add="+")
+        self._actions_area.bind("<Configure>", self._fit_footer, add="+")
+        self.progress_label.bind("<Configure>", self._fit_footer, add="+")
+        self._apply_minsize()
+        self.root.after_idle(self._fit_footer)
+        self.root.after_idle(self._apply_minsize)
+
+    def _fit_footer(self, event=None) -> None:
+        """Blendet Hinweis und Schnellzugriffe aus, wenn der Platz nicht reicht.
+
+        Der Fortschritt, die Freigabe und der Status bleiben immer sichtbar;
+        die Nebenelemente weichen in dieser Reihenfolge: Hinweis, Ordner,
+        Logs, Rückgängig. So kann nichts über den Rand hinauslaufen.
+        """
+        footer = getattr(self, "_footer", None)
+        if footer is None:
+            return
+        width = footer.winfo_width()
+        if width <= 1:
+            return
+        note = self._preview_notes.get(self.var_page.get())
+        links = [("folder", getattr(self, "_footer_folder", None),
+                  design.px(6)),
+                 ("logs", getattr(self, "_footer_logs", None), design.px(6)),
+                 ("undo", getattr(self, "_footer_undo", None), 0)]
+        cancel = getattr(self, "_cancel_button", None)
+        total = 0
+        for child in footer.winfo_children():
+            if child is cancel and not child.winfo_manager():
+                continue
+            total += child.winfo_reqwidth()
+        actions = self._actions_area.winfo_reqwidth()
+        note_width = 0
+        if note is not None:
+            note_width = note.winfo_reqwidth() + design.px(14)
+            if note.winfo_manager() != "pack":
+                actions += note_width
+        total += actions + design.px(72)
+
+        show_note = note is not None
+        show = {name: True for name, _button, _extra in links}
+        if show_note and total > width:
+            total -= note_width
+            show_note = False
+        for name, button, extra in links:
+            if total <= width or button is None:
+                continue
+            total -= button.winfo_reqwidth() + extra
+            show[name] = False
+
+        if note is not None:
+            if show_note and note.winfo_manager() != "pack":
+                note.pack(side="left", padx=(design.px(14), 0))
+            elif not show_note and note.winfo_manager() == "pack":
+                note.pack_forget()
+        for name, button, _extra in links:
+            if button is None:
+                continue
+            if show[name] and not button.winfo_manager():
+                button.grid()
+            elif not show[name] and button.winfo_manager():
+                button.grid_remove()
 
     def _set_state(self, colour: str) -> None:
         """Colour the small dot in the status bar (idle / busy / problem)."""
@@ -218,6 +320,10 @@ class LogMixin(GuiBase):
 
     def _rebuild_result_header(self, backup: str = "", export_dir: str = "") -> None:
         """Buttons of the result card: log details, the export, the backup."""
+        if getattr(self, "_last_result_kind", None) and not self._log_shown:
+            # Erst ein Ergebnis öffnet den Ergebnisbereich (bedarfsgerecht).
+            self._result_area.grid()
+            self.root.rowconfigure(ROW_RESULT, weight=0, minsize=0)
         for child in self.result_panel.header_right.winfo_children():
             child.destroy()
         RoundButton(self.result_panel.header_right, i18n.t("gui.button.details"),

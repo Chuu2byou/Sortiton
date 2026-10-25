@@ -263,6 +263,15 @@ class OptionForm:
             else:
                 self._field_cell(body, grid_row, column, span, feature, option)
 
+    def _bind_responsive_wrap(self, parent: tk.Frame, label: tk.Label, *,
+                              columns: int = 1, reserve: int = 24) -> None:
+        """Adapt a form label's wrapping to the width of its grid cell."""
+        def resize(event) -> None:
+            available = max(event.width - design.px(reserve), design.px(120))
+            label.configure(wraplength=max(design.px(120), available // columns))
+
+        parent.bind("<Configure>", resize, add="+")
+
     def _field_cell(self, body: tk.Frame, row: int, column: int, span: int,
                     feature: Feature, option: Option) -> None:
         """Label above the input; long fields span both columns."""
@@ -274,10 +283,13 @@ class OptionForm:
             label = i18n.t(option.help_key) if option.help_key else option.name
         wrap = self._wide if span == 2 else self._narrow
         pad_right = design.px(14) if span == 1 and column == 0 else 0
-        tk.Label(body, text=label, bg=CARD, fg=TEXT_MUTED, font=design.FONT_SMALL,
-                 anchor="w", justify="left", wraplength=wrap).grid(
-                     row=row, column=column, columnspan=span, sticky="w",
-                     padx=(0, pad_right), pady=(0, design.px(5)))
+        field_label = tk.Label(body, text=label, bg=CARD, fg=TEXT_MUTED,
+                               font=design.FONT_SMALL, anchor="w", justify="left",
+                               wraplength=wrap)
+        self._bind_responsive_wrap(body, field_label,
+                                   columns=2 if span == 1 else 1)
+        field_label.grid(row=row, column=column, columnspan=span, sticky="ew",
+                         padx=(0, pad_right), pady=(0, design.px(5)))
         widget = self._input(body, option, variable)
         widget.grid(row=row + 1, column=column, columnspan=span, sticky="ew",
                     padx=(0, pad_right), pady=(0, design.px(12)))
@@ -295,7 +307,8 @@ class OptionForm:
         text = tk.Label(line, text=label, bg=CARD, fg=TEXT, font=design.FONT_SMALL,
                         anchor="w", justify="left", wraplength=self._wide,
                         cursor="hand2")
-        text.grid(row=0, column=0, sticky="w", padx=(0, design.px(12)))
+        self._bind_responsive_wrap(line, text, reserve=80)
+        text.grid(row=0, column=0, sticky="ew", padx=(0, design.px(12)))
         switch = Switch(line, variable)
         switch.grid(row=0, column=1, sticky="e")
         text.bind("<Button-1>", lambda _event: switch.toggle())

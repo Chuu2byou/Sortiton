@@ -53,19 +53,6 @@ class _ButtonStyle(TypedDict):
 class RoundButton(tk.Canvas):
     """Rounded button with hover, press and disabled states."""
 
-    STYLES: dict[str, _ButtonStyle] = {
-        "primary": {"bg": ACCENT, "hover": ACCENT_LIGHT, "text": ACCENT_TEXT,
-                    "hover_text": None, "border": ""},
-        "apply":   {"bg": APPLY, "hover": APPLY_LIGHT, "text": ACCENT_TEXT,
-                    "hover_text": None, "border": ""},
-        "danger":  {"bg": DANGER, "hover": DANGER_LIGHT, "text": ACCENT_TEXT,
-                    "hover_text": None, "border": ""},
-        "normal":  {"bg": FIELD, "hover": FIELD_ACTIVE, "text": TEXT,
-                    "hover_text": None, "border": BORDER},
-        "quiet":   {"bg": None, "hover": FIELD, "text": TEXT_MUTED,
-                    "hover_text": TEXT, "border": ""},
-    }
-
     def __init__(self, parent: tk.Misc, text: str, command: Callable[[], None] | None = None,
                  style: str = "normal", height: int = 34, radius: int = 10) -> None:
         self._style = style
@@ -129,7 +116,18 @@ class RoundButton(tk.Canvas):
             self._draw()
 
     def _colours(self) -> tuple[str, str, str]:
-        style = self.STYLES[self._style]
+        style: _ButtonStyle = {
+            "primary": {"bg": ACCENT, "hover": ACCENT_LIGHT, "text": ACCENT_TEXT,
+                        "hover_text": None, "border": ""},
+            "apply":   {"bg": APPLY, "hover": APPLY_LIGHT, "text": ACCENT_TEXT,
+                        "hover_text": None, "border": ""},
+            "danger":  {"bg": DANGER, "hover": DANGER_LIGHT, "text": ACCENT_TEXT,
+                        "hover_text": None, "border": ""},
+            "normal":  {"bg": FIELD, "hover": FIELD_ACTIVE, "text": TEXT,
+                        "hover_text": None, "border": BORDER},
+            "quiet":   {"bg": None, "hover": FIELD, "text": TEXT_MUTED,
+                        "hover_text": TEXT, "border": ""},
+        }[self._style]
         base = style["bg"] or self._parent_bg
         if not self._enabled:
             bg = _blend(self._parent_bg, base, 0.22) if style["bg"] else self._parent_bg
@@ -154,9 +152,9 @@ class RoundButton(tk.Canvas):
 class Pill(tk.Canvas):
     """Small status pill (chip) with a coloured dot."""
 
-    def __init__(self, parent: tk.Misc, text: str, colour: str = TEXT_MUTED,
+    def __init__(self, parent: tk.Misc, text: str, colour: str | None = None,
                  dot: bool = True) -> None:
-        self._colour = colour
+        self._colour = TEXT_MUTED if colour is None else colour
         self._dot = dot
         self._parent_bg = _bg_of(parent)
         width = self._width_for(text)
@@ -198,13 +196,13 @@ class Segments(tk.Canvas):
 
     def __init__(self, parent: tk.Misc, items: list[tuple[str, str]], variable: tk.StringVar,
                  command: Callable[[str], None] | None = None, height: int = 36,
-                 radius: int = 10, surface: str = CARD, font=None,
+                 radius: int = 10, surface: str | None = None, font=None,
                  stretch: bool = False) -> None:
         self._variable = variable
         self._command: Callable[[str], None] | None = command
         self._font = font or design.FONT_BUTTON
         self._radius = design.px(radius)
-        self._surface = surface
+        self._surface = CARD if surface is None else surface
         self._inner = design.px(2)
         self._hover_index: int | None = None
         self._items: list[tuple[str, str]] = []
@@ -285,7 +283,8 @@ class Segments(tk.Canvas):
 
     def _container_width(self) -> int:
         """Cover the whole cell: ``stretch`` spreads the segments over it."""
-        return max(self.winfo_reqwidth(), self.winfo_width())
+        width = self.winfo_width()
+        return width if width > 1 else self.winfo_reqwidth()
 
     def _draw(self) -> None:
         self.delete("all")

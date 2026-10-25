@@ -59,19 +59,43 @@ class RulesMixin(GuiBase):
         shown = 0
         for key, count in own:
             if count:
-                Pill(pills, i18n.t(key, count=count), GREEN).pack(side="left",
-                                                                 padx=(0, design.px(8)))
+                Pill(pills, i18n.t(key, count=count), GREEN)
                 shown += 1
         if not shown:
             tk.Label(pills, text=i18n.t("gui.pill.none"), bg=CARD, fg=TEXT_MUTED,
-                     font=design.FONT_SMALL).pack(side="left", padx=(0, design.px(8)))
+                     font=design.FONT_SMALL)
 
         builtin = status["builtin_artists"] + status["builtin_genres"]
         Pill(pills, i18n.t("gui.pill.builtin", count=builtin),
-             YELLOW if warnings else TEXT_MUTED).pack(side="left", padx=(0, design.px(8)))
+             YELLOW if warnings else TEXT_MUTED)
         if warnings:
-            Pill(pills, i18n.t("gui.pill.warnings", count=warnings),
-                 YELLOW).pack(side="left")
+            Pill(pills, i18n.t("gui.pill.warnings", count=warnings), YELLOW)
+        self._layout_rule_pills()
+
+    def _layout_rule_pills(self, _event=None) -> None:
+        """Wrap rule badges to the available card width instead of clipping them."""
+        pills = getattr(self, "_rules_pills", None)
+        if pills is None:
+            return
+        width = pills.winfo_width()
+        if width <= 1:
+            return
+        children = pills.winfo_children()
+        if not children:
+            return
+
+        gap = design.px(8)
+        row_height = max(child.winfo_reqheight() for child in children)
+        x = 0
+        y = 0
+        for child in children:
+            child_width = child.winfo_reqwidth()
+            if x and x + child_width > width:
+                x = 0
+                y += row_height + gap
+            child.place(x=x, y=y)
+            x += child_width + gap
+        pills.configure(height=y + row_height)
 
     def _rules_editor(self, prefill: str | None = None, restored: bool = False) -> None:
         """Small editor window for my_rules.ini."""
@@ -179,12 +203,13 @@ class RulesMixin(GuiBase):
         window.bind("<Escape>", lambda _e: self._close_rules_editor())
         window.bind("<Control-s>", lambda _e: self._save_rules())
 
-    def _set_rules_status(self, text: str, colour: str = TEXT_MUTED) -> None:
+    def _set_rules_status(self, text: str, colour: str | None = None) -> None:
         if self._rules_status is not None:
             self._rules_status.set(text)
         if self._rules_status_label is not None:
             try:
-                self._rules_status_label.configure(fg=colour)
+                self._rules_status_label.configure(
+                    fg=TEXT_MUTED if colour is None else colour)
             except tk.TclError:
                 pass
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import design
 from ..common import (
     DEFAULT_FOLDER,
     FEATURES,
@@ -121,6 +122,20 @@ class SettingsMixin(GuiBase):
             self._prefs_window = None
         i18n.set_language(code)
         settings.save_language(code)
+        self._build_all()
+        if reopen:
+            self._open_preferences()
+
+    def _theme_changed(self, mode: str) -> None:
+        """Apply the selected appearance immediately by rebuilding the GUI."""
+        if self.running:
+            _show_warning(i18n.t("gui.dialog.busy.title"), i18n.t("gui.dialog.busy.text"))
+            if self._prefs_window is not None:
+                self._prefs_window._theme_variable.set(settings.resolve_theme())
+            return
+        reopen = self._prefs_window is not None
+        settings.save_theme(mode)
+        design.apply_theme(mode)
         self._build_all()
         if reopen:
             self._open_preferences()

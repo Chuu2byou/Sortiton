@@ -8,13 +8,11 @@ from ..common import (
     BACKGROUND,
     BORDER,
     CARD,
-    CONTENT_MAX_WIDTH,
     FIELD,
     FIELD_ACTIVE,
     LOG_BG,
     Path,
     PreviewCard,
-    ROW_ACTIONS,
     ROW_CONTENT,
     ROW_LINE_TOP,
     ROW_RESULT,
@@ -40,33 +38,54 @@ from ..common import (
 )
 from .base import GuiBase
 
+# Arbeitsbereich: Zwei Spalten ab 1200 logischen Pixeln, einklappbare
+# Konfiguration zwischen 900 und 1199, darunter Konfiguration über der Vorschau.
+WIDE_MIN = 1200
+MID_MIN = 900
+CONFIG_DEFAULT = 560   # Standardbreite der Konfigurationsspalte
+CONFIG_MIN = 320       # kleinste Breite (Anwender verkleinert per Griff)
+CONFIG_MAX = 560       # größte sinnvolle Formularbreite
+CONTENT_CAP = 720      # Maximalbreite für Lesetexte/Eingaben im Stapelmodus
+
+
+class FillPreviewCard(PreviewCard):
+    """Vorschaukarte, die den freien Raum der rechten Spalte ausfüllt.
+
+    Der Inhalt bleibt oben verankert, die Karte wächst mit der Fensterhöhe.
+    """
+
+    def __init__(self, parent: tk.Misc, title: str) -> None:
+        super().__init__(parent, title)
+        children = self.winfo_children()
+        inner = children[0] if children else None
+        if inner is not None:
+            # Innenrahmen und Tabellenkörper dürfen die volle Höhe nutzen.
+            inner.grid_configure(sticky="nsew")
+            inner.grid_rowconfigure(1, weight=1)
+            self.grid_rowconfigure(0, weight=1)
+        if getattr(self, "_body", None) is not None:
+            self._body.grid_configure(sticky="nsew")
+
 
 class LayoutMixin(GuiBase):
     """Window layout, tabs, pages and their small widgets."""
 
-    def _content_inset(self) -> int:
-        """Left/right inset that lines the fixed rows up with the form column."""
-        base = design.px(22)
-        width = self.root.winfo_width()
-        spare = max(width - 2 * base - design.px(13) - design.px(CONTENT_MAX_WIDTH), 0)
-        return base + spare // 2
+    def _outer_inset(self) -> int:
+        """Der gemeinsame Außenabstand: Formular, Kopf und Fuß teilen die Kanten."""
+        return design.px(design.SPACE_XL)
 
     def _align_fixed_rows(self, event=None) -> None:
-        """Give tabs, action bar, result and footer the same centred column."""
+        """Gleiche Außenkanten für Kopfzeile, Ergebnis und Fuß; passt zudem den
+        Arbeitsbereich (Zwei-Spalten/Stapel-Modus) an die Fensterbreite an."""
         if event is not None and event.widget is not self.root:
             return
-        frames = getattr(self, "_fixed_rows", [])
-        if not frames:
-            return
-        inset = self._content_inset()
-        if inset == getattr(self, "_last_inset", None):
-            return
-        self._last_inset = inset
-        for frame in frames:
+        inset = self._outer_inset()
+        for frame in getattr(self, "_fixed_rows", []):
             try:
                 frame.grid_configure(padx=inset)
             except tk.TclError:
                 pass
+        self._apply_workspace_mode()
 
     def _build_all(self) -> None:
         """Build (or rebuild) the whole window - used for the language switch."""
@@ -95,7 +114,14 @@ class LayoutMixin(GuiBase):
         self._previews = {}
         self._stats_labels = {}
         self._tool_widgets = {}
-        self._last_inset = None
+        self._workspace_mode = None
+        self._config_collapsed = False
+        self._config_toggle = None
+        # Referenzen aus dem vorherigen Aufbau entsorgen, damit Zwischenrufe
+        # wie _apply_minsize nicht auf bereits zerstörte Widgets zugreifen.
+        self._tabs_bar = None
+        self._footer = None
+        self._result_area = None
         self._build_window(keep_geometry=self._placed)
         self._placed = True
         self._set_style()
@@ -104,8 +130,7 @@ class LayoutMixin(GuiBase):
         self._bind_shortcuts()
         self._build_result_area()
         self._build_footer()
-        self._fixed_rows = [self._tabs_bar, self._actions_area, self._result_area,
-                            self._footer]
+        self._fixed_rows = [self._tabs_bar, self._result_area, self._footer]
         self._align_fixed_rows()
         self._watch_inputs()
         self._show_page(self.var_page.get())
@@ -191,10 +216,17 @@ class LayoutMixin(GuiBase):
             self.root.geometry(f"{width}x{height}+{x}+{y}")
         self.root.minsize(min(design.px(680), screen_width - design.px(24)),
                           min(design.px(460), screen_height - design.px(48)))
+        if not keep_geometry:
+            try:
+                self.root.attributes("-zoomed", True)
+            except tk.TclError:
+                try:
+                    self.root.state("zoomed")
+                except tk.TclError:
+                    pass
         self.root.configure(bg=BACKGROUND)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(ROW_CONTENT, weight=1)
-        self.root.rowconfigure(ROW_RESULT, weight=0, minsize=self._result_height)
 
     def _apply_minsize(self) -> None:
         """Never let the tabs or the settings button get clipped."""
@@ -206,6 +238,35 @@ class LayoutMixin(GuiBase):
         needed = tabs.winfo_reqwidth() + design.px(44)
         if settings is not None:
             needed += settings.winfo_reqwidth() + design.px(12)
+        # Fußzeile: Status, Freigabe und Schnellzugriffe müssen zusammenpassen.
+        # Für die Mindestbreite zählen nur die unverzichtbaren Teile; Hinweis
+        # und Schnellzugriffe weichen bei schmalen Fenstern (siehe _fit_footer).
+        footer = getattr(self, "_footer", None)
+        if footer is not None:
+            try:
+                quick = {getattr(self, "_footer_undo", None),
+                         getattr(self, "_footer_logs", None),
+                         getattr(self, "_footer_folder", None)}
+                cancel = getattr(self, "_cancel_button", None)
+                footer_needed = 0
+                for child in footer.winfo_children():
+                    if child in quick or (child is cancel
+                                          and not child.winfo_manager()):
+                        continue
+                    footer_needed += child.winfo_reqwidth()
+                actions_area = getattr(self, "_actions_area", None)
+                if actions_area is not None:
+                    actions_needed = actions_area.winfo_reqwidth()
+                    note = self._preview_notes.get(self.var_page.get())
+                    if note is not None and note.winfo_manager() == "pack":
+                        actions_needed -= (note.winfo_reqwidth()
+                                           + design.px(14))
+                    footer_needed += max(actions_needed, 1)
+                footer_needed += design.px(60)  # Abstände der Basisspalten
+                # Die Fußzeile liegt beidseitig um den Außenabstand eingerückt.
+                needed = max(needed, footer_needed + 2 * self._outer_inset())
+            except tk.TclError:
+                pass  # Fußzeile beim Neuaufbau noch nicht vorhanden
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         width = min(max(design.px(680), needed), screen_width - design.px(24))
@@ -249,54 +310,82 @@ class LayoutMixin(GuiBase):
             self._icon_large = None
 
     def _build_tabs(self) -> None:
+        """Kopfzeile: echte Tabs (nicht mehr gestreckt), Einstellungen rechts."""
         bar = tk.Frame(self.root, bg=BACKGROUND)
-        bar.grid(row=ROW_TABS, column=0, sticky="ew", padx=design.px(22),
-                 pady=(design.px(16), 0))
-        bar.columnconfigure(0, weight=1)
+        bar.grid(row=ROW_TABS, column=0, sticky="ew", padx=self._outer_inset(),
+                 pady=(design.px(design.SPACE_L), 0))
+        bar.columnconfigure(2, weight=1)
         self._tabs_bar = bar
         tabs = Segments(bar,
                         [("tags", i18n.t("gui.tab.tags")), ("rename", i18n.t("gui.tab.rename")),
                          ("sort", i18n.t("gui.tab.sort")), ("all", i18n.t("gui.tab.all")),
                          ("tools", i18n.t("gui.tab.tools"))],
-                        self.var_page, command=self._show_page, height=42, stretch=True)
-        tabs.grid(row=0, column=0, sticky="ew")
+                        self.var_page, command=self._show_page,
+                        height=design.CONTROL_HEIGHT, stretch=False, surface=BACKGROUND)
+        tabs.grid(row=0, column=0, sticky="w")
         self._tabs = tabs
+        # Der Ein-/Ausklappknopf entsteht nur im Mittelbereich (900–1199 px).
+        self._config_toggle = None
         self._settings_button = RoundButton(bar, "⚙  " + i18n.t("gui.button.settings"),
                                             self._open_preferences, style="normal",
-                                            height=36)
-        self._settings_button.grid(row=0, column=1, sticky="e", padx=(design.px(12), 0))
+                                            height=design.CONTROL_HEIGHT)
+        self._settings_button.grid(row=0, column=3, sticky="e")
         self._apply_minsize()
 
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_TOP, column=0,
                                                       sticky="ew", pady=(design.px(14), 0))
 
-        viewport = tk.Frame(self.root, bg=BACKGROUND)
-        viewport.grid(row=ROW_CONTENT, column=0, sticky="nsew", padx=design.px(22),
-                      pady=(design.px(14), design.px(4)))
-        viewport.columnconfigure(0, weight=1)
-        viewport.rowconfigure(0, weight=1)
-        canvas = tk.Canvas(viewport, bg=BACKGROUND, highlightthickness=0, bd=0)
-        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview,
+        # Geteilter Arbeitsbereich: links Konfiguration, rechts die Vorschau.
+        workspace = tk.Frame(self.root, bg=BACKGROUND)
+        workspace.grid(row=ROW_CONTENT, column=0, sticky="nsew",
+                       padx=self._outer_inset(),
+                       pady=(design.px(design.SPACE_M), design.px(design.SPACE_S)))
+        workspace.columnconfigure(2, weight=1)
+        workspace.rowconfigure(0, weight=1)
+        self._workspace = workspace
+
+        config_area = tk.Frame(workspace, bg=BACKGROUND)
+        config_area.columnconfigure(0, weight=1)
+        config_area.rowconfigure(0, weight=1)
+        self._config_area = config_area
+        canvas = tk.Canvas(config_area, bg=BACKGROUND, highlightthickness=0, bd=0,
+                           width=design.px(CONFIG_DEFAULT))
+        scrollbar = ttk.Scrollbar(config_area, orient="vertical", command=canvas.yview,
                                   style="Dark.Vertical.TScrollbar")
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        scrollbar.grid_remove()
         content = tk.Frame(canvas, bg=BACKGROUND)
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
         content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+        self._content_canvas = canvas
+        self._content_window = content_window
         self._content_scrollbar = scrollbar
         content.bind("<Configure>", lambda _event: self._update_content_scrollbar())
-        canvas.bind("<Configure>", lambda event: self._resize_content_canvas(
-            event, content_window))
-        self._content_canvas = canvas
+        canvas.bind("<Configure>", lambda event: self._sync_content_width())
         self.root.bind_all("<MouseWheel>", self._scroll_content)
         self.root.bind_all("<Button-4>", self._scroll_content)
         self.root.bind_all("<Button-5>", self._scroll_content)
 
+        # Griff zum Verändern der Konfigurationsbreite (280–420 logische Pixel).
+        handle = tk.Canvas(workspace, bg=BACKGROUND, width=design.px(design.SPACE_S),
+                           height=1, highlightthickness=0, bd=0,
+                           cursor="sb_h_double_arrow")
+        handle.bind("<Configure>", lambda _event: self._draw_split_grip())
+        handle.bind("<ButtonPress-1>", self._split_press)
+        handle.bind("<B1-Motion>", self._split_drag)
+        self._split_handle = handle
+
+        # Freigabe-Leiste: entsteht hier, die Fußzeile nimmt sie auf.
         self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
-        self._actions_area.grid(row=ROW_ACTIONS, column=0, sticky="ew", padx=design.px(22),
-                                pady=(0, design.px(6)))
         self._actions_area.columnconfigure(0, weight=1)
+
+        preview_area = tk.Frame(workspace, bg=BACKGROUND)
+        preview_area.columnconfigure(0, weight=1)
+        preview_area.rowconfigure(0, weight=1)
+        self._preview_area = preview_area
 
         self.pages = {
             "tags":   self._page_tags(content),
@@ -308,19 +397,123 @@ class LayoutMixin(GuiBase):
         for page in self.pages.values():
             page.grid(row=0, column=0, sticky="nsew")
         self._show_page(self.var_page.get())
+        self._align_fixed_rows()
+
+    def _window_logical_width(self) -> int:
+        """Fensterbreite in logischen Pixeln (Skalierung herausgerechnet)."""
+        try:
+            return int(round(self.root.winfo_width() / design.UI_SCALE))
+        except (tk.TclError, ZeroDivisionError):
+            return 0
+
+    def _apply_workspace_mode(self) -> None:
+        """Arbeitsbereich an die Fensterbreite anpassen (breit/mittel/schmal)."""
+        if getattr(self, "_workspace", None) is None:
+            return
+        width = self._window_logical_width()
+        mode = ("wide" if width >= WIDE_MIN
+                else "mid" if width >= MID_MIN else "narrow")
+        if mode != getattr(self, "_workspace_mode", None):
+            self._workspace_mode = mode
+            self._grid_workspace(mode)
+        self._refresh_config_toggle()
+        self._sync_content_width()
+
+    def _grid_workspace(self, mode: str) -> None:
+        """Ordne Konfiguration, Griff und Vorschau für den Modus an."""
+        workspace = self._workspace
+        config_area = self._config_area
+        preview_area = self._preview_area
+        handle = self._split_handle
+        collapsed = getattr(self, "_config_collapsed", False) and mode == "mid"
+        for widget in (config_area, handle, preview_area):
+            widget.grid_forget()
+        workspace.columnconfigure(0, weight=0)
+        workspace.columnconfigure(1, weight=0)
+        workspace.columnconfigure(2, weight=1)
+        workspace.rowconfigure(1, weight=0)
+        if mode == "narrow":
+            # Konfiguration oberhalb der Vorschau, beides ohne Horizontal-Scroll.
+            config_area.grid(row=0, column=0, columnspan=3, sticky="nsew")
+            preview_area.grid(row=1, column=0, columnspan=3, sticky="ew",
+                              pady=(design.px(design.SPACE_M), 0))
+            workspace.rowconfigure(0, weight=1)
+            return
+        if collapsed:
+            # Eingeclippt: die Vorschau nutzt die volle Arbeitsbereichsbreite.
+            preview_area.grid(row=0, column=0, columnspan=3, sticky="nsew")
+            return
+        config_area.grid(row=0, column=0, sticky="ns")
+        handle.grid(row=0, column=1, sticky="ns")
+        preview_area.grid(row=0, column=2, sticky="nsew",
+                          padx=(design.px(design.SPACE_M), 0))
+
+    def _refresh_config_toggle(self) -> None:
+        """Ein-/Ausklappknopf nur im Mittelbereich (900–1199 px) zeigen."""
+        old = getattr(self, "_config_toggle", None)
+        if old is not None:
+            old.destroy()
+            self._config_toggle = None
+        if getattr(self, "_workspace_mode", None) != "mid":
+            return
+        collapsed = getattr(self, "_config_collapsed", False)
+        text = i18n.t("gui.button.show_config" if collapsed else "gui.button.hide_config")
+        toggle = RoundButton(self._tabs_bar, text, self._toggle_config, style="quiet",
+                             height=28)
+        toggle.grid(row=0, column=1, sticky="w", padx=(design.px(design.SPACE_M), 0))
+        self._config_toggle = toggle
+        self._apply_minsize()
+
+    def _toggle_config(self) -> None:
+        """Konfigurationsspalte im Mittelbereich ein- oder ausklappen."""
+        self._config_collapsed = not getattr(self, "_config_collapsed", False)
+        self._refresh_config_toggle()
+        self._grid_workspace(self._workspace_mode)
+
+    def _split_press(self, event) -> None:
+        """Startpunkt des Griffs merken."""
+        self._split_start_x = event.x_root
+
+    def _draw_split_grip(self) -> None:
+        """Gummlinien des Griffs über die volle Höhe zeichnen."""
+        handle = self._split_handle
+        handle.delete("all")
+        height = max(handle.winfo_height(), 1)
+        for offset in (2, 5):
+            handle.create_line(design.px(offset), 0, design.px(offset), height,
+                               fill=BORDER, width=1)
+
+    def _split_drag(self, event) -> None:
+        """Konfigurationsbreite per Griff ändern, geklemmt auf 280–420 px."""
+        canvas = self._content_canvas
+        try:
+            new = event.x_root - self._config_area.winfo_rootx()
+        except tk.TclError:
+            return
+        new = min(max(new, design.px(CONFIG_MIN)), design.px(CONFIG_MAX))
+        if new != canvas.winfo_width():
+            canvas.configure(width=new)
+            self._sync_content_width()
+
+    def _sync_content_width(self, *_args) -> None:
+        """Inhaltsbreite der Konfigurationsspalte ohne altes 1120-px-Limit;
+        im Stapelmodus bekommen Lesetexte und Eingaben ein Lesemaximum."""
+        canvas = getattr(self, "_content_canvas", None)
+        window = getattr(self, "_content_window", None)
+        if canvas is None or window is None:
+            return
+        width = canvas.winfo_width()
+        if getattr(self, "_workspace_mode", "wide") == "narrow":
+            width = min(width, design.px(CONTENT_CAP))
+        canvas.itemconfigure(window, width=max(width, 1))
+        canvas.coords(window, 0, 0)
+        self.root.after_idle(self._update_content_scrollbar)
 
     def _bind_shortcuts(self) -> None:
         """Ctrl+1 … Ctrl+5 pick a page, right where the tabs are."""
         for index, page in enumerate(("tags", "rename", "sort", "all", "tools"), start=1):
             self.root.bind(f"<Control-Key-{index}>",
                            lambda _event, name=page: self._show_page(name))
-
-    def _resize_content_canvas(self, event, content_window: int) -> None:
-        """Fill the viewport up to a readable width and centre the content."""
-        width = min(event.width, design.px(1120))
-        self._content_canvas.itemconfigure(content_window, width=width)
-        self._content_canvas.coords(content_window, max((event.width - width) // 2, 0), 0)
-        self.root.after_idle(self._update_content_scrollbar)
 
     def _update_content_scrollbar(self) -> None:
         """Show a scrollbar only when the active page exceeds the viewport."""
@@ -347,14 +540,28 @@ class LayoutMixin(GuiBase):
                 frame.grid()
             else:
                 frame.grid_remove()
+        # In der rechten Spalte ist nur die Karte der aktiven Funktion sichtbar;
+        # ein nur lesendes Werkzeug zeigt keine Karte (kein Schreiben, keine Vorschau).
+        tool_feature = (feature_by_key(self.var_tool_choice.get())
+                        if value == "tools" else None)
+        for name, card in getattr(self, "_previews", {}).items():
+            if name == value and not (name == "tools" and tool_feature is not None
+                                      and not tool_feature.writes):
+                card.grid(row=0, column=0, sticky="nsew")
+            else:
+                card.grid_remove()
         canvas = getattr(self, "_content_canvas", None)
         if canvas is not None:
             canvas.yview_moveto(0)
             self.root.after_idle(self._update_content_scrollbar)
+        if getattr(self, "_footer", None) is not None:
+            self.root.after_idle(self._fit_footer)
 
     def _scroll_content(self, event) -> str | None:
         """Scroll the central viewport only while the pointer is over it."""
         canvas = self._content_canvas
+        if not self._content_scrollbar.winfo_ismapped():
+            return None  # kein Überlauf, nichts zu scrollen
         x, y = event.x_root, event.y_root
         if not (canvas.winfo_rootx() <= x < canvas.winfo_rootx() + canvas.winfo_width()
                 and canvas.winfo_rooty() <= y < canvas.winfo_rooty() + canvas.winfo_height()):
@@ -562,19 +769,19 @@ class LayoutMixin(GuiBase):
     def _rules_card(self, page: tk.Frame, row: int) -> None:
         """Which rules are active - read from the file, not written as prose."""
         body = self._card(page, row, i18n.t("gui.section.active_rules"))
-        line = tk.Frame(body, bg=CARD)
-        line.grid(row=0, column=0, sticky="ew")
-        line.columnconfigure(0, weight=1)
-
-        self._rules_pills = tk.Frame(line, bg=CARD)
-        self._rules_pills.grid(row=0, column=0, sticky="w")
-        RoundButton(line, i18n.t("gui.button.custom_rules"), self._rules_editor,
-                    style="normal", height=30).grid(row=0, column=1, sticky="e")
+        self._rules_pills = tk.Frame(body, bg=CARD)
+        self._rules_pills.grid(row=0, column=0, sticky="ew")
+        self._rules_pills.bind("<Configure>", self._layout_rule_pills, add="+")
+        RoundButton(body, i18n.t("gui.button.custom_rules"), self._rules_editor,
+                    style="normal", height=30).grid(
+                        row=1, column=0, sticky="e", pady=(design.px(8), 0))
         self._refresh_rules_card()
 
-    def _preview_card(self, page: tk.Frame, row: int, key: str) -> None:
-        card = PreviewCard(page, i18n.t("gui.section.preview"))
-        card.grid(row=row, column=0, sticky="ew", pady=(0, design.px(14)))
+    def _preview_card(self, _page: tk.Frame, _row: int, key: str) -> None:
+        """Vorschaukarte der rechten Spalte; Titel kennzeichnet die Zusammenfassung."""
+        card = FillPreviewCard(self._preview_area,
+                               i18n.t("gui.section.preview_summary"))
+        card.grid(row=0, column=0, sticky="nsew")
         self._previews[key] = card
 
     def _pattern_row(self, card: tk.Frame, row: int, variable: tk.StringVar) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from sortiton.gui.mixins.layout import CONFIG_DEFAULT, CONFIG_MAX
 
 from _support import (
     BASE,
@@ -128,8 +129,17 @@ def test_gui(tk_root) -> None:
                              > gui._content_canvas.winfo_height() + 1)
         check("scrollbar visibility matches content overflow",
               gui._content_scrollbar.winfo_ismapped() == content_overflows)
-        check("result panel keeps its configured height",
-              gui._result_area.winfo_height() >= gui._result_height)
+        # Die Vorschau füllt den freien Raum und wächst mit der Fensterhöhe;
+        # der Ergebnisbereich öffnet sich bedarfsgerecht statt als fester Block.
+        preview_before = gui._preview_area.winfo_height()
+        check("preview fills the remaining window height", preview_before > 100,
+              str(preview_before))
+        taller = f"{root.winfo_width()}x{root.winfo_height() + 240}"
+        root.geometry(taller)
+        root.update()
+        check("preview grows with the window height",
+              gui._preview_area.winfo_height() > preview_before + 100,
+              f"{preview_before} -> {gui._preview_area.winfo_height()}")
         previous_geometry = root.geometry()
         root.geometry("900x460")
         root.update()
@@ -295,6 +305,19 @@ def test_gui(tk_root) -> None:
         prefs = gui._prefs_window
         check("settings window builds",
               prefs is not None and bool(prefs.window.winfo_exists()))
+        center_x = (root.winfo_rootx() + root.winfo_width() // 2)
+        settings_center_x = (prefs.window.winfo_rootx()
+                             + prefs.window.winfo_width() // 2)
+        check("settings window is horizontally centered",
+              abs(center_x - settings_center_x) <= 4,
+              f"{center_x} != {settings_center_x}")
+        if prefs.window.winfo_height() <= root.winfo_height():
+            center_y = root.winfo_rooty() + root.winfo_height() // 2
+            settings_center_y = (prefs.window.winfo_rooty()
+                                 + prefs.window.winfo_height() // 2)
+            check("settings window is vertically centered",
+                  abs(center_y - settings_center_y) <= 4,
+                  f"{center_y} != {settings_center_y}")
         check("settings has a widget per fine-tuning option",
               all((feature.key, option.name) in gui._tool_widgets
                   for feature, option in gui_tools.fine_tuning_items()),
@@ -315,6 +338,45 @@ def test_gui(tk_root) -> None:
               any(i18n.t("gui.settings.numbers").upper() == text
                   for text in label_texts(prefs.window)),
               i18n.t("gui.settings.numbers"))
+        check("settings offers the appearance modes",
+              any(i18n.t("gui.settings.theme").upper() == text
+                  for text in label_texts(prefs.window)),
+              i18n.t("gui.settings.theme"))
+        check("the appearance starts with a valid mode",
+              prefs._theme_variable.get() in settings.THEME_MODES,
+              prefs._theme_variable.get())
+        from sortiton.gui import design
+
+        old_theme = settings.resolve_theme()
+        old_effective_theme = design.theme()
+        prefs._theme_changed("dark")
+        check("the appearance selection is stored",
+              settings.resolve_theme() == "dark", settings.resolve_theme())
+        check("the running application changes to dark",
+              design.theme() == "dark", design.theme())
+        check("the rebuilt main window uses the new palette",
+              gui.root.cget("bg") == design.BACKGROUND, gui.root.cget("bg"))
+        check("settings remain open after a theme change",
+              gui._prefs_window is not None and gui._prefs_window.window.winfo_exists())
+        prefs = gui._prefs_window
+        check("the new settings window reflects the selected theme",
+              prefs._theme_variable.get() == "dark", prefs._theme_variable.get())
+        from sortiton.gui.panels import section_label
+        label_probe = section_label(prefs.window, "Theme")
+        check("section labels use the current card colour",
+              label_probe.cget("bg") == design._DARK["CARD"],
+              label_probe.cget("bg"))
+        label_probe.destroy()
+        from sortiton.gui.widgets import RoundButton
+        button_probe = RoundButton(gui.root, "Theme", style="normal")
+        check("buttons use the current palette",
+              button_probe._colours()[0] == design._DARK["FIELD"],
+              button_probe._colours()[0])
+        button_probe.destroy()
+        gui._theme_changed(old_theme)
+        prefs = gui._prefs_window
+        check("the previous effective theme is restored immediately",
+              design.theme() == old_effective_theme, design.theme())
         check("the track format starts with a valid mode",
               gui.var_track_format.get() in settings.TRACK_FORMATS,
               gui.var_track_format.get())
@@ -328,6 +390,22 @@ def test_gui(tk_root) -> None:
         check("the track format can be reset",
               settings.resolve_track_format() == old_format,
               settings.resolve_track_format())
+
+        if prefs.window.winfo_screenwidth() >= design.px(1100):
+            root.update()
+            check("settings start wide enough for two card columns",
+                  prefs.window.winfo_width() >= design.px(900),
+                  str(prefs.window.winfo_width()))
+            check("settings cards use two columns on a wide window",
+                  prefs._cards_wide is True, str(prefs._cards_wide))
+            prefs.window.geometry("720x600")
+            root.update()
+            check("settings cards collapse to one column when narrowed",
+                  prefs._cards_wide is False, str(prefs._cards_wide))
+            prefs.window.geometry("1000x700")
+            root.update()
+            check("settings cards spread to two columns when widened",
+                  prefs._cards_wide is True, str(prefs._cards_wide))
 
         prefs.window.destroy()
         root.update()
@@ -605,3 +683,146 @@ def test_dialog_timeout_falls_back_to_tkinter() -> None:
     check("dialog timeout is passed to subprocess",
           run.call_count == 2 and all(call.kwargs.get("timeout") for call in run.call_args_list),
           str(run.call_args_list))
+
+
+def _gui_on_size(tk_root, size: tuple[int, int]) -> tuple[object, object, bool]:
+    """Fenster auf eine Größe bringen; False, wenn Screen oder WM das verhindern."""
+    root = tk_root
+    if (root.winfo_screenwidth() < size[0] or root.winfo_screenheight() < size[1]):
+        return None, None, False
+    from sortiton.gui.app import SortitonGUI
+    gui = SortitonGUI(root)
+    root.geometry(f"{size[0]}x{size[1]}+0+0")
+    root.update()
+    # Fenstermanager oder Minsize können die Wunschgröße verwerfen; dann ist
+    # der Modus nicht vergleichbar und der Fall wird übersprungen.
+    comparable = abs(root.winfo_width() - size[0]) <= 8
+    return gui, root, comparable
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("size", [(1280, 720), (1920, 1080), (2560, 1440)])
+def test_gui_wide_workspace(tk_root, size) -> None:
+    """Breite Arbeitsfläche: zwei Spalten, volle Breite, gemeinsame Außenkanten."""
+    gui, root, comparable = _gui_on_size(tk_root, size)
+    if not comparable:
+        pytest.skip(f"window cannot be sized to {size[0]}x{size[1]}")
+    try:
+        from sortiton.gui import design
+        check(f"window {size[0]}x{size[1]} uses the wide mode",
+              gui._workspace_mode == "wide",
+              f"width={root.winfo_width()}, mode={gui._workspace_mode}")
+        check("configuration and preview sit side by side",
+              gui._config_area.winfo_ismapped()
+              and gui._preview_area.winfo_ismapped()
+              and gui._config_area.winfo_rootx() < gui._preview_area.winfo_rootx())
+        check("the config column keeps its adjustable width",
+              design.px(CONFIG_DEFAULT) <= gui._content_canvas.winfo_width()
+              <= design.px(CONFIG_MAX) + 2,
+              str(gui._content_canvas.winfo_width()))
+        pills = gui._rules_pills
+        check("active rule badges fit inside their card",
+              all(child.winfo_rootx() + child.winfo_width()
+                  <= pills.winfo_rootx() + pills.winfo_width() + 2
+                  and child.winfo_rooty() + child.winfo_height()
+                  <= pills.winfo_rooty() + pills.winfo_height() + 2
+                  for child in pills.winfo_children()))
+        check("the workspace spans the full window width (no 1120 px cap)",
+              gui._preview_area.winfo_rootx() + gui._preview_area.winfo_width()
+              >= root.winfo_rootx() + root.winfo_width() - gui._outer_inset() - 2)
+        check("tabs stay visible",
+              gui._tabs.winfo_ismapped())
+        check("the settings button does not overlap the tabs",
+              gui._tabs.winfo_rootx() + gui._tabs.winfo_width()
+              <= gui._settings_button.winfo_rootx())
+        check("the release bar is visible", gui._actions_area.winfo_ismapped())
+        stacking_order = root.tk.splitlist(
+            root.tk.call("winfo", "children", root._w))
+        check("process actions are above the footer background",
+              stacking_order.index(gui._actions_area._w)
+              > stacking_order.index(gui._footer._w))
+        footer_children = gui._footer.winfo_children()
+        check("the footer keeps all controls inside the window",
+              (sum(child.winfo_reqwidth() for child in footer_children)
+               + gui._actions_area.winfo_reqwidth())
+              <= gui._footer.winfo_width() + 2)
+        check("the progress bar stays compact on wide windows",
+              gui.progress.winfo_width() <= design.px(260),
+              str(gui.progress.winfo_width()))
+        placed = sorted(
+            [child for child in footer_children if child.winfo_ismapped()]
+            + [gui._actions_area],
+            key=lambda widget: widget.winfo_rootx())
+        check("footer controls do not overlap",
+              all(left.winfo_rootx() + left.winfo_width()
+                  <= right.winfo_rootx()
+                  for left, right in zip(placed, placed[1:])),
+              str([(widget.winfo_class(), widget.winfo_rootx(),
+                    widget.winfo_width()) for widget in placed]))
+        inset = gui._outer_inset()
+        edges = {name: getattr(gui, name).winfo_rootx() - root.winfo_rootx()
+                 for name in ("_tabs_bar", "_workspace", "_footer")}
+        check("tabs, workspace and footer share the outer edges",
+              all(edge == inset for edge in edges.values()), str(edges))
+    finally:
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("size", [(1100, 780), (820, 660)])
+def test_gui_narrow_workspace(tk_root, size) -> None:
+    """Schmales Fenster: Konfiguration eingeklappt bzw. oberhalb, ohne Scrollen."""
+    gui, root, comparable = _gui_on_size(tk_root, size)
+    if not comparable:
+        pytest.skip(f"window cannot be sized to {size[0]}x{size[1]}")
+    try:
+        from sortiton.gui import design
+        from sortiton.gui.mixins.layout import CONTENT_CAP, MID_MIN
+        check(f"window {size[0]}x{size[1]} leaves the wide mode",
+              gui._workspace_mode != "wide",
+              f"width={root.winfo_width()}, mode={gui._workspace_mode}")
+        if root.winfo_width() >= design.px(MID_MIN):
+            check("the middle width offers the collapse toggle",
+                  gui._workspace_mode == "mid" and gui._config_toggle is not None)
+            gui._toggle_config()
+            root.update()
+            check("the collapsed config frees the full width",
+                  not gui._config_area.winfo_ismapped()
+                  and gui._preview_area.winfo_ismapped()
+                  and gui._preview_area.winfo_width()
+                  >= gui._workspace.winfo_width() - 2)
+        else:
+            check("the narrow width stacks the config above the preview",
+                  gui._workspace_mode == "narrow"
+                  and gui._config_area.winfo_ismapped()
+                  and gui._preview_area.winfo_ismapped()
+                  and gui._config_area.winfo_rooty() < gui._preview_area.winfo_rooty())
+            check("narrow reading texts keep their length cap",
+                  int(gui._content_canvas.itemcget(gui._content_window, "width"))
+                  <= design.px(CONTENT_CAP) + 2,
+                  gui._content_canvas.itemcget(gui._content_window, "width"))
+        check("nothing extends past the window (no horizontal scrolling)",
+              gui._workspace.winfo_rootx() + gui._workspace.winfo_width()
+              <= root.winfo_rootx() + root.winfo_width() + 2)
+        footer = gui._footer
+        check("the footer fits the narrow window without overlapping",
+              all(widget.winfo_rootx() + widget.winfo_width()
+                  <= footer.winfo_rootx() + footer.winfo_width() + 2
+                  for widget in [*footer.winfo_children(), gui._actions_area]
+                  if widget.winfo_ismapped()),
+              str([(widget.winfo_class(), widget.winfo_rootx(),
+                    widget.winfo_width())
+                   for widget in footer.winfo_children()
+                   if widget.winfo_ismapped()]))
+        check("tabs stay visible on narrow windows",
+              gui._tabs.winfo_ismapped()
+              and gui._tabs.winfo_rootx() + gui._tabs.winfo_width()
+              <= root.winfo_rootx() + root.winfo_width())
+    finally:
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass

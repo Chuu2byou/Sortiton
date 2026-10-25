@@ -20,8 +20,9 @@ def _short(text: str, limit: int = MAX_VALUE_LENGTH) -> str:
     return "…" + text[-(limit - 1):]
 
 
-def section_label(parent: tk.Misc, text: str, bg: str = CARD) -> tk.Label:
+def section_label(parent: tk.Misc, text: str, bg: str | None = None) -> tk.Label:
     """Small uppercase section title drawn on top of a card."""
+    bg = CARD if bg is None else bg
     return tk.Label(parent, text=text.upper(), bg=bg, fg=TEXT_FAINT,
                     font=design.FONT_LABEL, anchor="w")
 
@@ -52,8 +53,9 @@ class PreviewCard(tk.Frame):
         self._body.columnconfigure(0, weight=1)
         self.hint("")
 
-    def hint(self, text: str, colour: str = TEXT_FAINT) -> None:
+    def hint(self, text: str, colour: str | None = None) -> None:
         """Show only a hint line (no preview yet, no changes, outdated …)."""
+        colour = TEXT_FAINT if colour is None else colour
         self._reset_body(CARD, BORDER_SOFT)
         self._summary.configure(text="", fg=TEXT_MUTED)
         tk.Label(self._body, text=text, bg=CARD, fg=colour, font=design.FONT_SMALL,

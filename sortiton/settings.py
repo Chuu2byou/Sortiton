@@ -14,11 +14,13 @@ SECTION = "general"
 KEY_LANGUAGE = "language"
 KEY_BACKUP = "backup"
 KEY_TRACK_FORMAT = "track_format"
+KEY_THEME = "theme"
 
 #: How track/disc numbers are normalised when tags are cleaned.
 #: ``keep`` leaves them alone, ``number`` turns ``1/11`` into ``1`` and
 #: ``padded`` turns ``1`` into ``01``.
 TRACK_FORMATS = ("keep", "number", "padded")
+THEME_MODES = ("auto", "light", "dark")
 
 SECTION_TOOLS = "tools"
 
@@ -183,3 +185,14 @@ def resolve_track_format() -> str:
 def save_track_format(value: str) -> bool:
     """Remember the track/disc format in settings.ini."""
     return write_value(KEY_TRACK_FORMAT, value if value in TRACK_FORMATS else "keep")
+
+
+def resolve_theme() -> str:
+    """Selected theme mode, falling back to system appearance."""
+    stored = read_value(KEY_THEME, "").strip().lower()
+    return stored if stored in THEME_MODES else "auto"
+
+
+def save_theme(value: str) -> bool:
+    """Remember the selected theme mode in settings.ini."""
+    return write_value(KEY_THEME, value if value in THEME_MODES else "auto")
