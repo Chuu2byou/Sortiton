@@ -18,6 +18,7 @@ from ..common import (
     YELLOW,
     _ask_yes_no,
     _show_error,
+    ask_choice,
     config,
     design,
     i18n,
@@ -136,17 +137,16 @@ class RulesMixin(GuiBase):
         y_scroll.grid(row=0, column=1, sticky="ns")
         x_scroll.grid(row=1, column=0, sticky="ew")
 
-        content = ""
-        if prefill is not None:
-            content = prefill
-        elif config.RULES_FILE.is_file():
-            try:
-                content = config.RULES_FILE.read_text(encoding="utf-8-sig")
-            except (OSError, UnicodeDecodeError):
-                content = ""
-        if not content.strip() and prefill is None:
+        disk_text = self._read_rules_file() or ""
+        self._rules_disk_text = disk_text
+        content = prefill if prefill is not None else disk_text
+        generated_template = not content.strip() and prefill is None
+        if generated_template:
             content = rules.rules_template()
         self._rules_text.insert("1.0", content)
+        if generated_template:
+            # The template is a starting point, not an unsaved user change.
+            self._rules_disk_text = content
 
         footer = tk.Frame(window, bg=BACKGROUND)
         footer.grid(row=2, column=0, sticky="ew", padx=design.px(20),
@@ -166,14 +166,17 @@ class RulesMixin(GuiBase):
                     style="quiet", height=34).pack(side="left")
         RoundButton(buttons, i18n.t("gui.button.builtin_rules"), self._insert_builtin,
                     style="quiet", height=34).pack(side="left", padx=(design.px(8), 0))
+        RoundButton(buttons, i18n.t("gui.button.reload"), self._reload_rules,
+                    style="quiet", height=34).pack(side="left", padx=(design.px(8), 0))
         RoundButton(buttons, i18n.t("gui.button.system_editor"), self._open_system_editor,
                     style="quiet", height=34).pack(side="left", padx=(design.px(8), 0))
-        RoundButton(buttons, i18n.t("gui.button.cancel"), window.destroy,
+        RoundButton(buttons, i18n.t("gui.button.cancel"), self._close_rules_editor,
                     style="normal", height=34).pack(side="left", padx=(design.px(8), 0))
         RoundButton(buttons, i18n.t("gui.button.save"), self._save_rules,
                     style="primary", height=34).pack(side="left", padx=(design.px(8), 0))
 
-        window.bind("<Escape>", lambda _e: window.destroy())
+        window.protocol("WM_DELETE_WINDOW", self._close_rules_editor)
+        window.bind("<Escape>", lambda _e: self._close_rules_editor())
         window.bind("<Control-s>", lambda _e: self._save_rules())
 
     def _set_rules_status(self, text: str, colour: str = TEXT_MUTED) -> None:
@@ -191,6 +194,59 @@ class RulesMixin(GuiBase):
             return
         self._rules_text.delete("1.0", "end")
         self._rules_text.insert("1.0", text)
+
+    def _read_rules_file(self) -> str | None:
+        """Current file content, or None when it is missing/unreadable."""
+        try:
+            return config.RULES_FILE.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    def _editor_content(self) -> str:
+        """The text currently in the rules editor."""
+        if self._rules_text is None:
+            return ""
+        try:
+            return self._rules_text.get("1.0", "end-1c")
+        except tk.TclError:
+            return ""
+
+    def _editor_dirty(self) -> bool:
+        """True when the editor differs from the last loaded/saved content."""
+        return self._editor_content().rstrip() != getattr(
+            self, "_rules_disk_text", "").rstrip()
+
+    def _close_rules_editor(self) -> None:
+        """Close the editor, asking first when unsaved changes would be lost."""
+        window = self._rules_window
+        if window is None:
+            return
+        if self._editor_dirty() and not _ask_yes_no(
+                i18n.t("gui.rules.confirm_discard.title"),
+                i18n.t("gui.rules.confirm_discard.text")):
+            return
+        try:
+            window.destroy()
+        except tk.TclError:
+            pass
+        self._rules_window = None
+        self._rules_text = None
+        self._rules_status = None
+        self._rules_status_label = None
+
+    def _reload_rules(self) -> None:
+        """Replace the editor content with the current file from disk."""
+        disk = self._read_rules_file()
+        if disk is None:
+            self._set_rules_status(i18n.t("gui.rules.status.missing"), YELLOW)
+            return
+        if self._editor_dirty() and not _ask_yes_no(
+                i18n.t("gui.rules.confirm_discard.title"),
+                i18n.t("gui.rules.confirm_discard.text")):
+            return
+        self._set_editor_text(disk)
+        self._rules_disk_text = disk
+        self._set_rules_status(i18n.t("gui.rules.status.reloaded"), GREEN)
 
     def _llm_rules_import(self) -> None:
         """Paste dialog: an LLM answer -> its INI block -> the rules editor."""
@@ -320,12 +376,32 @@ class RulesMixin(GuiBase):
         if text is None:
             return
         content = text.get("1.0", "end-1c").rstrip() + "\n"
+
+        disk = self._read_rules_file()
+        if disk is not None and disk != getattr(self, "_rules_disk_text", ""):
+            choice = ask_choice(
+                self.root,
+                title=i18n.t("gui.rules.conflict.title"),
+                heading=i18n.t("gui.rules.conflict.title"),
+                text=i18n.t("gui.rules.conflict.text"),
+                choices=[("reload", i18n.t("gui.button.reload")),
+                         ("overwrite", i18n.t("gui.button.overwrite")),
+                         ("cancel", i18n.t("gui.button.cancel"))])
+            if choice == "cancel":
+                return
+            if choice == "reload":
+                self._set_editor_text(disk)
+                self._rules_disk_text = disk
+                self._set_rules_status(i18n.t("gui.rules.status.reloaded"), YELLOW)
+                return
+
         try:
             atomic_write_text(config.RULES_FILE, content)
         except OSError as error:
             _show_error(i18n.t("gui.dialog.save_failed.title"),
                         i18n.t("gui.dialog.save_failed.text", error=error))
             return
+        self._rules_disk_text = content
 
         warnings = rules.load_custom_rules()
         for warning in warnings:

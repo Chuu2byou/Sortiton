@@ -24,7 +24,7 @@ from . import design
 from .design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD, FIELD_ACTIVE,
                      GREEN, LOG_BG, LOG_TEXT, RED, SCROLLBAR, SCROLLBAR_ACTIVE, TEXT,
                      TEXT_FAINT, TEXT_MUTED, YELLOW)
-from .confirm import ask_confirm
+from .confirm import ask_choice, ask_confirm
 from .dialogs import _ask_yes_no, _pick_file, _pick_folder, _show_error, _show_warning
 from .panels import PreviewCard, ResultPanel, section_label
 from .preferences import PreferencesWindow

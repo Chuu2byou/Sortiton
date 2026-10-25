@@ -39,6 +39,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tags.add_argument("--move", action="store_true", help=i18n.t("cli.tags.move"))
     p_tags.add_argument("--apply", action="store_true", help=i18n.t("cli.tags.apply"))
     p_tags.add_argument("--backup", action="store_true", help=i18n.t("cli.tags.backup"))
+    p_tags.add_argument("--track-format", dest="track_format", default=None,
+                        choices=settings.TRACK_FORMATS,
+                        help=i18n.t("cli.tags.track_format"))
+    p_tags.add_argument("--diff", action="store_true",
+                        help=i18n.t("cli.tags.diff"))
+    p_tags.add_argument("--diff-csv", dest="diff_csv", default=None,
+                        help=i18n.t("cli.tags.diff_csv"))
     p_tags.set_defaults(func=cmd_tags)
 
     p_rename = sub.add_parser("rename", parents=[common], help=i18n.t("cli.rename.help"))
@@ -68,6 +75,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_all.add_argument("--move", action="store_true", help=i18n.t("cli.all.move"))
     p_all.add_argument("--apply", action="store_true", help=i18n.t("cli.all.apply"))
     p_all.add_argument("--backup", action="store_true", help=i18n.t("cli.all.backup"))
+    p_all.add_argument("--track-format", dest="track_format", default=None,
+                       choices=settings.TRACK_FORMATS,
+                       help=i18n.t("cli.all.track_format"))
+    p_all.add_argument("--diff", action="store_true",
+                       help=i18n.t("cli.all.diff"))
+    p_all.add_argument("--diff-csv", dest="diff_csv", default=None,
+                       help=i18n.t("cli.all.diff_csv"))
     p_all.add_argument("--fetch-url", dest="fetch_url", default=None,
                        help=i18n.t("cli.all.fetch_url"))
     p_all.add_argument("--fetch-confirmed", dest="fetch_confirmed",

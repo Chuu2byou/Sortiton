@@ -225,6 +225,16 @@ def test_gui(tk_root) -> None:
               summary == i18n.t("gui.restore.summary", total=6,
                                 parts=f"{i18n.t('gui.restore.op.tags')} 6"),
               summary)
+        dedupe_rows = undo_rows([{"op": "dedupe", "source": "/x/b.mp3",
+                                  "target": "/x/.duplicates/b.mp3"}])
+        check("undo shows dedupe moves as moves",
+              dedupe_rows[0][0] == i18n.t("gui.restore.op.move")
+              and dedupe_rows[0][1] == "b.mp3", str(dedupe_rows))
+        check("the undo summary understands dedupe",
+              undo_summary([{"op": "dedupe"}])
+              == i18n.t("gui.restore.summary", total=1,
+                        parts=f"{i18n.t('gui.restore.op.move')} 1"),
+              undo_summary([{"op": "dedupe"}]))
         check("restore has no page of its own", "restore" not in gui.pages)
         check("a restore signature can be built", bool(gui._signature("restore")))
 
@@ -263,6 +273,20 @@ def test_gui(tk_root) -> None:
              if feature.key == export.key]))
         check("tools tab has no write button", "tools" not in gui._execute_buttons)
         check("tools signature can be built", gui._signature("tools")[0] == "tools")
+        dedupe = next(feature for feature in feature_list if feature.key == "dedupe")
+        check("dedupe is part of the tools forms",
+              (dedupe.key, "by") in gui._tool_widgets and
+              (dedupe.key, "folder") in gui._tool_widgets)
+        from sortiton.gui.mixins import run as gui_run
+
+        gui._plans["tools"] = {"files": 2, "source": "/music"}
+        with mock.patch.object(gui_run, "ask_confirm",
+                               return_value=(True, {})) as confirm:
+            check("the dedupe confirmation accepts",
+                  gui._confirm_dedupe() is True)
+        dedupe_text = confirm.call_args.kwargs["text"]
+        check("the dedupe confirmation counts the moves",
+              "2" in dedupe_text and ".duplicates" in dedupe_text, dedupe_text)
 
         # The fine-tuning cards live in the settings window; opening it fills
         # the same widgets registry, so the tab and the window stay in sync.
@@ -276,6 +300,35 @@ def test_gui(tk_root) -> None:
                   for feature, option in gui_tools.fine_tuning_items()),
               ", ".join(sorted(name for key, name in gui._tool_widgets
                                if key == export.key)))
+
+        def label_texts(widget):
+            for child in widget.winfo_children():
+                try:
+                    text = child.cget("text")
+                except tk.TclError:
+                    text = ""
+                if text:
+                    yield str(text)
+                yield from label_texts(child)
+
+        check("settings offers the track & disc formats",
+              any(i18n.t("gui.settings.numbers").upper() == text
+                  for text in label_texts(prefs.window)),
+              i18n.t("gui.settings.numbers"))
+        check("the track format starts with a valid mode",
+              gui.var_track_format.get() in settings.TRACK_FORMATS,
+              gui.var_track_format.get())
+        old_format = gui.var_track_format.get()
+        gui.var_track_format.set("padded")
+        gui._track_format_changed("padded")
+        check("the track format is stored", settings.resolve_track_format() == "padded",
+              settings.resolve_track_format())
+        gui.var_track_format.set(old_format)
+        gui._track_format_changed(old_format)
+        check("the track format can be reset",
+              settings.resolve_track_format() == old_format,
+              settings.resolve_track_format())
+
         prefs.window.destroy()
         root.update()
         check("settings window closes again", gui._prefs_window is None)

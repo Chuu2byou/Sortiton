@@ -16,7 +16,7 @@ from .files import content_digest, open_new
 
 SCHEMA = 1
 
-UNDOABLE = ("tags", "rename", "sort", "copy", "download")
+UNDOABLE = ("tags", "rename", "sort", "copy", "dedupe", "download")
 
 _file = None
 _path: Path | None = None
@@ -142,7 +142,7 @@ def record_tags(path: Path, before: dict, after: dict) -> None:
 
 
 def record_move(op: str, source: Path, target: Path, mode: str = "") -> None:
-    """Remember a rename or a sort step (``op`` is "rename"/"sort"/"copy")."""
+    """Remember a move (``op`` is "rename"/"sort"/"copy"/"dedupe")."""
     data: dict[str, object] = {"source": str(source), "target": str(target)}
     if mode:
         data["mode"] = mode

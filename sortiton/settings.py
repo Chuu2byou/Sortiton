@@ -13,6 +13,12 @@ from .fileops import atomic_write_text
 SECTION = "general"
 KEY_LANGUAGE = "language"
 KEY_BACKUP = "backup"
+KEY_TRACK_FORMAT = "track_format"
+
+#: How track/disc numbers are normalised when tags are cleaned.
+#: ``keep`` leaves them alone, ``number`` turns ``1/11`` into ``1`` and
+#: ``padded`` turns ``1`` into ``01``.
+TRACK_FORMATS = ("keep", "number", "padded")
 
 SECTION_TOOLS = "tools"
 
@@ -166,3 +172,14 @@ def resolve_backup() -> bool:
 def save_backup(enabled: bool) -> bool:
     """Remember the backup switch in settings.ini."""
     return write_value(KEY_BACKUP, "true" if enabled else "false")
+
+
+def resolve_track_format() -> str:
+    """Active track/disc format: settings.ini, falling back to ``keep``."""
+    stored = read_value(KEY_TRACK_FORMAT, "").strip().lower()
+    return stored if stored in TRACK_FORMATS else "keep"
+
+
+def save_track_format(value: str) -> bool:
+    """Remember the track/disc format in settings.ini."""
+    return write_value(KEY_TRACK_FORMAT, value if value in TRACK_FORMATS else "keep")

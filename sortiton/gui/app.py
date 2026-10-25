@@ -50,6 +50,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._rules_text: tk.Text | None = None
         self._rules_status: tk.StringVar | None = None
         self._rules_status_label: tk.Label | None = None
+        self._rules_disk_text = ""
         self._llm_window: tk.Toplevel | None = None
         self._llm_text: tk.Text | None = None
         self._llm_status: tk.StringVar | None = None

@@ -79,3 +79,55 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
     window.wait_window()
 
     return state["confirmed"], result
+
+
+def ask_choice(parent: tk.Misc, *, title: str, heading: str, text: str,
+               choices: list[tuple[str, str]],
+               cancel_key: str = "cancel") -> str:
+    """Ask one of several actions and return the chosen key.
+
+    ``choices`` is a list of ``(key, label)`` pairs.  Closing the window or
+    pressing Escape returns ``cancel_key``.  The first non-cancel choice is
+    drawn as the primary action.
+    """
+    result = {"choice": cancel_key}
+    window = tk.Toplevel(parent)
+    window.withdraw()
+    window.title(title)
+    window.configure(bg=BACKGROUND)
+    window.transient(parent.winfo_toplevel())
+    window.resizable(False, False)
+
+    body = tk.Frame(window, bg=BACKGROUND)
+    body.grid(row=0, column=0, sticky="nsew", padx=design.px(20), pady=design.px(18))
+    body.columnconfigure(0, weight=1)
+
+    tk.Label(body, text=heading, bg=BACKGROUND, fg=TEXT, font=design.FONT_SECTION,
+             anchor="w", justify="left").grid(row=0, column=0, sticky="w")
+    tk.Label(body, text=text, bg=BACKGROUND, fg=TEXT_MUTED, font=design.FONT_SMALL,
+             anchor="w", justify="left", wraplength=design.px(480)).grid(
+                 row=1, column=0, sticky="w", pady=(design.px(8), 0))
+
+    def close(key: str) -> None:
+        result["choice"] = key
+        window.destroy()
+
+    buttons = tk.Frame(body, bg=BACKGROUND)
+    buttons.grid(row=2, column=0, sticky="e", pady=(design.px(20), 0))
+    primary = next((key for key, _label in choices if key != cancel_key), "")
+    for key, label in choices:
+        RoundButton(buttons, label, lambda k=key: close(k),
+                    style="primary" if key == primary else "normal",
+                    height=36).pack(side="left", padx=(0, design.px(8)))
+
+    window.bind("<Escape>", lambda _event: close(cancel_key))
+    window.protocol("WM_DELETE_WINDOW", lambda: close(cancel_key))
+
+    window.update_idletasks()
+    x = max(parent.winfo_rootx() + (parent.winfo_width() - window.winfo_width()) // 2, 0)
+    y = max(parent.winfo_rooty() + (parent.winfo_height() - window.winfo_height()) // 3, 0)
+    window.geometry(f"+{x}+{y}")
+    window.deiconify()
+    window.grab_set()
+    window.wait_window()
+    return result["choice"]

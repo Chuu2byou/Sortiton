@@ -43,6 +43,7 @@ class SettingsMixin(GuiBase):
         self.var_page = tk.StringVar(value="tags")
         self.var_language = tk.StringVar(value=i18n.get_language())
         self.var_backup = tk.BooleanVar(value=settings.resolve_backup())
+        self.var_track_format = tk.StringVar(value=settings.resolve_track_format())
         self.var_tool = make_tool_vars()
         self.var_tool_choice = tk.StringVar(value=FEATURES[0].key if FEATURES else "")
         self.status_var = tk.StringVar(value="")
@@ -123,3 +124,8 @@ class SettingsMixin(GuiBase):
         self._build_all()
         if reopen:
             self._open_preferences()
+
+    def _track_format_changed(self, code: str) -> None:
+        """Remember the track/disc format and invalidate an old preview."""
+        settings.save_track_format(code)
+        self._inputs_changed()

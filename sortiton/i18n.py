@@ -56,7 +56,15 @@ _EN: dict[str, str] = {
     "cli.export.fp_threshold": "similarity threshold 0.0-1.0 (default: 0.70)",
     "cli.export.threads": "parallel readers (default: number of CPUs)",
     "cli.tags.backup": "copy the files into a backup folder before writing",
+    "cli.tags.track_format": ('track/disc numbers: keep, number (1/11 -> 1) or '
+                              'padded (1 -> 01)'),
+    "cli.tags.diff": "show the planned tag changes grouped by field",
+    "cli.tags.diff_csv": "write the planned tag changes as a fixes CSV",
     "cli.all.backup": "copy the files into a backup folder before writing",
+    "cli.all.track_format": ('track/disc numbers: keep, number (1/11 -> 1) or '
+                             'padded (1 -> 01)'),
+    "cli.all.diff": "show the planned tag changes grouped by field",
+    "cli.all.diff_csv": "write the planned tag changes as a fixes CSV",
     "cli.rule_warning": "  RULE WARNING: {text}",
     "cli.custom_rules": "  Custom rules: {summary}  ({file})",
     "cli.cancelled": "  Cancelled.",
@@ -119,6 +127,26 @@ _EN: dict[str, str] = {
     "cli.fixes.root": "root folder the CSV paths are relative to",
     "cli.fixes.apply": "write the corrections",
     "cli.fixes.backup": "copy the files into a backup folder before writing",
+
+    "dedupe.title": "DEDUPE - move duplicate files into .duplicates",
+    "dedupe.label.mode": "  Mode     : {value}",
+    "dedupe.label.target": "  Move to  : {value}",
+    "dedupe.mode.content": "identical file content",
+    "dedupe.mode.tags": "same artist + title + album + duration",
+    "dedupe.found": "  Found {groups} duplicate group(s) - {files} file(s) can move.",
+    "dedupe.group": "  Group {index}: keeping `{keeper}`, moving {count} file(s)",
+    "dedupe.move": "    `{source}`  ->  `{target}`",
+    "dedupe.moving": "  Moving {count} duplicate(s) …",
+    "dedupe.none": "  No duplicates found.",
+    "dedupe.done": "  Duplicates: {changed} file(s) in {groups} group(s), {total} scanned.",
+    "dedupe.hint.apply": "  Preview only - run again with --apply to move them.",
+    "dedupe.skip.changed": "  Skipped (changed since the scan): {name}",
+    "dedupe.error.mode": "  ERROR: unknown mode: {mode}",
+    "dedupe.error.read": "  ERROR: cannot read {name}: {error}",
+    "cli.dedupe.help": "Move duplicate audio files into .duplicates (never deletes)",
+    "cli.dedupe.folder": "music folder to scan",
+    "cli.dedupe.by": "what counts as a duplicate (default: content)",
+    "cli.dedupe.apply": "move the duplicates into .duplicates",
 
     "fetch.title": "FETCH - download audio with yt-dlp",
     "fetch.error.url": "  ERROR: no URL given.",
@@ -230,6 +258,15 @@ _EN: dict[str, str] = {
                                      "({count}; `: / ? * |` -> `_` and truncated names are "
                                      "already factored out)"),
     "export.report.filename.entry": '`{path}` (title tag: "{title}")',
+    "export.report.covers.title": "## Covers ({count} files without an embedded cover)",
+    "export.report.covers.note": ("_A folder image (cover.jpg, folder.jpg, front.jpg, …) is "
+                                  "reported only; nothing is embedded automatically._"),
+    "export.report.covers.unembedded.title": ("### Cover file present, not embedded "
+                                              "({folders} folder(s), {files} file(s))"),
+    "export.report.covers.unembedded.entry": "- `{folder}` - {cover} ({count} file(s))",
+    "export.report.covers.missing.title": ("### Neither embedded nor a cover file "
+                                           "({folders} folder(s), {files} file(s))"),
+    "export.report.covers.missing.entry": "- `{folder}` ({count} file(s))",
     "export.report.duplicates.title": ("## Possible duplicates (same artist+title) "
                                        "({count} groups)"),
     "export.report.inconsistent.title": ("## Folders with inconsistent album/album "
@@ -359,6 +396,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "task.label.target": "  Target  : {value}",
     "task.label.pattern": "  Pattern : {value}",
     "task.label.files": "  Files   : {value}",
+    "task.diff.title": "  Planned tag changes",
+    "task.diff.none": "  No tag changes.",
+    "task.diff.csv": "  Diff CSV: {path} ({count} row(s))",
+    "task.diff.csv_error": "  ERROR: Could not write the diff CSV ({path}): {error}",
     "task.label.mode": "  Mode    : {value}",
     "task.title.tags": "MUSIC - TAG CLEANUP",
     "task.title.rename": "MUSIC - RENAME (tags -> file name)",
@@ -424,6 +465,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "rules.warn.regex_unsafe": ('Regex rule "{rule}" contains nested/alternating '
                                 'quantifiers (ReDoS risk) - skipped.'),
     "rules.warn.genre_no_equals": 'Genre rule "{rule}" without "=" - skipped (old = new).',
+    "rules.warn.pipe_separator": ('Artist rule "{rule}" uses "|" - it is read like ";" '
+                                  '(multi-value tags are joined with "; ").'),
+    "rules.warn.protected_conflict": ('Artist rule "{rule}" is also listed under '
+                                      '[Protected] - [Protected] wins, so the rule is ignored.'),
     "rules.summary.artists": "{count} artist",
     "rules.summary.artists_plural": "{count} artists",
     "rules.summary.regex": "{count} regex",
@@ -435,6 +480,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "rules.overview.header3": "#  them, so they have the last word.",
     "rules.overview.header4": "#  To keep a built-in fix away from one name, put that name under",
     "rules.overview.header5": "#  [Protected] - it stays untouched then.",
+    "rules.overview.separator_title": ('#  Multi-value tags are read with "; " (the export '
+                                       'shows " | ");'),
+    "rules.overview.separator1": '#  [Artist] rules accept both ";" and "|".',
+    "rules.overview.separator2": '#  [Artist Regex] keeps "|" as regex alternation.',
     "rules.overview.genre_title": "#  [Genre] spellings (case does not matter):",
     "rules.overview.genre_fixed": "#    Fixed genre rules:",
     "rules.overview.genre_f1": '#      - is never split at "-" (J-Pop stays J-Pop)',
@@ -541,8 +590,11 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
                         "names first - nothing is changed before “Rename”."),
     "gui.hint.fetch": ("Downloads audio with yt-dlp. Only download content you "
                        "have the rights to."),
+    "gui.hint.dedupe": ("Moves duplicate audio files into .duplicates. Nothing is "
+                        "deleted; restore brings them back. Identical content is "
+                        "the default; tag mode needs a tag reader."),
     "gui.hint.tools": ("Helper tools that run on their own: export reports, apply "
-                       "corrections from a CSV, or fetch audio."),
+                       "corrections from a CSV, fetch audio, or find duplicates."),
     "gui.confirm.tags.title": "Really write the tags?",
     "gui.confirm.tags.text": ("{changes} changes in {files} files:\n"
                               "artist, album artist, title, album and genre.\n\n"
@@ -563,6 +615,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.confirm.tools.title": "Really write the corrections?",
     "gui.confirm.tools.text": ("{changes} corrections from {files} CSV row(s) will "
                                "be written to the audio files."),
+    "gui.confirm.dedupe.title": "Really move the duplicates?",
+    "gui.confirm.dedupe.text": ("{files} duplicate file(s) from {folder} will be moved "
+                                "into the hidden .duplicates folder. Nothing is "
+                                "deleted; sortiton restore can bring them back."),
     "gui.confirm.fetch.title": "Really download?",
     "gui.confirm.fetch.text": ("yt-dlp will download the URL and write the audio "
                                "into the chosen folder."),
@@ -594,6 +650,7 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.job.export": "Export reports",
     "gui.job.fixes": "Apply CSV corrections",
     "gui.job.fetch": "Fetch audio",
+    "gui.job.dedupe": "Find duplicates",
     "gui.job.preview": "{name} (preview)",
     "gui.job.run": "{name} (run)",
     "gui.log.job": "▶ {description}",
@@ -614,6 +671,17 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.rules.status.saved": "Saved ✓  ({summary})",
     "gui.rules.status.none": "no entries",
     "gui.rules.status.prefilled": "Prefilled from the LLM answer - not saved yet",
+    "gui.rules.status.reloaded": "Reloaded from disk",
+    "gui.rules.status.missing": "The rule file does not exist on disk",
+    "gui.button.reload": "Reload",
+    "gui.button.overwrite": "Overwrite",
+    "gui.rules.conflict.title": "Rule file changed outside the editor",
+    "gui.rules.conflict.text": ("The file was changed by another program since it was opened. "
+                                "Reload the external version, overwrite it with the editor "
+                                "content, or cancel."),
+    "gui.rules.confirm_discard.title": "Discard changes?",
+    "gui.rules.confirm_discard.text": ("The editor contains unsaved changes. Close it and "
+                                       "discard them?"),
     "gui.rules.confirm_replace.title": "Replace the editor content?",
     "gui.rules.confirm_replace.text": ("The editor already contains unsaved text. "
                                        "Replace it with the LLM block?"),
@@ -671,6 +739,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.tool.fixes.run": "Write corrections",
     "gui.tool.fetch": "Fetch",
     "gui.tool.fetch.run": "Start download",
+    "gui.tool.dedupe": "Duplicates",
+    "gui.tool.dedupe.run": "Move duplicates",
+    "gui.choice.by.content": "Identical content",
+    "gui.choice.by.tags": "Same tags + duration",
     "gui.tools.section.files": "Folder & files",
     "gui.tools.section.report": "Report contents",
     "gui.tools.section.download": "Download",
@@ -732,6 +804,12 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
                                 "nothing to set up here."),
     "gui.settings.language": "Language",
     "gui.settings.language_hint": "Stored in settings.ini, applied again on the next start.",
+    "gui.settings.numbers": "Track & disc numbers",
+    "gui.settings.numbers_hint": ('Applied by "Write tags" and "Run all". "Keep" leaves '
+                                  'the values untouched.'),
+    "gui.number.keep": "Keep",
+    "gui.number.number": "Number",
+    "gui.number.padded": "Padded",
 
     "cli.restore.help": "Undo the changes of an earlier run",
     "cli.restore.journal": "journal to undo (default: the most recent one)",
@@ -850,7 +928,15 @@ _DE: dict[str, str] = {
     "cli.export.fp_threshold": "Ähnlichkeitsschwelle 0.0-1.0 (Standard: 0.70)",
     "cli.export.threads": "parallele Leser (Standard: Anzahl der CPUs)",
     "cli.tags.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
+    "cli.tags.track_format": ('Track-/Disc-Nummern: keep, number (1/11 -> 1) oder '
+                              'padded (1 -> 01)'),
+    "cli.tags.diff": "die geplanten Tag-Änderungen nach Feld gruppiert zeigen",
+    "cli.tags.diff_csv": "die geplanten Tag-Änderungen als Fixes-CSV schreiben",
     "cli.all.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
+    "cli.all.track_format": ('Track-/Disc-Nummern: keep, number (1/11 -> 1) oder '
+                             'padded (1 -> 01)'),
+    "cli.all.diff": "die geplanten Tag-Änderungen nach Feld gruppiert zeigen",
+    "cli.all.diff_csv": "die geplanten Tag-Änderungen als Fixes-CSV schreiben",
     "cli.rule_warning": "  REGEL-WARNUNG: {text}",
     "cli.custom_rules": "  Eigene Regeln: {summary}  ({file})",
     "cli.cancelled": "  Abgebrochen.",
@@ -914,6 +1000,29 @@ _DE: dict[str, str] = {
     "cli.fixes.root": "Wurzelordner, auf den sich die CSV-Pfade beziehen",
     "cli.fixes.apply": "die Korrekturen schreiben",
     "cli.fixes.backup": "Dateien vor dem Schreiben in einen Backup-Ordner kopieren",
+
+    "dedupe.title": "DEDUPE - doppelte Dateien nach .duplicates verschieben",
+    "dedupe.label.mode": "  Modus    : {value}",
+    "dedupe.label.target": "  Ziel     : {value}",
+    "dedupe.mode.content": "identischer Dateiinhalt",
+    "dedupe.mode.tags": "gleicher Künstler + Titel + Album + Länge",
+    "dedupe.found": ("  {groups} Duplikat-Gruppe(n) gefunden - {files} Datei(en) "
+                     "können verschoben werden."),
+    "dedupe.group": "  Gruppe {index}: `{keeper}` bleibt, {count} Datei(en) wandern",
+    "dedupe.move": "    `{source}`  ->  `{target}`",
+    "dedupe.moving": "  Verschiebe {count} Duplikat(e) …",
+    "dedupe.none": "  Keine Duplikate gefunden.",
+    "dedupe.done": ("  Duplikate: {changed} Datei(en) in {groups} Gruppe(n), "
+                    "{total} geprüft."),
+    "dedupe.hint.apply": "  Nur Vorschau - erneut mit --apply ausführen, um zu verschieben.",
+    "dedupe.skip.changed": "  Übersprungen (seit dem Scan geändert): {name}",
+    "dedupe.error.mode": "  FEHLER: unbekannter Modus: {mode}",
+    "dedupe.error.read": "  FEHLER: {name} kann nicht gelesen werden: {error}",
+    "cli.dedupe.help": ("Doppelte Audiodateien nach .duplicates verschieben "
+                        "(löscht nie)"),
+    "cli.dedupe.folder": "Musikordner, der geprüft wird",
+    "cli.dedupe.by": "was als Duplikat gilt (Standard: Inhalt)",
+    "cli.dedupe.apply": "die Duplikate nach .duplicates verschieben",
 
     "fetch.title": "FETCH - Audio mit yt-dlp herunterladen",
     "fetch.error.url": "  FEHLER: keine URL angegeben.",
@@ -1029,6 +1138,16 @@ _DE: dict[str, str] = {
                                      "`: / ? * |` -> `_` und gekürzte Namen sind schon "
                                      "herausgerechnet)"),
     "export.report.filename.entry": '`{path}` (Titel-Tag: "{title}")',
+    "export.report.covers.title": ("## Cover ({count} Datei(en) ohne eingebettetes Cover)"),
+    "export.report.covers.note": ("_Eine Cover-Datei im Ordner (cover.jpg, folder.jpg, "
+                                  "front.jpg, …) wird nur gemeldet, nichts automatisch "
+                                  "eingebettet._"),
+    "export.report.covers.unembedded.title": ("### Cover-Datei vorhanden, nicht eingebettet "
+                                              "({folders} Ordner, {files} Datei(en))"),
+    "export.report.covers.unembedded.entry": "- `{folder}` – {cover} ({count} Datei(en))",
+    "export.report.covers.missing.title": ("### Weder eingebettet noch Cover-Datei "
+                                           "({folders} Ordner, {files} Datei(en))"),
+    "export.report.covers.missing.entry": "- `{folder}` ({count} Datei(en))",
     "export.report.duplicates.title": ("## Mögliche Duplikate (gleicher Künstler+Titel) "
                                        "({count} Gruppen)"),
     "export.report.inconsistent.title": ("## Ordner mit uneinheitlichem Album/"
@@ -1161,6 +1280,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "task.label.target": "  Ziel   : {value}",
     "task.label.pattern": "  Muster : {value}",
     "task.label.files": "  Dateien: {value}",
+    "task.diff.title": "  Geplante Tag-Änderungen",
+    "task.diff.none": "  Keine Tag-Änderungen.",
+    "task.diff.csv": "  Diff-CSV: {path} ({count} Zeile(n))",
+    "task.diff.csv_error": "  FEHLER: Diff-CSV konnte nicht geschrieben werden ({path}): {error}",
     "task.label.mode": "  Modus  : {value}",
     "task.title.tags": "MUSIK - TAG-BEREINIGUNG",
     "task.title.rename": "MUSIK - UMBENENNEN (Tags -> Dateiname)",
@@ -1226,6 +1349,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "rules.warn.regex_unsafe": ('Regex-Regel „{rule}“ enthält verschachtelte/alternierende '
                                 'Quantoren (ReDoS-Risiko) – übersprungen.'),
     "rules.warn.genre_no_equals": 'Genre-Regel „{rule}“ ohne „=“ – übersprungen (alt = neu).',
+    "rules.warn.pipe_separator": ('Künstler-Regel „{rule}“ enthält „|“ – wird wie „;“ '
+                                  'gelesen (Mehrfachwerte sind intern mit „; “ verbunden).'),
+    "rules.warn.protected_conflict": ('Künstler-Regel „{rule}“ steht auch unter [Protected] – '
+                                      '[Protected] hat Vorrang, die Regel wird ignoriert.'),
     "rules.summary.artists": "{count} Künstler",
     "rules.summary.artists_plural": "{count} Künstler",
     "rules.summary.regex": "{count} Regex",
@@ -1237,6 +1364,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "rules.overview.header3": "#  laufen NACH ihnen – sie haben das letzte Wort.",
     "rules.overview.header4": "#  Damit ein eingebauter Fix bei einem Namen nicht greift: den Namen",
     "rules.overview.header5": "#  unter [Protected] eintragen – dann bleibt er unangetastet.",
+    "rules.overview.separator_title": ('#  Mehrfachwerte werden intern mit „; “ gelesen '
+                                       '(der Export zeigt „ | “);'),
+    "rules.overview.separator1": '#  [Artist]-Regeln akzeptieren „;“ und „|“ gleich.',
+    "rules.overview.separator2": '#  [Artist Regex] behält „|“ als Regex-Alternation.',
     "rules.overview.genre_title": "#  [Genre] Schreibweisen (Groß-/Kleinschreibung ist egal):",
     "rules.overview.genre_fixed": "#    Feste Genre-Regeln:",
     "rules.overview.genre_f1": "#      - „-“ trennt nicht (J-Pop bleibt J-Pop)",
@@ -1338,11 +1469,15 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.hint.rename": ("Benennt Dateien nach ihren Tags um. Die Vorschau zeigt zuerst "
                         "die neuen Namen – vor „Umbenennen“ ändert sich nichts."),
     "gui.hint.tools": ("Hilfswerkzeuge mit eigenem Ablauf: Berichte exportieren, "
-                       "Korrekturen aus einer CSV anwenden oder Audio herunterladen."),
+                       "Korrekturen aus einer CSV anwenden, Audio herunterladen "
+                       "oder Duplikate finden."),
     "gui.hint.export": ("Nur lesend: liest den Ordner und schreibt die Berichte. "
                         "In der Bibliothek ändert sich nichts."),
     "gui.hint.fetch": ("Lädt Audio mit yt-dlp. Nur Inhalte laden, für die du die "
                        "Rechte hast."),
+    "gui.hint.dedupe": ("Verschiebt doppelte Audiodateien nach .duplicates. Nichts "
+                        "wird gelöscht; restore holt sie zurück. Standard ist "
+                        "identischer Inhalt; der Tag-Modus braucht einen Tag-Leser."),
     "gui.hint.fixes": ("Wendet Einzelkorrekturen aus einer CSV an (der Export-Prompt "
                        "verlangt genau dieses Format). Nur Zeilen, deren aktueller "
                        "Wert noch passt, werden geschrieben."),
@@ -1370,6 +1505,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.confirm.fetch.note": "Nur Inhalte laden, für die du die Rechte hast.",
     "gui.confirm.tools.text": ("{changes} Korrekturen aus {files} CSV-Zeile(n) werden "
                                "in die Audiodateien geschrieben."),
+    "gui.confirm.dedupe.title": "Duplikate wirklich verschieben?",
+    "gui.confirm.dedupe.text": ("{files} doppelte Datei(en) aus {folder} werden in den "
+                                "versteckten Ordner .duplicates verschoben. Nichts wird "
+                                "gelöscht; sortiton restore holt sie zurück."),
     "gui.confirm.ok": "Änderungen schreiben",
     "gui.confirm.backup": "Backup der Originaldateien erstellen",
     "gui.confirm.append": "\n\nJetzt ausführen?",
@@ -1397,6 +1536,7 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.job.export": "Berichte exportieren",
     "gui.job.fixes": "CSV-Korrekturen anwenden",
     "gui.job.fetch": "Audio herunterladen",
+    "gui.job.dedupe": "Duplikate finden",
     "gui.job.preview": "{name} (Vorschau)",
     "gui.job.run": "{name} (ausführen)",
     "gui.log.job": "▶ {description}",
@@ -1417,6 +1557,17 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.rules.status.saved": "Gespeichert ✓  ({summary})",
     "gui.rules.status.none": "keine Einträge",
     "gui.rules.status.prefilled": "Aus der LLM-Antwort vorbelegt – noch nicht gespeichert",
+    "gui.rules.status.reloaded": "Von der Festplatte neu geladen",
+    "gui.rules.status.missing": "Die Regeldatei existiert nicht auf der Festplatte",
+    "gui.button.reload": "Neu laden",
+    "gui.button.overwrite": "Überschreiben",
+    "gui.rules.conflict.title": "Regeldatei wurde extern geändert",
+    "gui.rules.conflict.text": ("Die Datei wurde seit dem Öffnen von einem anderen Programm "
+                                "geändert. Lade die externe Fassung neu, überschreibe sie mit "
+                                "dem Editorinhalt oder brich ab."),
+    "gui.rules.confirm_discard.title": "Änderungen verwerfen?",
+    "gui.rules.confirm_discard.text": ("Im Editor stehen ungespeicherte Änderungen. Fenster "
+                                       "schließen und die Änderungen verwerfen?"),
     "gui.rules.confirm_replace.title": "Editorinhalt ersetzen?",
     "gui.rules.confirm_replace.text": ("Im Editor steht noch ungespeicherter Text. "
                                        "Durch den LLM-Block ersetzen?"),
@@ -1474,6 +1625,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.tool.fixes.run": "Korrekturen schreiben",
     "gui.tool.fetch": "Download",
     "gui.tool.fetch.run": "Download starten",
+    "gui.tool.dedupe": "Duplikate",
+    "gui.tool.dedupe.run": "Duplikate verschieben",
+    "gui.choice.by.content": "Identischer Inhalt",
+    "gui.choice.by.tags": "Gleiche Tags + Länge",
     "gui.tools.section.files": "Ordner & Dateien",
     "gui.tools.section.report": "Inhalt der Berichte",
     "gui.tools.section.download": "Download",
@@ -1535,6 +1690,12 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
                                 "nichts einzustellen."),
     "gui.settings.language": "Sprache",
     "gui.settings.language_hint": "Steht in settings.ini und gilt wieder beim nächsten Start.",
+    "gui.settings.numbers": "Track- & Disc-Nummern",
+    "gui.settings.numbers_hint": ('Gilt für „Tags schreiben“ und „Alles ausführen“. '
+                                  '„Behalten“ lässt die Werte unverändert.'),
+    "gui.number.keep": "Behalten",
+    "gui.number.number": "Nummer",
+    "gui.number.padded": "Aufgefüllt",
 
     "cli.restore.help": "Änderungen eines früheren Laufs rückgängig machen",
     "cli.restore.journal": "Journal, das zurückgenommen wird (Standard: das neueste)",

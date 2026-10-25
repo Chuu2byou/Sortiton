@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import os
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -19,17 +22,93 @@ from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, FETCH_ARCHIVE,
 from .features.fetch import cmd_fetch
 from .fileops import atomic_write_text, copy_new, move_no_clobber
 from .files import build_name, content_digest, free_target, iter_audio, safe_name, same_content
-from .output import (progress, banner, clear_stats, last_stats, message,
+from .output import (progress, banner, clear_stats, colorize, last_stats, message,
                      report_plan, report_stats)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
                     load_custom_rules, rules_summary, rules_template)
 from .rules import snapshot as rules_snapshot
+from .settings import resolve_track_format
 from .tags import TAG_FIELDS, probe_many, read_info, write_tags
 
 CmdArgs = argparse.Namespace | SimpleNamespace
 
 _SUMMARY_LINE = "=" * 62
 _STEP_LINE = "#" * 62
+
+#: ``1``, ``01`` or ``3/12`` - only these forms are normalised.
+_NUMBER_RE = re.compile(r"^(\d+)(?:/\d+)?$")
+
+
+def _normalise_number(value: str, mode: str) -> str:
+    """Normalise a track/disc value without touching anything unexpected.
+
+    ``keep`` returns the value unchanged.  ``number`` turns ``1/11`` into
+    ``1``; ``padded`` additionally writes ``01``.  Values that are not a
+    plain number (``A1``, ``1a``, empty, ``1; 2``) stay as they are.
+    """
+    text = (value or "").strip()
+    if not text or mode not in ("number", "padded"):
+        return value
+    match = _NUMBER_RE.match(text)
+    if match is None:
+        return value
+    number = int(match.group(1))
+    return f"{number:02d}" if mode == "padded" else str(number)
+
+
+def _relative_name(root: Path, path: Path) -> str:
+    """Path for a diff line: relative to ``root`` when possible."""
+    try:
+        return str(path.relative_to(root))
+    except (ValueError, OSError):
+        return str(path)
+
+
+def _print_tag_diff(groups: dict[str, dict[tuple[str, str], list[Path]]],
+                    root: Path) -> None:
+    """Print the planned tag changes grouped by field and old/new value."""
+    message()
+    message(i18n.t("task.diff.title"))
+    if not groups:
+        message(i18n.t("task.diff.none"))
+        return
+    for field in TAG_FIELDS:
+        entries = groups.get(field)
+        if not entries:
+            continue
+        message(f"  {field}")
+        for (old, new), paths in sorted(
+                entries.items(), key=lambda item: (item[0][0].casefold(),
+                                                   item[0][1].casefold())):
+            old_text = colorize(old or "∅", "red")
+            new_text = colorize(new or "∅", "green")
+            message(f"    {old_text}  ->  {new_text}  ({len(paths)})")
+            for path in sorted(paths, key=lambda item: str(item).casefold()):
+                message(f"      {colorize(_relative_name(root, path), 'dim')}")
+
+
+def _write_diff_csv(groups: dict[str, dict[tuple[str, str], list[Path]]],
+                    target: Path) -> int:
+    """Write the planned tag changes in the ``fixes`` CSV format; return the rows."""
+    def absolute(path: Path) -> str:
+        try:
+            return str(path.resolve())
+        except OSError:
+            return str(path)
+
+    rows: list[tuple[str, str, str, str]] = []
+    for field in TAG_FIELDS:
+        for (old, new), paths in groups.get(field, {}).items():
+            for path in paths:
+                rows.append((absolute(path), field, old, new))
+    rows.sort(key=lambda row: (row[0].casefold(), TAG_FIELDS.index(row[1])))
+
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream, delimiter=";", lineterminator="\n")
+    writer.writerow(("path", "field", "old", "new"))
+    writer.writerows(rows)
+    atomic_write_text(target, stream.getvalue())
+    return len(rows)
 
 
 def _no_clobber_copy(source: Path, target: Path) -> None:
@@ -191,6 +270,12 @@ def cmd_tags(args: CmdArgs) -> int:
     used: set[str] = set()
     bad = set(unreadable)
     custom = rules_snapshot()
+    track_format = (getattr(args, "track_format", None)
+                    or resolve_track_format())
+    diff_mode = bool(getattr(args, "diff", False))
+    diff_csv_path = (Path(str(getattr(args, "diff_csv", "") or "")).expanduser()
+                     if getattr(args, "diff_csv", None) else None)
+    diff_groups: dict[str, dict[tuple[str, str], list[Path]]] = {}
     try:
         for path, tags in zip(files, tags_list):
             cancel.check()
@@ -202,12 +287,14 @@ def cmd_tags(args: CmdArgs) -> int:
                 "title":        clean_text_field(tags["title"]),
                 "album":        clean_text_field(tags["album"]),
                 "genre":        clean_genre(tags["genre"], custom),
+                "track":        _normalise_number(tags.get("track", ""), track_format),
+                "disc":         _normalise_number(tags.get("disc", ""), track_format),
             }
             pipeline_state = getattr(args, "pipeline_state", None)
             if pipeline_state is not None:
                 pipeline_state["tags"][path] = {**tags, **new}
                 pipeline_state["paths"].setdefault(path, path)
-            diff = {k: v for k, v in new.items() if v != tags[k]}
+            diff = {k: v for k, v in new.items() if v != tags.get(k, "")}
             destination = None
             if target is not None:
                 destination = _placement(path, {**tags, **new}, target, used,
@@ -217,20 +304,36 @@ def cmd_tags(args: CmdArgs) -> int:
 
             if diff or destination is not None:
                 report_plan("tags", path=path,
-                            changes={key: (tags[key], value)
+                            changes={key: (tags.get(key, ""), value)
                                      for key, value in diff.items()},
                             source=str(path),
                             target=str(destination) if destination is not None else "")
             if not diff:
                 continue
 
+            if diff_mode or diff_csv_path is not None:
+                for key, value in diff.items():
+                    group = diff_groups.setdefault(key, {})
+                    group.setdefault((tags.get(key, ""), value), []).append(path)
+
             plan.append((path, tags, diff))
-            message(f"  {path.name}")
-            for key, value in diff.items():
-                message(f"      {key:<13} '{tags[key]}'  ->  '{value}'")
+            if not diff_mode:
+                message(f"  {path.name}")
+                for key, value in diff.items():
+                    message(f"      {key:<13} '{tags.get(key, '')}'  ->  '{value}'")
     except Cancelled:
         message(i18n.t("task.cancelled"))
         return 130
+
+    if diff_mode:
+        _print_tag_diff(diff_groups, root)
+    if diff_csv_path is not None:
+        try:
+            rows = _write_diff_csv(diff_groups, diff_csv_path)
+        except OSError as error:
+            message(i18n.t("task.diff.csv_error", path=diff_csv_path, error=error))
+            return 2
+        message(i18n.t("task.diff.csv", path=diff_csv_path, count=rows))
 
     changed = len(plan)
     errors = 0
@@ -592,7 +695,10 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
     steps.extend([
         Step("task.step.tags", lambda: cmd_tags(stage(
             folder=args.source, apply=args.apply,
-            backup=getattr(args, "backup", False)))),
+            backup=getattr(args, "backup", False),
+            track_format=getattr(args, "track_format", None),
+            diff=getattr(args, "diff", False),
+            diff_csv=getattr(args, "diff_csv", None)))),
         Step("task.step.rename", lambda: cmd_rename(stage(
             folder=args.source, pattern=args.pattern, apply=args.apply))),
         Step("task.step.sort", lambda: cmd_sort(stage(
@@ -1023,7 +1129,7 @@ def cmd_restore(args: CmdArgs) -> int:
             message(i18n.t("restore.remove_download", name=target.name))
             continue
 
-        if op in ("rename", "sort"):
+        if op in ("rename", "sort", "dedupe"):
             source = Path(str(event.get("source", "")))
             target = Path(str(event.get("target", "")))
             if not exists(target):

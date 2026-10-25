@@ -214,7 +214,8 @@ def test_features_registry() -> None:
         flags = [flag for option in feature.options for flag in option.flags]
         if len(flags) != len(set(flags)):
             problems.append(f"{feature.key}: duplicate flag")
-        for key in (feature.title_key, feature.help_key):
+        for key in (feature.title_key, feature.help_key,
+                    f"gui.hint.{feature.key}", f"gui.job.{feature.key}"):
             if key not in en or key not in de:
                 missing_keys.append(key)
         for option in feature.options:
@@ -913,6 +914,108 @@ def test_fixes_backup_failure_aborts_before_writing() -> None:
 
     check("the run reports an input error", rc == 2, str(rc))
     check("no tag was written", not writer.called, str(writer.call_args_list))
+
+
+def test_dedupe_content_preview_apply_and_restore() -> None:
+    """Exact duplicates move to .duplicates; the journal brings them back."""
+    from sortiton.features import dedupe
+
+    with tempfile.TemporaryDirectory() as tmp:
+        work = Path(tmp)
+        root = work / "music"
+        album = root / "Artist" / "Album"
+        album.mkdir(parents=True)
+        first = album / "a.mp3"
+        second = album / "b.mp3"
+        different = album / "c.mp3"
+        first.write_bytes(b"same")
+        second.write_bytes(b"same")
+        different.write_bytes(b"diff")       # same size, other content
+
+        preview = dedupe.cmd_dedupe(SimpleNamespace(folder=str(root), by="content",
+                                                    apply=False))
+        check("preview succeeds", preview == 0, str(preview))
+        check("preview leaves both files in place", first.is_file() and second.is_file())
+        check("preview does not create .duplicates",
+              not (root / ".duplicates").exists())
+        check("preview plans one move",
+              output.last_stats("dedupe").get("changed") == 1,
+              str(output.last_stats("dedupe")))
+
+        jrn = _open_journal(work, 31)
+        applied = dedupe.cmd_dedupe(SimpleNamespace(folder=str(root), by="content",
+                                                     apply=True))
+        journal.close()
+        check("apply succeeds", applied == 0, str(applied))
+        check("the first name is kept", first.is_file())
+        moved = root / ".duplicates" / "Artist" / "Album" / "b.mp3"
+        check("the duplicate is moved", moved.is_file())
+        check("the original duplicate is gone from the library",
+              not second.exists())
+        check("a different file is untouched", different.is_file())
+        check("the duplicate folder is hidden from the next scan",
+              {path.name for path in dedupe.iter_audio(root)} == {"a.mp3", "c.mp3"},
+              str(list(dedupe.iter_audio(root))))
+
+        planned = journal.plan_restore(jrn)
+        check("the journal records one dedupe move",
+              [event.get("op") for event in planned if event.get("op") != "run"]
+              == ["dedupe"], str(planned))
+        check("restore succeeds", cmd_restore(_restore_args(jrn, apply=True)) == 0)
+        check("the duplicate is back", second.is_file() and not moved.exists())
+
+
+def test_dedupe_tags_mode_keeps_the_best_copy() -> None:
+    """The opt-in tag mode groups same tags+duration and keeps the higher bitrate."""
+    import unittest.mock as mock
+
+    from sortiton import external
+    from sortiton.features import dedupe
+    from sortiton.tags import TrackInfo
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "music"
+        root.mkdir()
+        best = root / "best.mp3"
+        worse = root / "worse.mp3"
+        other = root / "other.mp3"
+        best.write_bytes(b"aaa")
+        worse.write_bytes(b"bb")
+        other.write_bytes(b"cccc")
+
+        def info_for(path: Path) -> TrackInfo:
+            if path.name == "other.mp3":
+                return TrackInfo(artist=["Artist"], title=["Other"], album=["Album"],
+                                 duration=180.0, bitrate_kbps=128)
+            return TrackInfo(artist=["Artist"], title=["Song"], album=["Album"],
+                             duration=180.0,
+                             bitrate_kbps=320 if path.name == "best.mp3" else 128)
+
+        with mock.patch.object(external, "available", return_value=True), \
+                mock.patch.object(dedupe, "read_info", side_effect=info_for):
+            rc = dedupe.cmd_dedupe(SimpleNamespace(folder=str(root), by="tags",
+                                                   apply=True))
+
+        check("tag-mode dedupe succeeds", rc == 0, str(rc))
+        check("the best copy stays", best.is_file())
+        check("the worse copy is moved",
+              (root / ".duplicates" / "worse.mp3").is_file())
+        check("a different title is untouched", other.is_file())
+
+
+def test_dedupe_is_registered_and_reads_its_options() -> None:
+    """The feature is part of the shared registry and the CLI builds its parser."""
+    from sortiton import cli
+    from sortiton.features import get
+
+    feature = get("dedupe")
+    check("dedupe is registered", feature is not None)
+    check("dedupe writes files", feature is not None and feature.writes)
+    args = cli._build_parser().parse_args(
+        ["dedupe", "/music", "--by", "tags", "--apply"])
+    check("the folder is parsed", args.folder == "/music")
+    check("the mode is parsed", args.by == "tags")
+    check("apply is parsed", args.apply is True)
 
 
 def test_fixes_prepare_handles_unresolved_path() -> None:

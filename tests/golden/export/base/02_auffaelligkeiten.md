@@ -2,6 +2,23 @@
 
 _Nur Hinweise, keine bewiesenen Fehler. Verglichen wird ohne Groß/Klein, Akzente, Leerzeichen und Bindestrich-Arten._
 
+## Cover (39 Datei(en) ohne eingebettetes Cover)
+
+_Eine Cover-Datei im Ordner (cover.jpg, folder.jpg, front.jpg, …) wird nur gemeldet, nichts automatisch eingebettet._
+
+### Cover-Datei vorhanden, nicht eingebettet (0 Ordner, 0 Datei(en))
+
+- (keine)
+
+### Weder eingebettet noch Cover-Datei (15 Ordner, 39 Datei(en))
+
+- `.` (1 Datei(en))
+- `ALLCAPS ARTIST/ALLCAPS ALBUM` (1 Datei(en))
+- `Artist A/Album One` (3 Datei(en))
+- `Artist B/Album Two` (3 Datei(en))
+- `Artist B/Singles` (1 Datei(en))
+- ... (10 weitere)
+
 ## Künstler: nur Schreibweise verschieden (2)
 
 - "Artist A" (2x) <-> "artist a" (1x)

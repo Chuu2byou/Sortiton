@@ -46,7 +46,7 @@ def undo_rows(events: list[dict]) -> list[tuple[str, str, str, str]]:
         elif op == "download":
             rows.append((i18n.t("gui.restore.op.download"),
                          _basename(event.get("path")), "", ""))
-        elif op in ("rename", "sort"):
+        elif op in ("rename", "sort", "dedupe"):
             rows.append((i18n.t("gui.restore.op.move"),
                          _basename(event.get("target")),
                          _basename(event.get("source")), ""))
@@ -64,7 +64,7 @@ def _op_label(op: str) -> str:
     """Translated name of a journal operation for the summary line."""
     if op == "tags":
         return i18n.t("gui.restore.op.tags")
-    if op in ("rename", "sort"):
+    if op in ("rename", "sort", "dedupe"):
         return i18n.t("gui.restore.op.move")
     if op == "copy":
         return i18n.t("gui.restore.op.copy")

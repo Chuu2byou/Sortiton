@@ -270,6 +270,94 @@ def test_stats_count_only_written_files() -> None:
     check("the failed file counts as an error", stats.get("errors") == 1, str(stats))
 
 
+def test_tags_diff_and_diff_csv() -> None:
+    """--diff groups changes; --diff-csv writes rows the fixes tool can read."""
+    from sortiton import tasks
+    from sortiton.features.fixes import parse
+
+    with tempfile.TemporaryDirectory() as src:
+        root = Path(src)
+        first = root / "one.mp3"
+        second = root / "two.mp3"
+        first.write_bytes(b"one")
+        second.write_bytes(b"two")
+        csv_path = root / "changes.csv"
+        tags = {"artist": "Artist ", "album_artist": "", "album": "", "title": "Title",
+                "genre": "", "track": "", "disc": "", "year": ""}
+        lines: list[str] = []
+        args = SimpleNamespace(folder=src, apply=False, backup=False, diff=True,
+                               diff_csv=str(csv_path))
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags), dict(tags)]), \
+                mock.patch.object(tasks, "message",
+                                  side_effect=lambda text="": lines.append(str(text))):
+            rc = tasks.cmd_tags(args)
+
+        text = "\n".join(lines)
+        check("the diff run succeeds", rc == 0, str(rc))
+        check("the diff has a heading", "Planned tag changes" in text, text)
+        check("the diff groups by field", "  artist" in text, text)
+        check("the diff counts both files", "(2)" in text, text)
+        check("the diff names the file", "one.mp3" in text and "two.mp3" in text, text)
+        check("the diff CSV is announced", "Diff CSV" in text, text)
+
+        rows = parse.read_csv(csv_path.read_text(encoding="utf-8"))
+        check("the CSV has two rows", len(rows) == 2, str(rows))
+        # The fixes reader trims cells; the stripped current value still matches.
+        check("the CSV rows are fixes-compatible",
+              all(row.field == "artist" and row.old == "Artist"
+                  and row.new == "Artist" for row in rows), str(rows))
+
+
+def test_track_format_normalisation() -> None:
+    """keep/number/padded only touch plain track and disc numbers."""
+    from sortiton import tasks
+
+    check("keep keeps the total",
+          tasks._normalise_number("1/11", "keep") == "1/11")
+    check("number drops the total",
+          tasks._normalise_number("1/11", "number") == "1",
+          tasks._normalise_number("1/11", "number"))
+    check("number removes leading zeroes",
+          tasks._normalise_number("07", "number") == "7",
+          tasks._normalise_number("07", "number"))
+    check("padded adds a leading zero",
+          tasks._normalise_number("1/11", "padded") == "01",
+          tasks._normalise_number("1/11", "padded"))
+    check("padded leaves three digits alone",
+          tasks._normalise_number("123", "padded") == "123")
+    for value in ("", "A1", "1a", "1; 2", "-1"):
+        check(f"{value!r} stays untouched",
+              tasks._normalise_number(value, "padded") == value,
+              tasks._normalise_number(value, "padded"))
+
+
+def test_tags_apply_track_format() -> None:
+    """The chosen mode reaches the tags diff written by cmd_tags."""
+    from sortiton import tasks
+
+    for mode, expected in (("number", ("7", "1")), ("padded", ("07", "01"))):
+        with tempfile.TemporaryDirectory() as src:
+            track = Path(src) / "track.mp3"
+            track.write_bytes(b"audio-data")
+            tags = {"artist": "Artist", "album_artist": "", "album": "Album",
+                    "title": "Track", "genre": "", "track": "7/12", "disc": "1/2",
+                    "year": ""}
+            written: list[dict] = []
+            args = SimpleNamespace(folder=src, apply=True, backup=False,
+                                   track_format=mode)
+            with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                    mock.patch.object(tasks, "write_tags",
+                                      side_effect=lambda _path, diff: written.append(dict(diff)) or True):
+                rc = tasks.cmd_tags(args)
+
+            check(f"{mode}: the run succeeds", rc == 0, str(rc))
+            check(f"{mode}: the file is written", len(written) == 1, str(written))
+            check(f"{mode}: the track is normalised",
+                  written[0].get("track") == expected[0], str(written))
+            check(f"{mode}: the disc is normalised",
+                  written[0].get("disc") == expected[1], str(written))
+
+
 def test_tags_with_target_copy_and_move() -> None:
     """tags mit Ziel sortiert die Dateien in die Bibliothek (kopieren oder verschieben)."""
     from sortiton import tasks

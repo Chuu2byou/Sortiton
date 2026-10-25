@@ -91,6 +91,39 @@ def test_export_fixture() -> None:
           (result.stdout or result.stderr).strip().splitlines()[-1][:120])
 
 
+def test_cover_report_sections() -> None:
+    """Cover files are reported, never embedded; missing covers are grouped."""
+    from sortiton.features.export.report import ReportOptions, _cover_lines
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        with_cover = root / "Artist" / "Album"
+        with_cover.mkdir(parents=True)
+        (with_cover / "FRONT.PNG").write_bytes(b"image")
+        without = root / "Other"
+        without.mkdir()
+        ok = [
+            {"path": "Artist/Album/one.mp3", "cover": False},
+            {"path": "Artist/Album/two.mp3", "cover": False},
+            {"path": "Other/one.mp3", "cover": False},
+            {"path": "Other/two.mp3", "cover": True},
+        ]
+        text = "\n".join(_cover_lines(ok, root, ReportOptions(max_examples=10), "en"))
+
+    check("the section counts files without a cover",
+          "Covers (3 files without an embedded cover)" in text, text)
+    check("the folder image is found case-insensitively",
+          "`Artist/Album` - FRONT.PNG (2 file(s))" in text, text)
+    check("the unembedded heading counts files",
+          "Cover file present, not embedded (1 folder(s), 2 file(s))" in text, text)
+    check("the missing heading counts files",
+          "Neither embedded nor a cover file (1 folder(s), 1 file(s))" in text, text)
+    check("a folder with a partly embedded cover still lists the missing file",
+          "`Other` (1 file(s))" in text, text)
+    check("the note says nothing is embedded automatically",
+          "nothing is embedded automatically" in text, text)
+
+
 @pytest.mark.slow
 def test_export_golden() -> None:
     """Der deutsche Bericht entspricht dem Golden aus Phase 1 (``base``).

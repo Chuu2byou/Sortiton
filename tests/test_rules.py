@@ -80,6 +80,47 @@ def test_custom_rules() -> None:
     rules.load_custom_rules()
 
 
+def test_separator_and_protected_order() -> None:
+    """``|`` works like ``;`` in [Artist]; [Protected] wins over [Artist]."""
+    parsed, warnings = rules.parse_custom_rules(
+        "[Artist]\nMori Calliope | 森カリオペ = Mori Calliope\n")
+    check("pipe rule matches the internal semicolon form",
+          rules.clean_artist("Mori Calliope; 森カリオペ", parsed) == "Mori Calliope",
+          rules.clean_artist("Mori Calliope; 森カリオペ", parsed))
+    check("pipe rule matches the export spelling",
+          rules.clean_artist("Mori Calliope | 森カリオペ", parsed) == "Mori Calliope",
+          rules.clean_artist("Mori Calliope | 森カリオペ", parsed))
+    check("pipe rule warns once", len(warnings) == 1, str(warnings))
+
+    parsed, warnings = rules.parse_custom_rules("[Artist Regex]\n(A|B) = X\n")
+    check("regex alternation is not reported as a separator", not warnings, str(warnings))
+
+    parsed, _warnings = rules.parse_custom_rules("[Artist]\nK/DA = K／DA\n")
+    check("artist rule replaces before the split",
+          rules.clean_artist("K/DA", parsed) == "K／DA",
+          rules.clean_artist("K/DA", parsed))
+
+    parsed, _warnings = rules.parse_custom_rules("[Artist]\nK/DA = K/DA\n")
+    check("a no-op rule does not protect a name",
+          rules.clean_artist("K/DA", parsed) == "K; DA",
+          rules.clean_artist("K/DA", parsed))
+
+    parsed, warnings = rules.parse_custom_rules(
+        "[Protected]\nK/DA\n[Artist]\nK/DA = K／DA\n")
+    check("protected wins over artist", rules.clean_artist("K/DA", parsed) == "K/DA",
+          rules.clean_artist("K/DA", parsed))
+    check("the conflict is reported", len(warnings) == 1, str(warnings))
+
+    parsed, _warnings = rules.parse_custom_rules("[Protected]\nK/DA = K／DA\n")
+    check("protected can carry the wanted spelling",
+          rules.clean_artist("K/DA", parsed) == "K／DA",
+          rules.clean_artist("K/DA", parsed))
+
+    check("genres split at the export separator",
+          rules.clean_genre("Rock | Pop") == "Rock; Pop",
+          rules.clean_genre("Rock | Pop"))
+
+
 def test_unsafe_regex_rules_are_rejected() -> None:
     """Verschachtelte/alternierende Quantoren und überlange Muster werden verworfen."""
     text = ("[Artist Regex]\n"

@@ -2,6 +2,23 @@
 
 _Hints only, no proven errors. The comparison ignores case, accents, spaces and hyphen kinds._
 
+## Covers (39 files without an embedded cover)
+
+_A folder image (cover.jpg, folder.jpg, front.jpg, …) is reported only; nothing is embedded automatically._
+
+### Cover file present, not embedded (0 folder(s), 0 file(s))
+
+- (none)
+
+### Neither embedded nor a cover file (15 folder(s), 39 file(s))
+
+- `.` (1 file(s))
+- `ALLCAPS ARTIST/ALLCAPS ALBUM` (1 file(s))
+- `Artist A/Album One` (3 file(s))
+- `Artist B/Album Two` (3 file(s))
+- `Artist B/Singles` (1 file(s))
+- ... (10 more)
+
 ## Artist: spelling differs only (2)
 
 - "Artist A" (2x) <-> "artist a" (1x)

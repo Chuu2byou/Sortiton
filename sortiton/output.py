@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -70,6 +73,20 @@ def set_plan_sink(sink) -> None:
 def report_plan(kind: str, **data) -> None:
     """Publish one planned change."""
     _emit(_plan_sink, kind, data)
+
+
+_COLORS = {"red": "31", "green": "32", "yellow": "33", "dim": "2"}
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def colorize(text: str, color: str) -> str:
+    """Colour ``text`` on a real terminal, but never in the GUI or a pipe."""
+    if _sink is not None or sys.stdout is None or not sys.stdout.isatty():
+        return text
+    if "NO_COLOR" in os.environ:
+        return text
+    code = _COLORS.get(color)
+    return f"\033[{code}m{text}\033[0m" if code else text
 
 
 def set_stats_sink(sink) -> None:
@@ -169,7 +186,7 @@ def _log_line(text: str) -> None:
         if _log_file is None:
             return
         try:
-            _log_file.write(text + "\n")
+            _log_file.write(_ANSI_SGR.sub("", text) + "\n")
             _log_file.flush()
         except (OSError, ValueError):
             pass

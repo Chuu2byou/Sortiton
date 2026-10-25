@@ -73,7 +73,8 @@ class RunMixin(GuiBase):
         self._start("tags", self._job_name("gui.job.tags", write), cmd_tags,
                     SimpleNamespace(folder=folder, target=target or None,
                                     move=move, apply=write,
-                                    backup=self._backup_for_run),
+                                    backup=self._backup_for_run,
+                                    track_format=self.var_track_format.get()),
                     folder, source=folder, target_root=target)
 
     def _run_rename(self, execute: bool) -> None:
@@ -126,7 +127,8 @@ class RunMixin(GuiBase):
         self._start("all", self._job_name("gui.job.all", execute), cmd_all,
                     SimpleNamespace(source=source, target=target, pattern=pattern,
                                     move=move, apply=execute,
-                                    backup=self._backup_for_run), source,
+                                    backup=self._backup_for_run,
+                                    track_format=self.var_track_format.get()), source,
                     source=source, target_root=target)
 
     def _preview_allowed(self, page: str) -> bool:
@@ -188,7 +190,7 @@ class RunMixin(GuiBase):
             return
         if any(option.name == "backup" for option in feature.options):
             args.backup = self._backup_for_run
-        last = config.EXPORT_DIR if folder else location
+        last = config.EXPORT_DIR if feature.key == "export" else location
         description = (self._job_name(f"gui.job.{feature.key}", execute)
                        if feature.writes else
                        i18n.t("gui.job.run", name=i18n.t(f"gui.job.{feature.key}")))
@@ -238,8 +240,25 @@ class RunMixin(GuiBase):
         """Confirmation before a writing tool runs."""
         if feature.key == "fetch":
             return self._confirm_fetch()
+        if feature.key == "dedupe":
+            return self._confirm_dedupe()
         has_backup = any(option.name == "backup" for option in feature.options)
         return self._confirm_write("tools", allow_backup=has_backup)
+
+    def _confirm_dedupe(self) -> bool:
+        """Confirmation for moving duplicates: no backup switch, never deletes."""
+        plan = self._plans.get("tools") or {}
+        confirmed, _options = ask_confirm(
+            self.root,
+            title=i18n.t("gui.confirm.dedupe.title"),
+            heading=i18n.t("gui.confirm.dedupe.title"),
+            text=i18n.t("gui.confirm.dedupe.text",
+                        files=_fmt_number(plan.get("files", 0)),
+                        folder=_pretty_path(plan.get("source", ""))),
+            note=i18n.t("gui.confirm.note"),
+            ok_text=i18n.t("gui.confirm.ok"),
+            cancel_text=i18n.t("gui.button.cancel"))
+        return confirmed
 
     def _confirm_fetch(self) -> bool:
         """Dedicated download confirmation, including the rights note."""
@@ -353,7 +372,7 @@ class RunMixin(GuiBase):
         if page == "tags":
             return ("tags", self.var_tags_folder.get().strip(),
                     self.var_tags_target.get().strip(),
-                    self.var_tags_mode.get(), rules_id)
+                    self.var_tags_mode.get(), self.var_track_format.get(), rules_id)
         if page == "rename":
             return ("rename", self.var_ren_folder.get().strip(),
                     self.var_ren_target.get().strip(),
@@ -372,7 +391,8 @@ class RunMixin(GuiBase):
         if page == "restore":
             return ("restore", str((self._plans.get("restore") or {}).get("source", "")))
         return ("all", self.var_all_source.get().strip(), self.var_all_target.get().strip(),
-                self.var_all_pattern.get().strip(), self.var_all_mode.get(), rules_id)
+                self.var_all_pattern.get().strip(), self.var_all_mode.get(),
+                self.var_track_format.get(), rules_id)
 
     def _preview_ready(self, page: str) -> bool:
         plan = self._plans.get(page)

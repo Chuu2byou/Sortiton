@@ -204,10 +204,79 @@ def _summary_track_quality(ok, opts, lang):
     return lines
 
 
-def _anomalies(ok, recs, opts, lang):
+COVER_NAMES = frozenset({
+    "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
+    "folder.jpg", "folder.jpeg", "folder.png", "folder.webp",
+    "front.jpg", "front.jpeg", "front.png", "album.jpg", "album.png",
+    "albumart.jpg", "albumart.png", "albumartsmall.jpg", "artwork.jpg",
+})
+
+
+def _cover_file(directory: Path) -> str:
+    """The first known cover image in ``directory``, or ""."""
+    try:
+        entries = sorted(directory.iterdir(), key=lambda item: item.name.casefold())
+    except OSError:
+        return ""
+    for entry in entries:
+        try:
+            if entry.is_file() and entry.name.casefold() in COVER_NAMES:
+                return entry.name
+        except OSError:
+            continue
+    return ""
+
+
+def _folder_label(path: str) -> str:
+    """Report a folder relative to the library root; "" means the root itself."""
+    folder = str(Path(path).parent)
+    return folder if folder != "." else ""
+
+
+def _cover_lines(ok, root, opts, lang):
+    """Report files without an embedded cover, split by folder image presence."""
+    unembedded: dict[tuple[str, str], int] = defaultdict(int)
+    missing: dict[str, int] = defaultdict(int)
+    cache: dict[str, str] = {}
+    for record in ok:
+        if record.get("cover"):
+            continue
+        folder = _folder_label(record["path"])
+        if folder not in cache:
+            cache[folder] = (_cover_file(Path(root) / folder) if folder else
+                             _cover_file(Path(root)))
+        cover = cache[folder]
+        if cover:
+            unembedded[(folder, cover)] += 1
+        else:
+            missing[folder] += 1
+    if not unembedded and not missing:
+        return []
+
+    total = sum(unembedded.values()) + sum(missing.values())
+    lines = [i18n.t_in(lang, "export.report.covers.title", count=total), "",
+             i18n.t_in(lang, "export.report.covers.note"), "",
+             i18n.t_in(lang, "export.report.covers.unembedded.title",
+                       folders=len(unembedded), files=sum(unembedded.values())), ""]
+    lines += lst([i18n.t_in(lang, "export.report.covers.unembedded.entry",
+                            folder=folder or ".", cover=cover, count=count)
+                  for (folder, cover), count in sorted(unembedded.items())],
+                 opts.max_examples, lang) + [""]
+    lines += [i18n.t_in(lang, "export.report.covers.missing.title",
+                        folders=len(missing), files=sum(missing.values())), ""]
+    lines += lst([i18n.t_in(lang, "export.report.covers.missing.entry",
+                            folder=folder or ".", count=count)
+                  for folder, count in sorted(missing.items())],
+                 opts.max_examples, lang) + [""]
+    return lines
+
+
+def _anomalies(ok, recs, opts, lang, root=None):
     max_ex = opts.max_examples
     lines = [i18n.t_in(lang, "export.report.anomalies.title"), "",
              i18n.t_in(lang, "export.report.anomalies.note"), ""]
+    if root is not None:
+        lines += _cover_lines(ok, root, opts, lang)
     for title_key, field, split, ba in (
             ("export.report.variants.artist", "artist", False, False),
             ("export.report.variants.albumartist", "albumartist", False, False),
@@ -318,7 +387,7 @@ def build_report(recs: list[dict[str, Any]], root: Path, opts: ReportOptions,
     sections.append(Section("summary",
                             _summary_formats_and_tags(ok, recs, n_ok, opts, lang)))
     sections.append(Section("summary", _summary_track_quality(ok, opts, lang)))
-    sections.append(Section("anomalies", _anomalies(ok, recs, opts, lang)))
+    sections.append(Section("anomalies", _anomalies(ok, recs, opts, lang, root)))
     return sections
 
 

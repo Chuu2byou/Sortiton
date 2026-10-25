@@ -28,6 +28,27 @@ def test_data_dir_environment_wins_in_checkout() -> None:
     check("SORTITON_DATA_DIR is honoured", result.stdout.strip() == data, result.stdout)
 
 
+def test_track_format_setting() -> None:
+    """track_format defaults to keep, accepts the three modes and ignores junk."""
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "settings.ini"
+        path.write_text("[general]\nlanguage = en\n", encoding="utf-8")
+        with mock.patch.object(settings, "SETTINGS_FILE", path):
+            check("the default leaves numbers alone",
+                  settings.resolve_track_format() == "keep",
+                  settings.resolve_track_format())
+            check("padded is stored", settings.save_track_format("padded"))
+            check("padded is read back", settings.resolve_track_format() == "padded",
+                  settings.resolve_track_format())
+            check("junk falls back to keep", settings.save_track_format("bogus"))
+            check("the fallback is visible", settings.resolve_track_format() == "keep",
+                  settings.resolve_track_format())
+
+        text = path.read_text(encoding="utf-8")
+        check("the language survives", "language = en" in text, text)
+        check("the setting is written", "track_format = keep" in text, text)
+
+
 def test_settings_keep_percent_values() -> None:
     """settings.ini muss einen Wert mit "%" verlustfrei zurückgeben.
 

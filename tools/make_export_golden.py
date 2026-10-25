@@ -21,6 +21,12 @@ purpose: fpcalc versions produce different fingerprints (steps 0.3 and 1.9).
 The reference must be built with ``mutagen`` installed, otherwise the old
 script takes the slower ffprobe path.  The run happens in a throwaway
 ``XDG_CACHE_HOME`` so the real fingerprint cache of the user stays untouched.
+
+**Legacy only:** the committed ``02_*`` goldens now also contain Sortiton's
+own cover section (cover files and missing embedded covers), which the old
+script does not produce.  Re-running this generator therefore removes that
+section; only use it to inspect the historical reference, not to refresh the
+current goldens.
 """
 
 from __future__ import annotations
@@ -123,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="where to store the golden trees (default: tests/golden/export)")
     args = parser.parse_args(argv)
 
+    print("warning: legacy reference only; this removes the cover section "
+          "from the committed 02_* goldens.", file=sys.stderr)
     golden = _load_helper()
     fixture = (args.fixture or golden.FIXTURE_DIR).expanduser().resolve()
     out = (args.out or golden.GOLDEN_DIR).expanduser().resolve()

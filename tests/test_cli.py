@@ -101,6 +101,11 @@ def test_cli_tags_and_rename_target() -> None:
     check("cli tags target parsed", args_tags.target == "/dst")
     check("cli tags move parsed", args_tags.move is True)
 
+    args_number = parser.parse_args(["tags", "/src", "--track-format", "padded"])
+    check("cli tags track format parsed", args_number.track_format == "padded")
+    args_all = parser.parse_args(["all", "/src", "/dst", "--track-format", "number"])
+    check("cli all track format parsed", args_all.track_format == "number")
+
     args_ren = parser.parse_args(["rename", "/src", "/dst", "--move", "--pattern", "%title%"])
     check("cli rename target parsed", args_ren.target == "/dst")
     check("cli rename move parsed", args_ren.move is True)

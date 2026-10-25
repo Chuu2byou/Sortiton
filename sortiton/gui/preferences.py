@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .. import external, i18n
+from .. import external, i18n, settings
 from . import design
 from .design import (BACKGROUND, BORDER, CARD, GREEN, TEXT, TEXT_FAINT, TEXT_MUTED,
                      YELLOW)
@@ -52,9 +52,11 @@ class PreferencesWindow:
         self._tools_card(self._content, 1)
         row = self._fine_tuning_cards(self._content, 2)
         self._language_card(self._content, row, app.var_language, app._language_changed)
+        self._numbers_card(self._content, row + 1, app.var_track_format,
+                           app._track_format_changed)
 
         footer = tk.Frame(self._content, bg=BACKGROUND)
-        footer.grid(row=row + 1, column=0, sticky="e", pady=(design.px(16), 0))
+        footer.grid(row=row + 2, column=0, sticky="e", pady=(design.px(16), 0))
         RoundButton(footer, i18n.t("gui.button.close"), self.window.destroy,
                     style="normal", height=34).pack()
 
@@ -194,6 +196,19 @@ class PreferencesWindow:
                  language, command=on_language, height=34,
                  font=design.FONT_SMALL).grid(row=0, column=0, sticky="w")
         tk.Label(card, text=i18n.t("gui.settings.language_hint"), bg=CARD,
+                 fg=TEXT_MUTED, font=design.FONT_SMALL, anchor="w", justify="left",
+                 wraplength=design.px(400)).grid(row=1, column=0, sticky="w",
+                                                 pady=(design.px(8), 0))
+
+    def _numbers_card(self, parent: tk.Misc, row: int, track_format: tk.StringVar,
+                      on_change) -> None:
+        """Choose whether track/disc numbers keep their total or are padded."""
+        card = self._card(parent, row, i18n.t("gui.settings.numbers"))
+        Segments(card,
+                 [(code, i18n.t(f"gui.number.{code}")) for code in settings.TRACK_FORMATS],
+                 track_format, command=on_change, height=34,
+                 font=design.FONT_SMALL).grid(row=0, column=0, sticky="w")
+        tk.Label(card, text=i18n.t("gui.settings.numbers_hint"), bg=CARD,
                  fg=TEXT_MUTED, font=design.FONT_SMALL, anchor="w", justify="left",
                  wraplength=design.px(400)).grid(row=1, column=0, sticky="w",
                                                  pady=(design.px(8), 0))

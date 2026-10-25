@@ -44,6 +44,10 @@ def builtin_rules_text() -> str:
         i18n.t("rules.overview.header4"),
         i18n.t("rules.overview.header5"),
         "#",
+        i18n.t("rules.overview.separator_title"),
+        i18n.t("rules.overview.separator1"),
+        i18n.t("rules.overview.separator2"),
+        "#",
         i18n.t("rules.overview.genre_title"),
     ]
     for old, new in GENRE_ALIASES.items():
@@ -215,6 +219,29 @@ def extract_ini_block(text: str) -> str:
     return (text or "").strip("\r\n")
 
 
+def _artist_key_pattern(key: str) -> re.Pattern:
+    """Compile an ``[Artist]`` key; ``|`` and ``;`` both separate values.
+
+    The tag reader joins multiple artists with ``"; "`` while the export shows
+    them with ``" | "``.  A rule copied from a TSV therefore has to match both
+    spellings.  ``[Artist Regex]`` is deliberately left alone: there ``|`` is
+    the regular-expression alternation.
+    """
+    parts = [part.strip() for part in re.split(r"[|;]", key) if part.strip()]
+    if not parts:
+        return re.compile(r"(?!)")
+    if len(parts) == 1:
+        return re.compile(re.escape(parts[0]), re.IGNORECASE)
+    return re.compile(r"\s*[;|]\s*".join(re.escape(part) for part in parts),
+                      re.IGNORECASE)
+
+
+def _artist_key_form(key: str) -> str:
+    """Comparison form of an artist/protected key, independent of the separator."""
+    parts = [part.strip() for part in re.split(r"[|;]", key) if part.strip()]
+    return "; ".join(parts).casefold()
+
+
 def parse_custom_rules(text: str,
                        file_name: str = RULES_FILE.name) -> tuple[CustomRules, list[str]]:
     """Parse the content of a my_rules.ini - without touching the file system."""
@@ -222,6 +249,8 @@ def parse_custom_rules(text: str,
     artist_regex: list[tuple[re.Pattern, str]] = []
     genres: dict[str, str] = {}
     protected_rules: list[tuple[re.Pattern, str]] = []
+    artist_keys: list[str] = []
+    protected_keys: list[str] = []
     warnings: list[str] = []
 
     content = "\n".join(line.lstrip() for line in text.splitlines())
@@ -250,7 +279,10 @@ def parse_custom_rules(text: str,
             if new is None:
                 warnings.append(i18n.t("rules.warn.artist_no_equals", rule=old))
                 continue
-            artists.append((re.compile(re.escape(old), re.IGNORECASE), new))
+            if "|" in old:
+                warnings.append(i18n.t("rules.warn.pipe_separator", rule=old))
+            artist_keys.append(old)
+            artists.append((_artist_key_pattern(old), new))
 
     regex = section("artist regex", "artist-regex", "regex", "künstler regex",
                     "kuenstler regex", "künstler-regex", "kuenstler-regex")
@@ -293,9 +325,15 @@ def parse_custom_rules(text: str,
             word = word.strip()
             if not word:
                 continue
+            protected_keys.append(word)
             protected_rules.append(
                 (re.compile(re.escape(word), re.IGNORECASE),
                  str(wanted).strip() if wanted else ""))
+
+    protected_forms = {_artist_key_form(key) for key in protected_keys}
+    for key in artist_keys:
+        if _artist_key_form(key) in protected_forms:
+            warnings.append(i18n.t("rules.warn.protected_conflict", rule=key))
 
     return CustomRules(artists, artist_regex, genres, protected_rules), warnings
 
@@ -440,7 +478,7 @@ def clean_genre(value: str, custom: CustomRules | None = None) -> str:
     custom = custom or _custom_rules()
 
     parts: list[str] = []
-    for part in re.split(r"[;,，、]\s*", new):
+    for part in re.split(r"[;,，、|]\s*", new):
         part = part.strip()
         if not part:
             continue
