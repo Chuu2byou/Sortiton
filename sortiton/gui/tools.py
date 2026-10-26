@@ -23,7 +23,6 @@ _FLOAT_STEP = 0.05
 _SECTION_TITLES = {
     "files": "gui.tools.section.files",
     "report": "gui.tools.section.report",
-    "download": "gui.tools.section.download",
     "advanced": "gui.tools.section.advanced",
 }
 
@@ -36,15 +35,13 @@ FINE_TUNING_SECTIONS = ("report", "advanced")
 
 _SECTION_OF = {
     "folder": "files", "output": "files", "file": "files", "root": "files",
-    "target": "files", "url": "files",
     "chunk_chars": "report", "examples": "report", "jsonl": "report",
     "check_case": "report", "report_lang": "report",
-    "audio_format": "download", "playlist": "download", "no_archive": "download",
     "fingerprint": "advanced", "fp_seconds": "advanced", "fp_threshold": "advanced",
     "threads": "advanced",
 }
 
-_SECTION_ORDER = ("files", "report", "download", "advanced", _DEFAULT_SECTION)
+_SECTION_ORDER = ("files", "report", "advanced", _DEFAULT_SECTION)
 
 
 def section_title(section: str) -> str:

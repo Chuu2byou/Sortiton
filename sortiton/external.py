@@ -33,9 +33,8 @@ FFPROBE = Tool("ffprobe", "ffprobe", hint_key="external.hint.ffprobe")
 FFMPEG = Tool("ffmpeg", "ffmpeg", hint_key="external.hint.ffmpeg")
 FPCALC = Tool("fpcalc", "fpcalc", hint_key="external.hint.fpcalc")
 MUTAGEN = Tool("mutagen", "", module="mutagen", hint_key="external.hint.mutagen")
-YT_DLP = Tool("yt-dlp", "yt-dlp", hint_key="external.hint.ytdlp")
 
-TOOLS: tuple[Tool, ...] = (FFPROBE, FFMPEG, FPCALC, MUTAGEN, YT_DLP)
+TOOLS: tuple[Tool, ...] = (FFPROBE, FFMPEG, FPCALC, MUTAGEN)
 
 VERSION_FLAGS: tuple[str, ...] = ("--version", "-version")
 VERSION_TIMEOUT = 3.0

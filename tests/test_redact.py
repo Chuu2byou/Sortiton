@@ -2,7 +2,7 @@
 
 Zugangsdaten, Pfadsegmente, Query-Werte und Tokens dürfen nicht im Log oder in
 einer Fehlermeldung landen - auch nicht in einer URL ohne Schema oder hinter
-einem ``--fetch-url=…``.
+einem ``--source-url=…``.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ def test_urls_and_arguments_are_redacted() -> None:
           "abc" not in redact.text(f"failed for {secret}"), redact.text(secret))
     check("a plain path is unchanged", redact.url("/music/track.mp3") == "/music/track.mp3")
 
-    for argument in ("--fetch-url=https://example.org/watch?v=secret",
-                     "--fetch-url=youtu.be/watch?v=secret"):
+    for argument in ("--source-url=https://example.org/watch?v=secret",
+                     "--source-url=youtu.be/watch?v=secret"):
         rendered = redact.command([argument])[0]
         check("the token is redacted", "secret" not in rendered, rendered)
-        check("the option is still visible", rendered.startswith("--fetch-url="),
+        check("the option is still visible", rendered.startswith("--source-url="),
               rendered)
 
     bare = redact.url("youtu.be/watch?v=secret")

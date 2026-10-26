@@ -15,12 +15,7 @@ from _support import Path, SimpleNamespace, check, config, output, tempfile
 
 
 def test_all_pipeline() -> None:
-    """cmd_all läuft eine optionale fetch-Stufe vor tags/rename/sort.
-
-    Die Stufen sind ersetzt, der Test ruft also weder yt-dlp noch eine Datei -
-    er prüft nur die Reihenfolge, die ``cmd_all`` aus den Argumenten baut, mit
-    und ohne ``fetch_url`` und mit fehlender Bestätigung.
-    """
+    """cmd_all runs tags -> rename -> sort, in this order."""
     from sortiton import tasks
 
     order: list[str] = []
@@ -39,116 +34,15 @@ def test_all_pipeline() -> None:
 
     with mock.patch.object(tasks, "cmd_tags", recorder("tags")), \
             mock.patch.object(tasks, "cmd_rename", recorder("rename")), \
-            mock.patch.object(tasks, "cmd_sort", recorder("sort")), \
-            mock.patch.object(tasks, "cmd_fetch", recorder("fetch")):
-        # Ohne URL bleibt die Pipeline bei den drei klassischen Stufen.
-        order.clear()
+            mock.patch.object(tasks, "cmd_sort", recorder("sort")):
         rc = tasks.cmd_all(all_args())
-        check("all without fetch_url returns 0", rc == 0, str(rc))
-        check("all without fetch_url is tags -> rename -> sort",
-              order == ["tags", "rename", "sort"], str(order))
-        keys = [step.title_key for step in tasks._pipeline_steps(all_args())]
-        check("pipeline has no fetch stage without fetch_url",
-              keys == ["task.step.tags", "task.step.rename", "task.step.sort"], str(keys))
 
-        # Eine bestätigte URL stellt die fetch-Stufe voran.
-        order.clear()
-        rc = tasks.cmd_all(all_args(fetch_url="https://example.org/x",
-                                    fetch_confirmed=True))
-        check("all with fetch_url returns 0", rc == 0, str(rc))
-        check("fetch runs before the classic stages",
-              order == ["fetch", "tags", "rename", "sort"], str(order))
-        keys = [step.title_key for step in tasks._pipeline_steps(
-            all_args(fetch_url="https://example.org/x", fetch_confirmed=True))]
-        check("pipeline puts the fetch stage first",
-              keys == ["task.step.fetch", "task.step.tags", "task.step.rename",
-                       "task.step.sort"], str(keys))
-
-        # Eine URL ohne ausdrückliche Bestätigung darf nichts herunterladen.
-        order.clear()
-        messages: list[str] = []
-        with mock.patch.object(tasks, "message",
-                               side_effect=lambda text="": messages.append(str(text))):
-            rc = tasks.cmd_all(all_args(fetch_url="https://example.org/x"))
-        check("all refuses an unconfirmed fetch", rc == 2, str(rc))
-        check("an unconfirmed fetch downloads nothing", order == [], str(order))
-        check("the refusal names the confirmation",
-              any("confirm" in text.lower() for text in messages), str(messages[:3]))
-
-
-def test_all_preview_never_downloads() -> None:
-    """Eine Vorschau der "all"-Pipeline muss apply=False an fetch geben.
-
-    Vor dem Fix setzte ``_run_fetch_step`` hart ``apply=True``: ein
-    Vorschau-Lauf mit ``--fetch-url`` und ``--fetch-confirmed`` lud Dateien,
-    obwohl das Banner "Vorschau" sagte und kein Journal offen war.
-    """
-    from sortiton import tasks
-
-    seen: list[dict] = []
-
-    def fake_fetch(args) -> int:
-        seen.append(vars(args))
-        return 0
-
-    args = SimpleNamespace(source="/src", target="/dst", pattern="%artist% - %title%",
-                           move=False, apply=False, backup=False,
-                           fetch_url="https://example.org/x", fetch_confirmed=True)
-    with mock.patch.object(tasks, "cmd_fetch", fake_fetch), \
-            mock.patch.object(tasks, "cmd_tags", lambda _args: 0), \
-            mock.patch.object(tasks, "cmd_rename", lambda _args: 0), \
-            mock.patch.object(tasks, "cmd_sort", lambda _args: 0):
-        rc = tasks.cmd_all(args)
-
-    check("preview of all returns 0", rc == 0, str(rc))
-    check("the preview reaches the fetch stage", len(seen) == 1, str(seen))
-    check("the fetch stage stays a preview", seen[0]["apply"] is False, str(seen[0]))
-    check("the preview needs no confirmation", seen[0]["confirm"] is False, str(seen[0]))
-
-
-def test_all_apply_needs_confirmation() -> None:
-    """Ein angewandter "all"-Lauf lädt ohne --fetch-confirmed nichts."""
-    from sortiton import tasks
-
-    called: list[dict] = []
-    args = SimpleNamespace(source="/src", target="/dst", pattern="%artist% - %title%",
-                           move=False, apply=True, backup=False,
-                           fetch_url="https://example.org/x", fetch_confirmed=False)
-    with mock.patch.object(tasks, "cmd_fetch", lambda value: called.append(vars(value))):
-        rc = tasks.cmd_all(args)
-
-    check("an unconfirmed fetch stops the run", rc == 2, str(rc))
-    check("nothing was downloaded", not called, str(called))
-
-
-def test_all_counts_fetch_errors() -> None:
-    """Das Gesamtergebnis von ``all`` enthält die optionale fetch-Stufe."""
-    from sortiton import tasks
-
-    def fake_fetch(_args) -> int:
-        output.report_stats("fetch", files=0, errors=3, applied=True)
-        return 1
-
-    def zero(kind: str):
-        def run(_args) -> int:
-            output.report_stats(kind, files=0, errors=0, applied=True)
-            return 0
-        return run
-
-    args = SimpleNamespace(source="/src", target="/dst", pattern="%artist% - %title%",
-                           move=False, apply=True, backup=False,
-                           fetch_url="https://example.org/watch?v=secret",
-                           fetch_confirmed=True)
-    with mock.patch.object(tasks, "cmd_fetch", fake_fetch), \
-            mock.patch.object(tasks, "cmd_tags", zero("tags")), \
-            mock.patch.object(tasks, "cmd_rename", zero("rename")), \
-            mock.patch.object(tasks, "cmd_sort", zero("sort")):
-        rc = tasks.cmd_all(args)
-
-    check("the aggregate exit code is nonzero", rc == 1, str(rc))
-    check("fetch errors are counted",
-          output.last_stats("all").get("errors") == 3,
-          str(output.last_stats("all")))
+    check("all returns 0", rc == 0, str(rc))
+    check("all runs tags -> rename -> sort",
+          order == ["tags", "rename", "sort"], str(order))
+    keys = [step.title_key for step in tasks._pipeline_steps(all_args())]
+    check("pipeline has the three stages",
+          keys == ["task.step.tags", "task.step.rename", "task.step.sort"], str(keys))
 
 
 def test_all_preview_passes_cleaned_tags_and_renamed_paths_forward() -> None:

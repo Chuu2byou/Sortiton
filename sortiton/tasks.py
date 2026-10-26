@@ -17,11 +17,10 @@ from typing import Callable
 from . import i18n, journal
 from .backup import backup_files, prune_backups
 from .cancel import NO_CANCEL, Cancelled
-from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, FETCH_ARCHIVE,
-                     LOG_DIR, RULES_FILE, WRITE_WORKERS)
-from .features.fetch import cmd_fetch
+from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, LOG_DIR,
+                     RULES_FILE, WRITE_WORKERS)
 from .fileops import atomic_write_text, copy_new, move_no_clobber
-from .files import build_name, content_digest, free_target, iter_audio, safe_name, same_content
+from .files import build_name, free_target, iter_audio, safe_name, same_content
 from .output import (progress, banner, clear_stats, colorize, last_stats, message,
                      report_plan, report_stats)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
@@ -689,10 +688,7 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
         """Argumente einer Stufe: gemeinsame Werte plus die der Stufe."""
         return SimpleNamespace(cancel=cancel, pipeline_state=pipeline_state, **values)
 
-    steps: list[Step] = []
-    if getattr(args, "fetch_url", None):
-        steps.append(Step("task.step.fetch", lambda: _run_fetch_step(args, cancel)))
-    steps.extend([
+    steps: list[Step] = [
         Step("task.step.tags", lambda: cmd_tags(stage(
             folder=args.source, apply=args.apply,
             backup=getattr(args, "backup", False),
@@ -704,20 +700,8 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
         Step("task.step.sort", lambda: cmd_sort(stage(
             source=args.source, target=args.target, pattern=args.pattern,
             move=args.move, apply=args.apply))),
-    ])
+    ]
     return steps
-
-
-def _run_fetch_step(args: CmdArgs, cancel) -> int:
-    """Download ``args.fetch_url`` into ``args.source`` - never without consent."""
-    apply = bool(getattr(args, "apply", False))
-    confirmed = getattr(args, "fetch_confirmed", False) is True
-    if apply and not confirmed:
-        message(i18n.t("fetch.apply.needs_confirm"))
-        return 2
-    return cmd_fetch(SimpleNamespace(url=args.fetch_url, target=args.source,
-                                     apply=apply, confirm=apply and confirmed,
-                                     cancel=cancel))
 
 
 def cmd_all(args: CmdArgs) -> int:
@@ -732,7 +716,7 @@ def cmd_all(args: CmdArgs) -> int:
     steps = _pipeline_steps(args)
     total = len(steps)
     step_rc = 0
-    clear_stats("fetch", "tags", "rename", "sort")
+    clear_stats("tags", "rename", "sort")
     for index, step in enumerate(steps, start=1):
         title = i18n.t("task.step.label", index=index, total=total,
                        title=i18n.t(step.title_key))
@@ -757,9 +741,8 @@ def cmd_all(args: CmdArgs) -> int:
     tags_stats = last_stats("tags")
     rename_stats = last_stats("rename")
     sort_stats = last_stats("sort")
-    fetch_stats = last_stats("fetch")
     errors = (tags_stats.get("errors", 0) + rename_stats.get("errors", 0)
-              + sort_stats.get("errors", 0) + fetch_stats.get("errors", 0))
+              + sort_stats.get("errors", 0))
     report_stats("all", files=sort_stats.get("files", 0), steps=len(steps),
                  tags_changed=tags_stats.get("changed", 0),
                  renamed=rename_stats.get("changed", 0),
@@ -878,25 +861,6 @@ def _step_files(steps: list[dict]) -> list[Path]:
     return files
 
 
-def _drop_archive_id(archive_id: str) -> bool:
-    """Remove one line from the yt-dlp download archive (step 4.4)."""
-    if not archive_id:
-        return True
-    try:
-        lines = FETCH_ARCHIVE.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return not FETCH_ARCHIVE.exists()
-    remaining = [line for line in lines if line.strip() != archive_id]
-    if len(remaining) == len(lines):
-        return True
-    try:
-        atomic_write_text(FETCH_ARCHIVE,
-                          "\n".join(remaining) + ("\n" if remaining else ""))
-    except OSError:
-        return False
-    return True
-
-
 def _common_root(paths: list[Path]) -> Path:
     """Folder the backup keeps its relative structure from."""
     try:
@@ -943,25 +907,6 @@ def _undo_step(step: dict) -> str:
             copy.unlink()
             journal.record("rmfile", path=str(copy))
             message(i18n.t("restore.ok.copy", name=copy.name))
-            return "done"
-
-        if op == "download":
-            path = step["path"]
-            if not path.is_file():
-                message(i18n.t("restore.skip.missing", name=path.name))
-                return "skipped"
-            expected = step.get("sha256")
-            if not expected or content_digest(path) != expected:
-                message(i18n.t("restore.skip.modified", name=path.name))
-                return "skipped"
-            if not _drop_archive_id(step["archive_id"]):
-                message(i18n.t("restore.error.archive", name=path.name))
-                journal.record_failure("download", "archive line could not be removed",
-                                       path=str(path))
-                return "error"
-            path.unlink()
-            journal.record("rmfile", path=str(path))
-            message(i18n.t("restore.ok.download", name=path.name))
             return "done"
 
         if op == "move":
@@ -1108,25 +1053,6 @@ def cmd_restore(args: CmdArgs) -> int:
             state[copy] = False
             report_plan("sort", source=copy, target=original)
             message(i18n.t("restore.remove_copy", name=copy.name))
-            continue
-
-        if op == "download":
-            target = Path(str(event.get("path", "")))
-            archive_id = str(event.get("archive_id") or "")
-            if keep_copies:
-                message(i18n.t("restore.skip.keep_download", name=target.name))
-                skipped += 1
-                continue
-            if not exists(target):
-                message(i18n.t("restore.skip.missing", name=target.name))
-                skipped += 1
-                continue
-            steps.append({"op": "download", "path": target, "archive_id": archive_id,
-                          "sha256": str(event.get("sha256") or ""),
-                          "backup": now(target)})
-            state[target] = False
-            report_plan("download", path=target, archive_id=archive_id)
-            message(i18n.t("restore.remove_download", name=target.name))
             continue
 
         if op in ("rename", "sort", "dedupe"):

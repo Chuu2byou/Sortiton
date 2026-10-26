@@ -20,7 +20,6 @@ os.environ["SORTITON_LOG_DIR"] = str(_TMP / "logs")
 os.environ["SORTITON_EXPORT_DIR"] = str(_TMP / "exports")
 os.environ["SORTITON_CACHE_DIR"] = str(_TMP / "cache")
 os.environ["SORTITON_BACKUP_DIR"] = str(_TMP / "backups")
-os.environ["SORTITON_FETCH_ARCHIVE"] = str(_TMP / "fetch_archive.txt")
 os.environ.pop("SORTITON_LANG", None)
 
 # ``_support`` is a sibling module, not an installed package.

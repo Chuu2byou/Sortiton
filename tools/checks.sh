@@ -29,7 +29,6 @@ export SORTITON_SETTINGS="$WORK/settings.ini"
 export SORTITON_RULES="$WORK/my_rules.ini"
 export SORTITON_LOG_DIR="$WORK/logs"
 export SORTITON_BACKUP_DIR="$WORK/backups"
-export SORTITON_FETCH_ARCHIVE="$WORK/fetch_archive.txt"
 unset SORTITON_LANG
 
 passed=0
@@ -101,7 +100,6 @@ run "cli: --help" python3 sortiton.py --help
 run "cli: rules --builtin" python3 sortiton.py rules --builtin
 run "cli: export --help" python3 sortiton.py export --help
 run "cli: fixes --help" python3 sortiton.py fixes --help
-run "cli: fetch --help" python3 sortiton.py fetch --help
 run "cli: dedupe --help" python3 sortiton.py dedupe --help
 
 if have_module pylint; then

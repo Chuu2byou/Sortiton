@@ -17,7 +17,6 @@ from ..common import (
     TEXT_MUTED,
     YELLOW,
     _ask_yes_no,
-    _fmt_duration,
     _fmt_number,
     _pretty_path,
     _show_error,
@@ -238,8 +237,6 @@ class RunMixin(GuiBase):
 
     def _confirm_tool_write(self, feature) -> bool:
         """Confirmation before a writing tool runs."""
-        if feature.key == "fetch":
-            return self._confirm_fetch()
         if feature.key == "dedupe":
             return self._confirm_dedupe()
         has_backup = any(option.name == "backup" for option in feature.options)
@@ -256,18 +253,6 @@ class RunMixin(GuiBase):
                         files=_fmt_number(plan.get("files", 0)),
                         folder=_pretty_path(plan.get("source", ""))),
             note=i18n.t("gui.confirm.note"),
-            ok_text=i18n.t("gui.confirm.ok"),
-            cancel_text=i18n.t("gui.button.cancel"))
-        return confirmed
-
-    def _confirm_fetch(self) -> bool:
-        """Dedicated download confirmation, including the rights note."""
-        confirmed, _options = ask_confirm(
-            self.root,
-            title=i18n.t("gui.confirm.fetch.title"),
-            heading=i18n.t("gui.confirm.fetch.title"),
-            text=i18n.t("gui.confirm.fetch.text"),
-            note=i18n.t("gui.confirm.fetch.note"),
             ok_text=i18n.t("gui.confirm.ok"),
             cancel_text=i18n.t("gui.button.cancel"))
         return confirmed
@@ -317,15 +302,6 @@ class RunMixin(GuiBase):
                 example = (pair[0], pair[1])
                 if example not in entry["examples"]:
                     entry["examples"].append(example)
-            return
-
-        if kind == "fetch":
-            plan["kind"] = "fetch"
-            plan["files"] += 1
-            entries = plan.setdefault("entries", [])
-            if len(entries) < 3:
-                entries.append((str(data.get("title") or data.get("url") or ""),
-                                _fmt_duration(data.get("duration"))))
             return
 
         source = data.get("source")
@@ -444,15 +420,10 @@ class RunMixin(GuiBase):
         if plan.get("kind") == "tags":
             return i18n.t("gui.preview.summary_tags",
                           changes=_fmt_number(plan.get("changes_total", 0)), files=files)
-        if plan.get("kind") == "fetch":
-            return i18n.t("gui.preview.summary_fetch", count=files)
         return i18n.t("gui.preview.summary_files", files=files)
 
     def _plan_rows(self, plan: dict) -> list[tuple[str, str, str, str]]:
         rows: list[tuple[str, str, str, str]] = []
-        if plan.get("kind") == "fetch":
-            return [(i18n.t("gui.field.title"), "", title, duration)
-                    for title, duration in (plan.get("entries") or [])]
         if plan.get("kind") == "tags":
             for field in PLAN_FIELDS:
                 entry = (plan.get("fields") or {}).get(field)

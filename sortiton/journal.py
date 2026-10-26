@@ -12,11 +12,11 @@ from pathlib import Path
 from . import i18n, output, redact
 from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME, LOG_DIR,
                      LOG_PREFIX, OFF_VALUES)
-from .files import content_digest, open_new
+from .files import open_new
 
 SCHEMA = 1
 
-UNDOABLE = ("tags", "rename", "sort", "copy", "dedupe", "download")
+UNDOABLE = ("tags", "rename", "sort", "copy", "dedupe")
 
 _file = None
 _path: Path | None = None
@@ -147,15 +147,6 @@ def record_move(op: str, source: Path, target: Path, mode: str = "") -> None:
     if mode:
         data["mode"] = mode
     record(op, **data)
-
-
-def record_download(path: Path, url: str, archive_id: str = "") -> None:
-    """Remember a finished download."""
-    try:
-        digest = content_digest(path)
-    except OSError:
-        digest = ""
-    record("download", path=str(path), url=url, archive_id=archive_id, sha256=digest)
 
 
 def record_failure(op: str, error: object, **data: object) -> None:

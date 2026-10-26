@@ -29,39 +29,6 @@ from _support import (
 )
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-def test_download_undo_preserves_modified_or_unverified_files(legacy: bool) -> None:
-      """Undo entfernt weder geänderte Downloads noch Dateien ohne Inhaltsnachweis."""
-      from unittest import mock
-      from sortiton import tasks
-
-      with tempfile.TemporaryDirectory() as tmp:
-            work = Path(tmp)
-            downloaded = work / "download.mp3"
-            downloaded.write_bytes(b"before")
-            opened = _open_journal(work, 11)
-            try:
-                  if legacy:
-                        journal.record("download", path=str(downloaded), archive_id="youtube track")
-                  else:
-                        journal.record_download(downloaded, "https://example.org/track", "youtube track")
-            finally:
-                  journal.close()
-
-            if not legacy:
-                  downloaded.write_bytes(b"edited")
-            with mock.patch.object(tasks, "_drop_archive_id") as drop:
-                  rc = cmd_restore(_restore_args(opened, apply=True))
-
-            check("unverified download undo succeeds without deleting", rc == 0, str(rc))
-            check("the download contents survive",
-                    downloaded.read_bytes() == (b"before" if legacy else b"edited"))
-            check("the archive is left untouched", not drop.called)
-            check("the download is counted as skipped",
-                    output.last_stats("restore").get("skipped") == 1,
-                    str(output.last_stats("restore")))
-
-
 def test_journal() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
@@ -120,32 +87,6 @@ def test_journal() -> None:
               list(journal.read_journal(work / "nope.jsonl")) == [])
         check("unknown operations are named",
               journal.summarize([{"op": "rmfile"}]) == {"rmfile": 1})
-
-        # Der Download ist rückgängig zu machen und trägt die Archiv-ID, ist
-        # aber additiv und darf die Schema-Version nicht erhöhen.
-        dl_log = work / "sortiton_2026-01-01_00-30-00.log"
-        dl_log.write_text("", encoding="utf-8")
-        dl_journal = journal.open_for(dl_log)
-        journal.record_download(work / "down.mp3", "https://example.org/watch?v=x",
-                                "youtube abc123")
-        journal.close()
-        dl_events = journal.plan_restore(dl_journal)
-        check("download is an undoable operation",
-              "download" in journal.UNDOABLE, str(journal.UNDOABLE))
-        check("a download record is planned for undo",
-              [event["op"] for event in dl_events] == ["download"],
-              str([event["op"] for event in dl_events]))
-        check("a download record keeps path, url and archive id",
-              bool(dl_events) and str(dl_events[0].get("path", "")).endswith("down.mp3")
-              and dl_events[0].get("url") == "https://example.org/watch?v=x"
-              and dl_events[0].get("archive_id") == "youtube abc123",
-              str(dl_events[0] if dl_events else dl_events))
-        check("summarize counts a download",
-              journal.summarize(dl_events) == {"download": 1},
-              str(journal.summarize(dl_events)))
-        check("a new operation does not bump the schema",
-              journal.schema_version(dl_journal) == journal.SCHEMA,
-              str(journal.schema_version(dl_journal)))
 
         # A run must never be offered its own journal as "the last one to undo".
         older = journal.open_for(config.LOG_DIR / "sortiton_2026-01-01_02-00-00.log")
@@ -382,75 +323,6 @@ def test_restore() -> None:
               output.last_stats("restore").get("skipped") == 1,
               str(output.last_stats("restore")))
 
-        # Ein Download wird rückgängig gemacht, indem die Datei gelöscht und
-        # ihre Archiv-Zeile entfernt wird - sonst blockiert das Archiv einen
-        # späteren erneuten Download.
-        archive = config.FETCH_ARCHIVE
-        archive.parent.mkdir(parents=True, exist_ok=True)
-        downloads = work / "downloads"
-        downloads.mkdir()
-
-        grabbed = downloads / "grabbed.mp3"
-        grabbed.write_bytes(b"\x00" * 32)
-        archive.write_text("youtube keepme\nyoutube abc123\nyoutube other\n",
-                           encoding="utf-8")
-        jrn_dl = _open_journal(work, 7)
-        journal.record_download(grabbed, "https://example.org/watch?v=abc",
-                                "youtube abc123")
-        journal.close()
-
-        check("download preview runs", cmd_restore(_restore_args(jrn_dl)) == 0)
-        check("download preview keeps the file", grabbed.exists())
-        check("download preview counts one change",
-              output.last_stats("restore").get("changed") == 1,
-              str(output.last_stats("restore")))
-        check("download undo runs", cmd_restore(_restore_args(jrn_dl, apply=True)) == 0)
-        check("the downloaded file is gone", not grabbed.exists())
-        remaining = archive.read_text(encoding="utf-8")
-        check("the archive line is dropped",
-              "youtube abc123" not in remaining and "youtube keepme" in remaining,
-              remaining)
-        check("download undo reports no errors",
-              output.last_stats("restore").get("errors") == 0,
-              str(output.last_stats("restore")))
-
-        # --keep-copies keeps the download (and its archive line) in place
-        kept_download = downloads / "kept.mp3"
-        kept_download.write_bytes(b"\x00" * 32)
-        archive.write_text("youtube keepme\nyoutube keep2\n", encoding="utf-8")
-        jrn_dl_keep = _open_journal(work, 8)
-        journal.record_download(kept_download, "https://example.org/watch?v=keep",
-                                "youtube keep2")
-        journal.close()
-        cmd_restore(_restore_args(jrn_dl_keep, apply=True, keep_copies=True))
-        check("--keep-copies keeps the download", kept_download.exists())
-        check("a kept download is counted as skipped",
-              output.last_stats("restore").get("skipped") == 1,
-              str(output.last_stats("restore")))
-        check("--keep-copies keeps the archive line",
-              "youtube keep2" in archive.read_text(encoding="utf-8"))
-
-        # a download whose file is already gone is skipped, not an error
-        jrn_dl_gone = _open_journal(work, 9)
-        journal.record_download(downloads / "gone.mp3", "https://example.org/g",
-                                "youtube gone")
-        journal.close()
-        check("a missing download is skipped",
-              cmd_restore(_restore_args(jrn_dl_gone, apply=True)) == 0
-              and output.last_stats("restore").get("skipped") == 1,
-              str(output.last_stats("restore")))
-
-        # no archive was used (--no-archive): the undo still deletes the file
-        no_arch = downloads / "noarch.mp3"
-        no_arch.write_bytes(b"\x00" * 32)
-        jrn_dl_noarch = _open_journal(work, 10)
-        journal.record_download(no_arch, "https://example.org/e", "")
-        journal.close()
-        check("a download without an archive id still undoes",
-              cmd_restore(_restore_args(jrn_dl_noarch, apply=True)) == 0
-              and not no_arch.exists(),
-              str(output.last_stats("restore")))
-
         # the old name is taken again: nothing may be overwritten
         clash = work / "clash"
         clash.mkdir()
@@ -641,19 +513,3 @@ def test_undo_keeps_a_modified_copy() -> None:
         outcome = tasks._undo_step({"op": "copy", "target": copy, "original": original})
         check("the modified copy is skipped", outcome == "skipped", outcome)
         check("the modified copy is kept", copy.exists())
-
-
-def test_undo_keeps_a_download_when_the_archive_fails() -> None:
-    """Die Datei löschen, aber die Archiv-Zeile behalten, wäre ein falsches Undo."""
-    from sortiton import tasks
-    from sortiton.files import content_digest
-
-    with tempfile.TemporaryDirectory() as tmp:
-        downloaded = Path(tmp) / "track.mp3"
-        downloaded.write_bytes(b"x")
-        with mock.patch.object(tasks, "_drop_archive_id", return_value=False):
-            outcome = tasks._undo_step(
-                {"op": "download", "path": downloaded, "archive_id": "youtube x",
-                 "sha256": content_digest(downloaded)})
-        check("the step reports an error", outcome == "error", outcome)
-        check("the download is kept", downloaded.exists())

@@ -11,8 +11,7 @@ It is the Linux port of one of my earlier PowerShell scripts.
 ## Features
 
 - **Four operations:** clean tags, rename, sort, and apply all - plus a
-read-only export for an LLM, CSV corrections, audio fetching, and a duplicate
-finder.
+read-only export for an LLM, CSV corrections, and a duplicate finder.
 Each shows a preview first; nothing is written until confirmed.
 - **Custom rules without code:** artist and genre corrections are defined in `my_rules.ini`.
 - **No overwriting:** if a target name is taken, `(2)`, `(3)`, etc. is appended.
@@ -66,10 +65,9 @@ preview, review it, then write. The write button remains disabled until a
 preview has been run for the current inputs, and it locks again when any input
 changes. "Apply all" runs clean tags, rename, and sort in a single pass.
 
-Tools groups the helper features (export reports, apply CSV corrections, fetch
-audio, find duplicates) behind a small picker. The form is built from the
-feature description and split into cards (folder & files, download, …), a
-badge says whether the
+Tools groups the helper features (export reports, apply CSV corrections, find
+duplicates) behind a small picker. The form is built from the feature
+description and split into cards (folder & files, report, …), a badge says whether the
 selected tool reads or writes, and each empty folder field starts with the music
 folder. The run button sits next to a one-line note that repeats what will happen.
 Only the inputs of a single run stay in the tab: report length, duplicate check
@@ -109,7 +107,6 @@ sortiton export ~/Music                        # write reports for an LLM
 sortiton fixes  changes.csv --root ~/Music     # preview CSV corrections
 sortiton dedupe ~/Music                        # preview exact duplicates
 sortiton dedupe ~/Music --apply                # move them to .duplicates
-sortiton fetch  URL ~/Music --apply --confirm  # download audio (yt-dlp)
 sortiton rules  --template                     # create my_rules.ini
 sortiton restore --list                        # list runs that can be undone
 sortiton restore --apply                       # undo the last run
@@ -168,37 +165,6 @@ The export only reads the library - it never changes a file, so there is no
 `--apply`. The reports go to `SORTITON_EXPORT_DIR` (default `Sortiton/` inside
 the user's download folder, i.e. `~/Downloads/Sortiton`), the fingerprint cache
 to `SORTITON_CACHE_DIR` (default `cache/`).
-
-## Download audio (`fetch`)
-
-`sortiton fetch URL FOLDER` previews a video or playlist with `yt-dlp` and
-reports what it would find. Downloading needs both `--apply` and `--confirm`;
-`yt-dlp` must be on the `PATH`. Only download content you have the rights to.
-
-Downloads often carry junk tags such as "Official Video" or the uploader name.
-Sortiton does not clean them during the download, so fetch first and run the
-usual cleanup on the target folder afterwards:
-
-```bash
-sortiton fetch  URL ~/Downloads/Music --apply --confirm
-sortiton tags   ~/Downloads/Music --apply   # built-in cleanups, my_rules.ini
-sortiton rename ~/Downloads/Music --apply   # %artist% - %title%
-sortiton sort   ~/Downloads/Music ~/Music --move --apply
-```
-
-Every step previews first and only writes with `--apply` (`fetch` also needs
-`--confirm`). `sortiton tags` applies the built-in cleanups and your
-`my_rules.ini` rules; the read-only `sortiton export ~/Downloads/Music` lists
-what still looks like junk in `02_auffaelligkeiten.md`.
-
-The "Apply all" pipeline can run the same sequence in one pass: add
-`--fetch-url URL` and `--fetch-confirmed` (and `--apply` for the run) and the
-download happens before clean tags, rename and sort on the same source folder:
-
-```bash
-sortiton all ~/Downloads/Music ~/Music --move --apply \
-    --fetch-url URL --fetch-confirmed
-```
 
 ## Find duplicates (`dedupe`)
 

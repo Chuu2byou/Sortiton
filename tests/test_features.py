@@ -1,4 +1,4 @@
-"""Feeds features, fetch pipeline, isolation and CSV fixes."""
+"""Tests the features, their isolation and the CSV fixes."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from _support import (
     BASE,
     Path,
     SimpleNamespace,
-    _fake_ytdlp_env,
     _make_flac,
     _open_journal,
     _restore_args,
@@ -16,9 +15,7 @@ from _support import (
     check,
     cmd_restore,
     config,
-    contextlib,
     i18n,
-    io,
     journal,
     os,
     output,
@@ -26,7 +23,6 @@ from _support import (
     skip,
     subprocess,
     tempfile,
-    threading,
     write_tags,
 )
 
@@ -56,22 +52,22 @@ def test_external_tools() -> None:
         check("available(MUTAGEN) follows config (on)",
               external.available(external.MUTAGEN))
 
-    # Die Registry listet jedes Werkzeug einmal, und yt-dlp gehört dazu.
+    # Die Registry listet jedes Werkzeug einmal.
     keys = [tool.key for tool in external.TOOLS]
     check("TOOLS lists every tool once", len(keys) == len(set(keys)), ", ".join(keys))
-    check("TOOLS contains yt-dlp", external.YT_DLP in external.TOOLS)
+    check("TOOLS contains fpcalc", external.FPCALC in external.TOOLS)
 
     # version(): the first flag that exits cleanly wins, any error gives "".
-    ok_run = subprocess.CompletedProcess(args=["yt-dlp", "--version"], returncode=0,
-                                         stdout="2024.08.06\n", stderr="")
-    with mock.patch.object(external.shutil, "which", return_value="/usr/bin/yt-dlp"), \
+    ok_run = subprocess.CompletedProcess(args=["fpcalc", "--version"], returncode=0,
+                                         stdout="fpcalc version 1.6.1\n", stderr="")
+    with mock.patch.object(external.shutil, "which", return_value="/usr/bin/fpcalc"), \
             mock.patch.object(external.subprocess, "run", return_value=ok_run):
-        got = external.version(external.YT_DLP)
-        check("version() reads the program output", got == "2024.08.06", repr(got))
+        got = external.version(external.FPCALC)
+        check("version() reads the program output", got == "1.6.1", repr(got))
 
     with mock.patch.object(external.shutil, "which", return_value=None):
         check("version() is empty without the program",
-              external.version(external.YT_DLP) == "")
+              external.version(external.FPCALC) == "")
 
     def _two_flags(argv, **_kwargs):
         """fpcalc/ffprobe reject --version but answer -version."""
@@ -92,19 +88,19 @@ def test_external_tools() -> None:
         got = external.version(external.FFPROBE)
         check("version() reduces a banner to the number", got == "9.0.2", repr(got))
 
-    for problem in (subprocess.TimeoutExpired("yt-dlp", 3), OSError("boom")):
-        with mock.patch.object(external.shutil, "which", return_value="/usr/bin/yt-dlp"), \
+    for problem in (subprocess.TimeoutExpired("fpcalc", 3), OSError("boom")):
+        with mock.patch.object(external.shutil, "which", return_value="/usr/bin/fpcalc"), \
                 mock.patch.object(external.subprocess, "run", side_effect=problem):
             check(f"version() survives {type(problem).__name__}",
-                  external.version(external.YT_DLP) == "")
+                  external.version(external.FPCALC) == "")
 
     # The real program, when present, answers. The skip names the tool so the
     # end-of-run list shows which program was missing.
-    if external.available(external.YT_DLP):
-        real = external.version(external.YT_DLP)
-        check("version(yt-dlp) on the real program", real != "", repr(real))
+    if external.available(external.FPCALC):
+        real = external.version(external.FPCALC)
+        check("version(fpcalc) on the real program", real != "", repr(real))
     else:
-        skip("external.version for yt-dlp", "yt-dlp not installed")
+        skip("external.version for fpcalc", "fpcalc not installed")
 
     # Every hint key exists in both catalogs.
     for tool in external.TOOLS:
@@ -116,10 +112,10 @@ def test_external_tools() -> None:
           and "external.error.missing" in i18n.catalog("de"))
 
     # format_missing names the missing tool(s) and adds their install hints.
-    text = external.format_missing([external.Requirement((external.YT_DLP,))])
+    text = external.format_missing([external.Requirement((external.FPCALC,))])
     flat = text.replace("\n", " / ")
-    check("format_missing names yt-dlp", "yt-dlp" in text, flat)
-    check("format_missing adds the yt-dlp hint", i18n.t("external.hint.ytdlp") in text, flat)
+    check("format_missing names fpcalc", "fpcalc" in text, flat)
+    check("format_missing adds the fpcalc hint", i18n.t("external.hint.fpcalc") in text, flat)
     both = external.format_missing(
         [external.Requirement((external.FFPROBE, external.FPCALC))])
     check("format_missing lists every tool of a requirement",
@@ -230,384 +226,6 @@ def test_features_registry() -> None:
     check("every feature/option/tool key exists in en+de", not missing_keys,
           ", ".join(sorted(set(missing_keys))))
 
-
-def test_fetch() -> None:
-    """Das fetch-Feature ist registriert und seine Optionen parsen sauber.
-
-    Der Netzteil (Vorschau, Bestätigung, Download) wird in ``test_fetch_run``
-    geprüft; hier geht es nur um die Beschreibung, nie um yt-dlp selbst.
-    """
-    from sortiton import external
-    from sortiton.features import base, get
-    from sortiton.features.fetch import AUDIO_FORMATS, FEATURE
-
-    check("fetch is registered", get("fetch") is FEATURE)
-    check("fetch is a writing feature", FEATURE.writes is True)
-    check("fetch requires yt-dlp",
-          any(external.YT_DLP in requirement.any_of for requirement in FEATURE.requires))
-
-    names = [option.name for option in FEATURE.options]
-    check("fetch has url and target as positionals",
-          all(option.positional for option in FEATURE.options
-              if option.name in ("url", "target")) and "url" in names and "target" in names)
-    check("fetch audio formats are the yt-dlp subset",
-          AUDIO_FORMATS == ("mp3", "m4a", "opus", "flac"), ", ".join(AUDIO_FORMATS))
-    audio = next(option for option in FEATURE.options if option.name == "audio_format")
-    check("audio format is a choice with those formats",
-          audio.kind == "choice" and audio.choices == AUDIO_FORMATS)
-
-    # The CLI builds the sub-command from the Option list, exactly like the
-    # other features; parse a full call and the defaults.
-    parser = argparse.ArgumentParser(prog="fetch-test")
-    sub = parser.add_subparsers(dest="command", required=True)
-    base.add_feature_parser(sub, FEATURE)
-
-    given = parser.parse_args(["fetch", "https://example.org/watch?v=x", "/music",
-                               "--audio-format", "opus", "--playlist", "--no-archive",
-                               "--apply", "--confirm"])
-    check("url (positional) parsed", given.url == "https://example.org/watch?v=x")
-    check("target (positional) parsed", given.target == "/music")
-    check("audio format choice parsed", given.audio_format == "opus")
-    check("playlist flag parsed", given.playlist is True)
-    check("no_archive flag parsed", given.no_archive is True)
-    check("apply flag parsed", given.apply is True)
-    check("confirm flag parsed", given.confirm is True)
-
-    defaults = parser.parse_args(["fetch", "URL", "/music"])
-    check("audio format default is mp3", defaults.audio_format == "mp3")
-    check("playlist default is False", defaults.playlist is False)
-    check("no_archive default is False", defaults.no_archive is False)
-    check("apply default is False", defaults.apply is False)
-    check("confirm default is False", defaults.confirm is False)
-
-    # Ein Audioformat außerhalb der Auswahlliste lehnt argparse ab; yt-dlp
-    # selbst könnte auch aac/alac/vorbis/wav/best.
-    refused = False
-    with contextlib.redirect_stderr(io.StringIO()):
-        try:
-            parser.parse_args(["fetch", "URL", "/music", "--audio-format", "ogg"])
-        except SystemExit:
-            refused = True
-    check("an unknown audio format is refused", refused)
-
-
-@pytest.mark.external
-def test_fetch_run() -> None:
-    """Vorschau, Bestätigungs-Gate, Download und Journal.
-
-    Das Fake-yt-dlp (``tests/fixtures/fake_ytdlp/yt-dlp``) vertritt das echte
-    Programm: die Vorschau druckt eine Metadatenzeile, der Download schreibt
-    eine kleine Datei und meldet Fortschritt plus fertigen Pfad. Kein Netz,
-    kein echtes yt-dlp.
-    """
-    import unittest.mock as mock
-
-    from sortiton import external, journal, output
-    from sortiton.features.fetch import cmd_fetch
-
-    plans: list[tuple] = []
-    progresses: list[tuple] = []
-    recorded: list[tuple] = []
-
-    with tempfile.TemporaryDirectory() as tmp:
-        work = Path(tmp)
-        target = work / "music"
-        target.mkdir()
-        url = "https://example.org/watch?v=abc"
-        env = _fake_ytdlp_env()
-
-        output.set_plan_sink(lambda kind, data: plans.append((kind, data)))
-        output.set_progress(lambda current, total, text="":
-                            progresses.append((current, total, text)))
-        try:
-            with mock.patch.dict(os.environ, env):
-                # 1) The preview reports the plan and downloads nothing.
-                rc = cmd_fetch(SimpleNamespace(url=url, target=str(target)))
-                check("fetch preview returns 0", rc == 0, str(rc))
-                check("fetch preview reports a fetch plan",
-                      any(kind == "fetch" for kind, _ in plans), str(plans[:2]))
-                check("fetch preview names the title",
-                      any(data.get("title") == "Fake Song" for _, data in plans))
-                check("fetch preview downloads nothing", not list(target.iterdir()))
-
-                # 2) --apply without --confirm must not download either.
-                plans.clear()
-                rc = cmd_fetch(SimpleNamespace(url=url, target=str(target),
-                                               apply=True))
-                check("fetch refuses without --confirm", rc == 2, str(rc))
-                check("an unconfirmed download writes nothing",
-                      not list(target.iterdir()))
-
-                # 3) --apply --confirm downloads and writes the journal entry.
-                plans.clear()
-                with mock.patch.object(journal, "record",
-                                       lambda op, **data: recorded.append((op, data))):
-                    rc = cmd_fetch(SimpleNamespace(url=url, target=str(target),
-                                                   apply=True, confirm=True))
-                files = list(target.iterdir())
-                check("a confirmed download returns 0", rc == 0, str(rc))
-                check("a confirmed download writes one file", len(files) == 1,
-                      ", ".join(str(item) for item in files))
-                check("the download journal entry is written",
-                      any(op == "download" for op, _ in recorded), str(recorded))
-                check("the journal entry points at the file",
-                      any(str(data.get("path", "")).endswith("Fake Song.mp3")
-                          for _, data in recorded), str(recorded))
-                check("progress is reported up to 100",
-                      bool(progresses) and progresses[-1][0] == 100, str(progresses[:3]))
-                check("fetch reports its stats",
-                      output.last_stats("fetch").get("files") == 1,
-                      str(output.last_stats("fetch")))
-
-                # 4) Without yt-dlp the command stops with code 2 and a hint.
-                messages: list[str] = []
-                with mock.patch.object(external.shutil, "which", return_value=None), \
-                        mock.patch.object(output, "message",
-                                          side_effect=messages.append):
-                    rc = cmd_fetch(SimpleNamespace(url=url, target=str(target)))
-                check("a missing yt-dlp returns 2", rc == 2, str(rc))
-                check("the missing-tool message names yt-dlp",
-                      any("yt-dlp" in text for text in messages), str(messages[:2]))
-        finally:
-            output.set_plan_sink(None)
-            output.set_progress(None)
-
-
-@pytest.mark.external
-def test_fetch_cancel() -> None:
-    """Ein Abbruch beendet den laufenden yt-dlp-Prozess.
-
-    Das Fake-yt-dlp schaltet in einen langsamen Modus, schreibt seine PID und
-    wartet auf ``SIGTERM``. Der Test startet ``cmd_fetch`` in einem Thread,
-    wartet auf die erste Fortschrittszeile, bricht ab und prüft: Code 130, eine
-    SIGTERM-Marke vom Fake und einen Prozess, der wirklich weg ist. Kein Netz.
-    """
-    import unittest.mock as mock
-
-    from sortiton.cancel import CancelToken
-    from sortiton.features.fetch import cmd_fetch
-
-    with tempfile.TemporaryDirectory() as tmp:
-        work = Path(tmp)
-        target = work / "music"
-        target.mkdir()
-        pidfile = work / "ytdlp.pid"
-        termfile = work / "ytdlp.terminated"
-        started = threading.Event()
-        result: list[int] = []
-        token = CancelToken()
-
-        def run() -> None:
-            with mock.patch.dict(os.environ, _fake_ytdlp_env(
-                    SORTITON_FAKE_YTDLP_SLOW="1",
-                    SORTITON_FAKE_YTDLP_PIDFILE=str(pidfile),
-                    SORTITON_FAKE_YTDLP_TERMFILE=str(termfile))):
-                result.append(cmd_fetch(SimpleNamespace(
-                    url="https://example.org/watch?v=abc", target=str(target),
-                    apply=True, confirm=True, cancel=token)))
-
-        output.set_progress(lambda *_args: started.set())
-        try:
-            thread = threading.Thread(target=run)
-            thread.start()
-            check("the fake yt-dlp started", started.wait(timeout=15.0))
-            token.cancel()
-            thread.join(timeout=20.0)
-        finally:
-            output.set_progress(None)
-
-        check("the cancelled fetch returns", not thread.is_alive())
-        check("cancellation returns 130", result == [130], str(result))
-        check("the fake process got SIGTERM", termfile.exists(),
-              termfile.read_text(encoding="utf-8") if termfile.exists() else "missing")
-        if pidfile.exists():
-            pid = int(pidfile.read_text(encoding="utf-8"))
-            gone = True
-            try:
-                os.kill(pid, 0)
-                gone = False
-            except ProcessLookupError:
-                gone = True
-            except PermissionError:
-                gone = False
-            check("the fake process is really gone", gone, str(pid))
-
-
-@pytest.mark.external
-def test_fetch_restore() -> None:
-    """Der Kreis fetch -> restore, angetrieben vom Fake-yt-dlp.
-
-    Ein bestätigter Download schreibt die Datei und eine Archiv-Zeile.
-    ``restore`` muss die Datei löschen und die Archiv-Zeile entfernen, damit das
-    Archiv einen späteren Lauf nicht blockiert. Kein Netz, kein echtes yt-dlp.
-    """
-    import unittest.mock as mock
-
-    from sortiton import tasks
-    from sortiton.features.fetch import cmd_fetch
-
-    with tempfile.TemporaryDirectory() as tmp:
-        work = Path(tmp)
-        target = work / "music"
-        target.mkdir()
-        archive = work / "fetch_archive.txt"
-        url = "https://example.org/watch?v=abc"
-
-        journal.close()
-        log = work / "sortiton_2026-01-01_00-00-00.log"
-        log.write_text("", encoding="utf-8")
-        opened = journal.open_for(log)
-
-        with mock.patch.object(config, "FETCH_ARCHIVE", archive), \
-                mock.patch.object(tasks, "FETCH_ARCHIVE", archive):
-            with mock.patch.dict(os.environ, _fake_ytdlp_env()):
-                rc = cmd_fetch(SimpleNamespace(url=url, target=str(target),
-                                               apply=True, confirm=True))
-            journal.close()
-
-            downloaded = sorted(target.iterdir())
-            check("the fake download returns 0", rc == 0, str(rc))
-            check("the fake download writes one file", len(downloaded) == 1,
-                  ", ".join(str(item) for item in downloaded))
-            check("the fake download fills the archive",
-                  archive.exists() and "abc123" in archive.read_text(encoding="utf-8"),
-                  archive.read_text(encoding="utf-8") if archive.exists() else "missing")
-
-            check("restore of the download runs",
-                  cmd_restore(_restore_args(opened, apply=True)) == 0)
-            check("restore deletes the downloaded file",
-                  bool(downloaded) and not downloaded[0].exists())
-            check("restore drops the archive line",
-                  "abc123" not in archive.read_text(encoding="utf-8"),
-                  archive.read_text(encoding="utf-8"))
-            check("restore reports no errors",
-                  output.last_stats("restore").get("errors") == 0,
-                  str(output.last_stats("restore")))
-
-
-def test_fetch_rejects_option_like_url() -> None:
-    """Eine "URL", die mit "-" beginnt, läse yt-dlp als Option."""
-    import unittest.mock as mock
-
-    from sortiton.features.fetch import cmd_fetch
-
-    with tempfile.TemporaryDirectory() as tmp, \
-            mock.patch("sortiton.features.fetch.download.preview",
-                       side_effect=AssertionError("yt-dlp must not be called")):
-        rc = cmd_fetch(SimpleNamespace(url="--exec=touch x", target=tmp))
-    check("an option-like URL is rejected", rc == 2, str(rc))
-
-
-def test_download_keeps_partial_results() -> None:
-    """Eine Playlist, die mittendrin scheitert, meldet trotzdem ihre fertigen Dateien.
-
-    Sonst existieren diese Dateien auf der Platte und im yt-dlp-Archiv, aber
-    ohne Journal-Eintrag - ``restore`` könnte sie nicht zurücknehmen.
-    """
-    import unittest.mock as mock
-
-    from sortiton.features.fetch import download
-
-    with tempfile.TemporaryDirectory() as tmp:
-        target = Path(tmp) / "partial.mp3"
-        saved: list[Path] = []
-
-        def fake_stream(_argv, _cancel, handle):
-            # Nur neu entstandene Dateien kommen ins Journal.
-            target.write_bytes(b"audio")
-            handle("SORTITON_FILE\t" + str(target))
-            return 1, "boom"
-
-        with mock.patch.object(download, "_stream", fake_stream):
-            files, error = download.download("https://example.org/x", Path(tmp),
-                                             audio_format="mp3", playlist=True,
-                                             on_saved=lambda item: saved.append(item.path))
-
-    check("the error is reported", error == "boom", error)
-    check("the finished file is returned", [item.path for item in files] == [target],
-          str(files))
-    check("the callback saw the finished file", saved == [target], str(saved))
-
-
-def test_fetch_download_drops_foreign_reported_files() -> None:
-    """Nur im Lauf entstandene Dateien in ``target`` werden übernommen.
-
-    Der Fake meldet vier Pfade: eine fremde Datei im Ziel, eine neue Datei,
-    eine Datei außerhalb des Ziels und einen Pfad, den es nicht gibt. Nur die
-    neue Datei darf Ergebnis und Journal erreichen.
-    """
-    import unittest.mock as mock
-
-    from sortiton.features.fetch import download
-
-    with tempfile.TemporaryDirectory() as tmp:
-        work = Path(tmp)
-        target = work / "target"
-        target.mkdir()
-        foreign = target / "fremd.mp3"
-        foreign.write_bytes(b"schon da")
-        outside = work / "aussen.mp3"
-        outside.write_bytes(b"aussen")
-        fresh = target / "neu.mp3"
-        saved: list[Path] = []
-
-        def fake_stream(_argv, _cancel, handle):
-            fresh.write_bytes(b"frisch")
-            for path in (foreign, fresh, outside, target / "fehlt.mp3"):
-                handle("SORTITON_FILE\t" + str(path))
-            return 0, ""
-
-        with mock.patch.object(download, "_stream", fake_stream):
-            files, error = download.download(
-                "https://example.org/x", target, audio_format="mp3", playlist=False,
-                on_saved=lambda item: saved.append(item.path))
-
-        check("the run reports no error", error == "", error)
-        check("only the file created in this run is returned",
-              [item.path for item in files] == [fresh], str(files))
-        check("the journal callback sees only the own file", saved == [fresh], str(saved))
-        check("the foreign file is untouched", foreign.read_bytes() == b"schon da")
-
-
-def test_fetch_download_drops_foreign_files_on_cancel_and_error() -> None:
-    """Auch Abbruch und Rückgabecode != 0 übernehmen nichts Fremdes."""
-    import unittest.mock as mock
-
-    from sortiton.cancel import Cancelled
-    from sortiton.features.fetch import download
-
-    with tempfile.TemporaryDirectory() as tmp:
-        target = Path(tmp) / "target"
-        target.mkdir()
-        foreign = target / "fremd.mp3"
-        foreign.write_bytes(b"schon da")
-
-        def cancelled_stream(_argv, _cancel, handle):
-            handle("SORTITON_FILE\t" + str(foreign))
-            raise Cancelled
-
-        saved: list[Path] = []
-        with mock.patch.object(download, "_stream", cancelled_stream):
-            with pytest.raises(Cancelled):
-                download.download("https://example.org/x", target, audio_format="mp3",
-                                  playlist=False,
-                                  on_saved=lambda item: saved.append(item.path))
-        check("a cancelled run journals nothing foreign", saved == [], str(saved))
-
-        def failing_stream(_argv, _cancel, handle):
-            handle("SORTITON_FILE\t" + str(foreign))
-            return 1, "boom"
-
-        saved.clear()
-        with mock.patch.object(download, "_stream", failing_stream):
-            files, error = download.download("https://example.org/x", target,
-                                             audio_format="mp3", playlist=False,
-                                             on_saved=lambda item: saved.append(item.path))
-        check("a failed run returns nothing foreign", files == [], str(files))
-        check("a failed run journals nothing foreign", saved == [], str(saved))
-        check("the error is still reported", error == "boom", error)
-
-
 def test_resolve_args_accepts_a_mapping() -> None:
     """Ein Mapping wird gelesen, ein Objekt ohne Attribute klar abgelehnt."""
     from sortiton.features import get as feature_by_key
@@ -620,27 +238,6 @@ def test_resolve_args_accepts_a_mapping() -> None:
 
     with pytest.raises(TypeError):
         resolve_args(export, object())
-
-
-def test_fetch_requires_ffmpeg_only_when_applying() -> None:
-    """Eine Vorschau fragt nur yt-dlp; ffmpeg ist eine Anforderung des Schreibens."""
-    import unittest.mock as mock
-
-    from sortiton import external
-    from sortiton.features.fetch import FEATURE
-
-    def available(tool):
-        return tool == external.YT_DLP
-
-    with mock.patch.object(external, "available", side_effect=available):
-        preview = external.missing(FEATURE, SimpleNamespace(apply=False))
-        applied = external.missing(FEATURE, SimpleNamespace(apply=True))
-
-    check("a preview does not need ffmpeg", not preview, str(preview))
-    check("an applied fetch needs ffmpeg",
-          any(external.FFMPEG in requirement.any_of for requirement in applied),
-          str(applied))
-
 
 def test_features_isolation() -> None:
     """Ein Feature bleibt ohne GUI und ohne ``tasks`` ladbar.

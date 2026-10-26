@@ -47,7 +47,7 @@ sortiton-gui = "sortiton.gui.launch:main"
 testpaths = ["tests"]
 markers = [
     "gui: needs a display (runs under xvfb-run)",
-    "external: needs ffmpeg/ffprobe/yt-dlp/fpcalc",
+    "external: needs ffmpeg/ffprobe/fpcalc",
     "slow: golden/export tests",
 ]
 
@@ -59,4 +59,4 @@ markers = [
 # default Tk icon. The release builds do not care, they bundle the folder.
 packages = ["sortiton", "sortiton.gui", "sortiton.gui.mixins", "sortiton.features",
             "sortiton.features.export", "sortiton.features.fixes",
-            "sortiton.features.fetch", "sortiton.features.dedupe"]
+            "sortiton.features.dedupe"]

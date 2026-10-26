@@ -147,13 +147,13 @@ Vorschau und Ausfuehrung bleiben getrennt. Die bestehende
 Redesign nicht entfallen. Geaenderte Ordner, Regeln, Muster oder Modi
 invalidieren weiterhin die Freigabe. Backup-Status ist sichtbar;
 die bestehende Bestaetigung zeigt Umfang, Ziel und Dateioperation.
-Verschieben, Duplikate und Downloads behalten ihre speziellen Warnungen.
+Verschieben und Duplikate behalten ihre speziellen Warnungen.
 Abbruch ist kein Rollback; Wiederherstellung ist eine separate Operation.
 
 Tags: Vorschau nach Datei und Tagfeld. Umbenennen/Sortieren: Quellpfad,
 Zielpfad und Operation. Alles: Schritte klar unterscheiden.
 Werkzeuge: vorhandene feature-spezifische Optionen und Statuswerte erhalten;
-Export/Downloads nicht kuenstlich in eine Tag-Tabelle pressen.
+Export und Duplikate nicht kuenstlich in eine Tag-Tabelle pressen.
 
 ## Umsetzungshandoff
 

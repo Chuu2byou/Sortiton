@@ -80,9 +80,6 @@ BACKUP_DIR = Path(os.environ.get("SORTITON_BACKUP_DIR", PROJECT_DIR / "backups")
 EXPORT_DIR = Path(os.environ.get("SORTITON_EXPORT_DIR") or DOWNLOADS_DIR / "Sortiton")
 CACHE_DIR = Path(os.environ.get("SORTITON_CACHE_DIR", PROJECT_DIR / "cache"))
 
-FETCH_ARCHIVE = Path(os.environ.get("SORTITON_FETCH_ARCHIVE",
-                                    PROJECT_DIR / "fetch_archive.txt"))
-
 DEFAULT_LANGUAGE = "en"
 
 LOG_KEEP = 50

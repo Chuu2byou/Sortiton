@@ -52,8 +52,6 @@ _INFO_TO_RECORD = {"artist": "artist", "album_artist": "albumartist", "album": "
                    "title": "title", "genre": "genre", "track": "track",
                    "disc": "disc", "year": "year"}
 
-FAKE_YTDLP = BASE / "tests" / "fixtures" / "fake_ytdlp" / "yt-dlp"
-
 class _FakeTTY:
     """A stream that claims to be a terminal and records what was written."""
 
@@ -76,12 +74,6 @@ class _FrozenClock(datetime):
     @classmethod
     def now(cls, tz=None):
         return cls(2026, 1, 1, 12, 0, 0)
-
-def _fake_ytdlp_env(**extra: str) -> dict[str, str]:
-    """Environment with the fake yt-dlp first on ``PATH`` (plus any extra vars)."""
-    env = {"PATH": str(FAKE_YTDLP.parent) + os.pathsep + os.environ.get("PATH", "")}
-    env.update(extra)
-    return env
 
 def _load_export_helper():
     """Load ``tests/export_golden.py`` by path (it is not an installed module)."""
