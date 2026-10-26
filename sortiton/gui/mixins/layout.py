@@ -15,7 +15,6 @@ from ..common import (
     PreviewCard,
     ROW_CONTENT,
     ROW_LINE_TOP,
-    ROW_RESULT,
     ROW_TABS,
     RoundButton,
     SCROLLBAR,
@@ -42,9 +41,10 @@ from .base import GuiBase
 # Konfiguration zwischen 900 und 1199, darunter Konfiguration über der Vorschau.
 WIDE_MIN = 1200
 MID_MIN = 900
-CONFIG_DEFAULT = 560   # Standardbreite der Konfigurationsspalte
 CONFIG_MIN = 320       # kleinste Breite (Anwender verkleinert per Griff)
 CONFIG_MAX = 560       # größte sinnvolle Formularbreite
+# Startbreite: die Konfigurationsleiste beginnt immer in Maximalbreite.
+CONFIG_DEFAULT = CONFIG_MAX
 CONTENT_CAP = 720      # Maximalbreite für Lesetexte/Eingaben im Stapelmodus
 
 
@@ -82,7 +82,8 @@ class LayoutMixin(GuiBase):
         inset = self._outer_inset()
         for frame in getattr(self, "_fixed_rows", []):
             try:
-                frame.grid_configure(padx=inset)
+                if frame.winfo_manager() == "grid":
+                    frame.grid_configure(padx=inset)
             except tk.TclError:
                 pass
         self._apply_workspace_mode()
@@ -229,24 +230,30 @@ class LayoutMixin(GuiBase):
         self.root.rowconfigure(ROW_CONTENT, weight=1)
 
     def _apply_minsize(self) -> None:
-        """Never let the tabs or the settings button get clipped."""
+        """Mindestbreite: Tabs plus Freigabe oben, Status plus Fußzeile unten."""
         bar = getattr(self, "_tabs_bar", None)
         tabs = getattr(self, "_tabs", None)
-        settings = getattr(self, "_settings_button", None)
         if bar is None or tabs is None:
             return
-        needed = tabs.winfo_reqwidth() + design.px(44)
-        if settings is not None:
-            needed += settings.winfo_reqwidth() + design.px(12)
-        # Fußzeile: Status, Freigabe und Schnellzugriffe müssen zusammenpassen.
-        # Für die Mindestbreite zählen nur die unverzichtbaren Teile; Hinweis
-        # und Schnellzugriffe weichen bei schmalen Fenstern (siehe _fit_footer).
+        needs = tabs.winfo_reqwidth() + design.px(44)
+        # Kopfzeile: Tabs links, Freigabe rechts (der Hinweis weicht zuerst).
+        actions_area = getattr(self, "_actions_area", None)
+        if actions_area is not None:
+            actions_needed = actions_area.winfo_reqwidth()
+            note = self._preview_notes.get(self.var_page.get())
+            if note is not None and note.winfo_manager() == "pack":
+                actions_needed -= (note.winfo_reqwidth()
+                                   + design.px(14))
+            needs += max(actions_needed, 1) + design.px(12)
+        needed = needs
+        # Fußzeile: Einstellungen, Status und Schnellzugriffe müssen zusammenpassen.
+        # Für die Mindestbreite zählen nur die unverzichtbaren Teile; die
+        # Schnellzugriffe weichen bei schmalen Fenstern (siehe _fit_footer).
         footer = getattr(self, "_footer", None)
         if footer is not None:
             try:
                 quick = {getattr(self, "_footer_undo", None),
-                         getattr(self, "_footer_logs", None),
-                         getattr(self, "_footer_folder", None)}
+                         getattr(self, "_footer_logs", None)}
                 cancel = getattr(self, "_cancel_button", None)
                 footer_needed = 0
                 for child in footer.winfo_children():
@@ -254,14 +261,6 @@ class LayoutMixin(GuiBase):
                                           and not child.winfo_manager()):
                         continue
                     footer_needed += child.winfo_reqwidth()
-                actions_area = getattr(self, "_actions_area", None)
-                if actions_area is not None:
-                    actions_needed = actions_area.winfo_reqwidth()
-                    note = self._preview_notes.get(self.var_page.get())
-                    if note is not None and note.winfo_manager() == "pack":
-                        actions_needed -= (note.winfo_reqwidth()
-                                           + design.px(14))
-                    footer_needed += max(actions_needed, 1)
                 footer_needed += design.px(60)  # Abstände der Basisspalten
                 # Die Fußzeile liegt beidseitig um den Außenabstand eingerückt.
                 needed = max(needed, footer_needed + 2 * self._outer_inset())
@@ -271,6 +270,30 @@ class LayoutMixin(GuiBase):
         screen_height = self.root.winfo_screenheight()
         width = min(max(design.px(680), needed), screen_width - design.px(24))
         self.root.minsize(width, min(design.px(460), screen_height - design.px(48)))
+
+    def _fit_top_bar(self, event=None) -> None:
+        """Hinweis neben der Freigabe ausblenden, wenn die Kopfzeile eng wird.
+
+        Tabs und die beiden Aktionsknöpfe bleiben immer sichtbar; nur die
+        erklärende Zeile daneben weicht, sobald der Platz nicht reicht.
+        """
+        bar = getattr(self, "_tabs_bar", None)
+        actions = getattr(self, "_actions_area", None)
+        tabs = getattr(self, "_tabs", None)
+        note = self._preview_notes.get(self.var_page.get())
+        if bar is None or actions is None or tabs is None or note is None:
+            return
+        width = bar.winfo_width()
+        if width <= 1:
+            return
+        note_width = note.winfo_reqwidth() + design.px(14)
+        packed = note.winfo_manager() == "pack"
+        base = actions.winfo_reqwidth() - (note_width if packed else 0)
+        needed = tabs.winfo_reqwidth() + base + design.px(2 * design.SPACE_L)
+        if packed and needed + note_width > width:
+            note.pack_forget()
+        elif not packed and needed + note_width <= width:
+            note.pack(side="left", padx=(design.px(14), 0))
 
     def _set_style(self) -> None:
         style = ttk.Style(self.root)
@@ -310,7 +333,7 @@ class LayoutMixin(GuiBase):
             self._icon_large = None
 
     def _build_tabs(self) -> None:
-        """Kopfzeile: echte Tabs (nicht mehr gestreckt), Einstellungen rechts."""
+        """Kopfzeile: echte Tabs links, Freigabe (Vorschau/Anwenden) rechts."""
         bar = tk.Frame(self.root, bg=BACKGROUND)
         bar.grid(row=ROW_TABS, column=0, sticky="ew", padx=self._outer_inset(),
                  pady=(design.px(design.SPACE_L), 0))
@@ -321,16 +344,24 @@ class LayoutMixin(GuiBase):
                          ("sort", i18n.t("gui.tab.sort")), ("all", i18n.t("gui.tab.all")),
                          ("tools", i18n.t("gui.tab.tools"))],
                         self.var_page, command=self._show_page,
-                        height=design.CONTROL_HEIGHT, stretch=False, surface=BACKGROUND)
+                        height=design.CONTROL_HEIGHT, stretch=False, surface=BACKGROUND,
+                        navigation=True)
         tabs.grid(row=0, column=0, sticky="w")
         self._tabs = tabs
         # Der Ein-/Ausklappknopf entsteht nur im Mittelbereich (900–1199 px).
         self._config_toggle = None
-        self._settings_button = RoundButton(bar, "⚙  " + i18n.t("gui.button.settings"),
-                                            self._open_preferences, style="normal",
-                                            height=design.CONTROL_HEIGHT)
-        self._settings_button.grid(row=0, column=3, sticky="e")
+        # Einstellungen sitzen in der Fußzeile (siehe _build_footer).
+        self._settings_button = None
+        # Freigabe (Vorschau/Anwenden) rechts in der Kopfzeile; die Fläche
+        # hängt am Root, in_= setzt sie in die Leiste der Tabs.
+        self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
+        self._actions_area.columnconfigure(0, weight=1)
+        self._actions_area.grid(row=0, column=3, sticky="e", in_=bar)
+        self._actions_area.lift()
+        bar.bind("<Configure>", self._fit_top_bar, add="+")
+        self._actions_area.bind("<Configure>", self._fit_top_bar, add="+")
         self._apply_minsize()
+        self.root.after_idle(self._fit_top_bar)
 
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_TOP, column=0,
                                                       sticky="ew", pady=(design.px(14), 0))
@@ -344,11 +375,11 @@ class LayoutMixin(GuiBase):
         workspace.rowconfigure(0, weight=1)
         self._workspace = workspace
 
-        config_area = tk.Frame(workspace, bg=BACKGROUND)
+        config_area = tk.Frame(workspace, bg=CARD)
         config_area.columnconfigure(0, weight=1)
         config_area.rowconfigure(0, weight=1)
         self._config_area = config_area
-        canvas = tk.Canvas(config_area, bg=BACKGROUND, highlightthickness=0, bd=0,
+        canvas = tk.Canvas(config_area, bg=CARD, highlightthickness=0, bd=0,
                            width=design.px(CONFIG_DEFAULT))
         scrollbar = ttk.Scrollbar(config_area, orient="vertical", command=canvas.yview,
                                   style="Dark.Vertical.TScrollbar")
@@ -356,7 +387,7 @@ class LayoutMixin(GuiBase):
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
         scrollbar.grid_remove()
-        content = tk.Frame(canvas, bg=BACKGROUND)
+        content = tk.Frame(canvas, bg=CARD)
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
         content_window = canvas.create_window((0, 0), window=content, anchor="nw")
@@ -369,7 +400,7 @@ class LayoutMixin(GuiBase):
         self.root.bind_all("<Button-4>", self._scroll_content)
         self.root.bind_all("<Button-5>", self._scroll_content)
 
-        # Griff zum Verändern der Konfigurationsbreite (280–420 logische Pixel).
+        # Griff zum Verändern der Konfigurationsbreite (CONFIG_MIN–CONFIG_MAX).
         handle = tk.Canvas(workspace, bg=BACKGROUND, width=design.px(design.SPACE_S),
                            height=1, highlightthickness=0, bd=0,
                            cursor="sb_h_double_arrow")
@@ -377,10 +408,6 @@ class LayoutMixin(GuiBase):
         handle.bind("<ButtonPress-1>", self._split_press)
         handle.bind("<B1-Motion>", self._split_drag)
         self._split_handle = handle
-
-        # Freigabe-Leiste: entsteht hier, die Fußzeile nimmt sie auf.
-        self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
-        self._actions_area.columnconfigure(0, weight=1)
 
         preview_area = tk.Frame(workspace, bg=BACKGROUND)
         preview_area.columnconfigure(0, weight=1)
@@ -460,7 +487,8 @@ class LayoutMixin(GuiBase):
         text = i18n.t("gui.button.show_config" if collapsed else "gui.button.hide_config")
         toggle = RoundButton(self._tabs_bar, text, self._toggle_config, style="quiet",
                              height=28)
-        toggle.grid(row=0, column=1, sticky="w", padx=(design.px(design.SPACE_M), 0))
+        toggle.grid(row=1, column=0, columnspan=4, sticky="w",
+                pady=(design.px(design.SPACE_S), 0))
         self._config_toggle = toggle
         self._apply_minsize()
 
@@ -484,7 +512,7 @@ class LayoutMixin(GuiBase):
                                fill=BORDER, width=1)
 
     def _split_drag(self, event) -> None:
-        """Konfigurationsbreite per Griff ändern, geklemmt auf 280–420 px."""
+        """Konfigurationsbreite per Griff ändern, geklemmt auf CONFIG_MIN–CONFIG_MAX."""
         canvas = self._content_canvas
         try:
             new = event.x_root - self._config_area.winfo_rootx()
@@ -554,6 +582,7 @@ class LayoutMixin(GuiBase):
         if canvas is not None:
             canvas.yview_moveto(0)
             self.root.after_idle(self._update_content_scrollbar)
+        self.root.after_idle(self._fit_top_bar)
         if getattr(self, "_footer", None) is not None:
             self.root.after_idle(self._fit_footer)
 
@@ -577,24 +606,18 @@ class LayoutMixin(GuiBase):
         return "break"
 
     def _new_page(self, parent: tk.Frame) -> tk.Frame:
-        page = tk.Frame(parent, bg=BACKGROUND)
+        page = tk.Frame(parent, bg=CARD)
         page.columnconfigure(0, weight=1)
         return page
 
     def _page_header(self, page: tk.Frame, row: int, title: str, hint: str) -> None:
-        """Big page title plus one sentence: what this page does."""
-        header = tk.Frame(page, bg=BACKGROUND)
-        header.grid(row=row, column=0, sticky="ew", pady=(0, design.px(16)))
+        """Kompakter Seitentitel über dem Auftrag."""
+        header = tk.Frame(page, bg=CARD)
+        header.grid(row=row, column=0, sticky="ew", padx=design.px(16),
+                    pady=(design.px(16), design.px(24)))
         header.columnconfigure(0, weight=1)
-        tk.Label(header, text=title, bg=BACKGROUND, fg=TEXT,
+        tk.Label(header, text=title, bg=CARD, fg=TEXT,
                  font=design.FONT_TITLE, anchor="w").grid(row=0, column=0, sticky="w")
-        hint_label = tk.Label(header, text=hint, bg=BACKGROUND, fg=TEXT_MUTED,
-                              font=design.FONT, anchor="w", justify="left",
-                              wraplength=design.px(880))
-        hint_label.grid(row=1, column=0, sticky="w", pady=(design.px(4), 0))
-        header.bind("<Configure>",
-                    lambda event: hint_label.configure(
-                        wraplength=max(event.width - design.px(4), design.px(200))))
 
     def _page_tags(self, parent: tk.Frame) -> tk.Frame:
         """Folder -> active rules -> preview -> actions."""
@@ -707,14 +730,12 @@ class LayoutMixin(GuiBase):
         self._render_preview("tools")
 
     def _card(self, parent: tk.Frame, row: int, title: str = "") -> tk.Frame:
-        """Panel with a subtle border and an optional section title."""
-        outer = tk.Frame(parent, bg=CARD, highlightthickness=1,
-                         highlightbackground=BORDER, bd=0)
-        outer.grid(row=row, column=0, sticky="ew", pady=(0, design.px(14)))
+        """Ungefasster Formularabschnitt auf der gemeinsamen Arbeitsfläche."""
+        outer = tk.Frame(parent, bg=CARD, highlightthickness=0, bd=0)
+        outer.grid(row=row, column=0, sticky="ew", pady=(0, design.px(24)))
         outer.columnconfigure(0, weight=1)
         inner = tk.Frame(outer, bg=CARD)
-        inner.grid(row=0, column=0, sticky="ew", padx=design.px(18),
-                   pady=design.px(15))
+        inner.grid(row=0, column=0, sticky="ew", padx=design.px(16))
         inner.columnconfigure(0, weight=1)
         if not title:
             return inner
@@ -743,9 +764,14 @@ class LayoutMixin(GuiBase):
                     height=30).grid(row=0, column=1, sticky="e")
 
     def _path_entry(self, parent: tk.Misc, variable: tk.StringVar) -> tk.Entry:
-        """The dark input field used for folders and for patterns."""
+        """The dark input field used for folders and for patterns.
+
+        ``width=1`` hält die angeforderte Breite klein: das Feld füllt über
+        ``sticky="ew"`` die Zelle und schrumpft in schmalen Spalten mit, statt
+        den Knopf daneben aus dem Panel zu schieben.
+        """
         return tk.Entry(parent, textvariable=variable, bg=FIELD, fg=TEXT,
-                        insertbackground=TEXT, relief="flat", bd=0,
+                        insertbackground=TEXT, relief="flat", bd=0, width=1,
                         highlightthickness=1, highlightbackground=BORDER,
                         highlightcolor=ACCENT, font=design.FONT)
 

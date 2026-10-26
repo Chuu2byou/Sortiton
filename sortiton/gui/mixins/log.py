@@ -193,73 +193,66 @@ class LogMixin(GuiBase):
         self._refresh_recent()
 
     def _build_footer(self) -> None:
-        """Stabile untere Zeile: Status, Fortschritt und die Freigabe zusammen."""
+        """Untere Zeile: Einstellungen links, Status und Schnellzugriffe rechts."""
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_BOTTOM, column=0,
                                                       sticky="ew")
         footer = tk.Frame(self.root, bg=BACKGROUND)
         footer.grid(row=ROW_FOOTER, column=0, sticky="ew",
                     pady=(design.px(8), design.px(design.SPACE_M)))
-        # Der freie Platz liegt hinter dem Fortschritt. Die Prozentanzeige
-        # wächst in diese Spalte hinein und schiebt die Aktionen nie weg.
-        footer.columnconfigure(3, weight=1)
+        # Der freie Platz liegt zwischen Einstellungen und Statusgruppe: die
+        # Statusanzeige sitzt damit immer rechts, egal wie breit das Fenster ist.
+        footer.columnconfigure(1, weight=1)
         self._footer = footer
+
+        self._settings_button = RoundButton(footer, "⚙  " + i18n.t("gui.button.settings"),
+                                            self._open_preferences, style="normal",
+                                            height=30)
+        self._settings_button.grid(row=0, column=0, sticky="w")
 
         self._state_dot = tk.Canvas(footer, width=design.px(12), height=design.px(12),
                                     bg=BACKGROUND, highlightthickness=0, bd=0)
-        self._state_dot.grid(row=0, column=0, sticky="w")
+        self._state_dot.grid(row=0, column=2, sticky="e")
         self._set_state(TEXT_MUTED)
 
         tk.Label(footer, textvariable=self.status_var, bg=BACKGROUND, fg=TEXT_MUTED,
-                 font=design.FONT_SMALL).grid(row=0, column=1, sticky="w",
+                 font=design.FONT_SMALL).grid(row=0, column=3, sticky="e",
                                               padx=(design.px(8), 0))
         progress_holder = tk.Frame(footer, bg=BACKGROUND)
-        progress_holder.grid(row=0, column=2, sticky="w",
+        progress_holder.grid(row=0, column=4, sticky="e",
                              padx=(design.px(16), 0))
         self.progress = ProgressBar(progress_holder, width=220)
         self.progress.grid(row=0, column=0, sticky="w")
         self.progress_label = tk.Label(footer, text="", bg=BACKGROUND, fg=TEXT_FAINT,
                                        font=design.FONT_SMALL)
-        self.progress_label.grid(row=0, column=3, sticky="w",
+        self.progress_label.grid(row=0, column=5, sticky="e",
                                  padx=(design.px(12), 0))
-
-        # Freigabe (Vorschau/Anwenden der aktiven Funktion) in derselben Zeile;
-        # in_ ist nötig, weil die Fläche unter dem Root hängt, nicht im Footer.
-        self._actions_area.grid(row=0, column=4, sticky="e",
-                                padx=(design.px(design.SPACE_M),
-                                      design.px(design.SPACE_M)),
-                                in_=self._footer)
-        self._actions_area.lift()
 
         self._cancel_button = RoundButton(footer, i18n.t("gui.button.cancel"),
                                           self._cancel_run, style="normal", height=30)
-        self._cancel_button.grid(row=0, column=5, sticky="e", padx=(0, design.px(6)))
+        self._cancel_button.grid(row=0, column=6, sticky="e",
+                                 padx=(design.px(design.SPACE_M), 0))
         self._cancel_button.grid_remove()
 
         undo_button = RoundButton(footer, i18n.t("gui.button.undo"),
                                   self._open_restore, style="normal", height=30)
-        undo_button.grid(row=0, column=6, sticky="e")
+        undo_button.grid(row=0, column=7, sticky="e", padx=(design.px(6), 0))
         self._footer_undo = undo_button
         logs_button = RoundButton(footer, i18n.t("gui.button.open_logs"),
                                   self._open_logs, style="quiet", height=30)
-        logs_button.grid(row=0, column=7, sticky="e", padx=(design.px(6), 0))
+        logs_button.grid(row=0, column=8, sticky="e", padx=(design.px(6), 0))
         self._footer_logs = logs_button
-        folder_button = RoundButton(footer, i18n.t("gui.button.open_folder"),
-                                    self._open_last, style="quiet", height=30)
-        folder_button.grid(row=0, column=8, sticky="e", padx=(design.px(6), 0))
-        self._footer_folder = folder_button
         footer.bind("<Configure>", self._fit_footer, add="+")
-        self._actions_area.bind("<Configure>", self._fit_footer, add="+")
         self.progress_label.bind("<Configure>", self._fit_footer, add="+")
         self._apply_minsize()
         self.root.after_idle(self._fit_footer)
         self.root.after_idle(self._apply_minsize)
 
     def _fit_footer(self, event=None) -> None:
-        """Blendet Hinweis und Schnellzugriffe aus, wenn der Platz nicht reicht.
+        """Blendet Schnellzugriffe aus, wenn der Platz in der Fußzeile fehlt.
 
-        Der Fortschritt, die Freigabe und der Status bleiben immer sichtbar;
-        die Nebenelemente weichen in dieser Reihenfolge: Hinweis, Ordner,
-        Logs, Rückgängig. So kann nichts über den Rand hinauslaufen.
+        Einstellungen, Status und Fortschritt bleiben immer sichtbar; die
+        Schnellzugriffe weichen in dieser Reihenfolge: Logs, Rückgängig. So
+        kann nichts über den Rand hinauslaufen.
         """
         footer = getattr(self, "_footer", None)
         if footer is None:
@@ -267,10 +260,7 @@ class LogMixin(GuiBase):
         width = footer.winfo_width()
         if width <= 1:
             return
-        note = self._preview_notes.get(self.var_page.get())
-        links = [("folder", getattr(self, "_footer_folder", None),
-                  design.px(6)),
-                 ("logs", getattr(self, "_footer_logs", None), design.px(6)),
+        links = [("logs", getattr(self, "_footer_logs", None), design.px(6)),
                  ("undo", getattr(self, "_footer_undo", None), 0)]
         cancel = getattr(self, "_cancel_button", None)
         total = 0
@@ -278,30 +268,15 @@ class LogMixin(GuiBase):
             if child is cancel and not child.winfo_manager():
                 continue
             total += child.winfo_reqwidth()
-        actions = self._actions_area.winfo_reqwidth()
-        note_width = 0
-        if note is not None:
-            note_width = note.winfo_reqwidth() + design.px(14)
-            if note.winfo_manager() != "pack":
-                actions += note_width
-        total += actions + design.px(72)
+        total += design.px(72)
 
-        show_note = note is not None
         show = {name: True for name, _button, _extra in links}
-        if show_note and total > width:
-            total -= note_width
-            show_note = False
         for name, button, extra in links:
             if total <= width or button is None:
                 continue
             total -= button.winfo_reqwidth() + extra
             show[name] = False
 
-        if note is not None:
-            if show_note and note.winfo_manager() != "pack":
-                note.pack(side="left", padx=(design.px(14), 0))
-            elif not show_note and note.winfo_manager() == "pack":
-                note.pack_forget()
         for name, button, _extra in links:
             if button is None:
                 continue

@@ -9,7 +9,7 @@ from .. import config, i18n, settings
 from ..features import FEATURES
 from ..features.base import Feature, Option
 from . import design
-from .design import (ACCENT, BACKGROUND, BORDER, CARD, FIELD, FIELD_ACTIVE, TEXT,
+from .design import (ACCENT, BORDER, CARD, FIELD, FIELD_ACTIVE, TEXT,
                      TEXT_MUTED, YELLOW)
 from .widgets import Pill, RoundButton, Segments, Switch
 
@@ -396,13 +396,15 @@ class ToolsTab(tk.Frame):
     """Feature picker, a description line and the form of the selected feature."""
 
     def __init__(self, app, parent: tk.Frame) -> None:
-        super().__init__(parent, bg=BACKGROUND)
+        super().__init__(parent, bg=CARD)
         self.app = app
         self.columnconfigure(0, weight=1)
         self._form = OptionForm(app)
         self._forms: dict[str, tk.Frame] = {}
         self._description: tk.Label | None = None
+        self._description_frame: tk.Frame | None = None
         self._badge: Pill | None = None
+        self._secondary_placement: tuple[tk.Frame, bool] | None = None
         self._build()
 
     def _build(self) -> None:
@@ -414,16 +416,17 @@ class ToolsTab(tk.Frame):
         for feature in FEATURES:
             self._forms[feature.key] = self._feature_form(feature, row)
             row += 1
-        self.bind("<Configure>", self._resize_description)
         self._show(self.app.var_tool_choice.get())
 
     def _selection(self, row: int) -> None:
         """The feature picker: segments for a few features, else a combobox."""
+        inset = design.px(16)
         titles = [(feature.key, feature_label(feature)) for feature in FEATURES]
         if len(titles) <= SEGMENT_LIMIT:
             Segments(self, titles, self.app.var_tool_choice, command=self._show,
                      height=40, surface=FIELD, stretch=True).grid(
-                         row=row, column=0, sticky="ew", pady=(0, design.px(12)))
+                         row=row, column=0, sticky="ew", padx=inset,
+                         pady=(0, design.px(12)))
             return
 
         current = self.app.var_tool_choice.get()
@@ -433,52 +436,97 @@ class ToolsTab(tk.Frame):
         display = tk.StringVar(value=by_key.get(current, labels[0]))
         box = ttk.Combobox(self, state="readonly", values=labels, textvariable=display,
                            width=max(len(text) for text in labels), font=design.FONT)
-        box.grid(row=row, column=0, sticky="ew", pady=(0, design.px(12)))
+        box.grid(row=row, column=0, sticky="ew", padx=inset, pady=(0, design.px(12)))
         box.bind("<<ComboboxSelected>>",
                  lambda _event: self._show(by_label.get(display.get(), FEATURES[0].key)))
 
     def _description_row(self, row: int) -> int:
-        """One sentence about the selected feature plus a read-only/writes badge."""
-        frame = tk.Frame(self, bg=BACKGROUND)
-        frame.grid(row=row, column=0, sticky="ew", pady=(0, design.px(14)))
+        """Ein Satz zum gewählten Werkzeug plus Badge "read only"/"writes files"."""
+        frame = tk.Frame(self, bg=CARD)
+        frame.grid(row=row, column=0, sticky="ew", padx=design.px(16),
+                   pady=(0, design.px(14)))
         frame.columnconfigure(0, weight=1)
-        self._description = tk.Label(frame, text="", bg=BACKGROUND, fg=TEXT_MUTED,
+        self._description_frame = frame
+        self._description = tk.Label(frame, text="", bg=CARD, fg=TEXT_MUTED,
                                      font=design.FONT, anchor="w", justify="left")
         self._description.grid(row=0, column=0, sticky="w")
         self._badge = Pill(frame, "", TEXT_MUTED)
-        self._badge.grid(row=0, column=1, sticky="e", padx=(design.px(12), 0))
+        self._badge.grid(row=0, column=1, sticky="ne", padx=(design.px(12), 0))
+        frame.bind("<Configure>", self._resize_description, add="+")
         return row + 1
 
-    def _resize_description(self, event) -> None:
-        """Keep the description on one block next to the badge."""
+    def _resize_description(self, event=None) -> None:
+        """Beschreibung und Badge nebeneinander - in enger Spalte untereinander."""
         if self._description is None or self._badge is None:
             return
-        width = event.width - self._badge.winfo_reqwidth() - design.px(28)
-        self._description.configure(wraplength=max(width, design.px(180)))
+        frame = self._description_frame
+        width = event.width if event is not None else (
+            frame.winfo_width() if frame is not None else 0)
+        if width <= 1:
+            return
+        reserve = self._badge.winfo_reqwidth() + design.px(24)
+        stacked = width - reserve < design.px(300)
+        if stacked:
+            self._badge.grid_configure(row=1, column=0, sticky="w", padx=0,
+                                       pady=(design.px(8), 0))
+        else:
+            self._badge.grid_configure(row=0, column=1, sticky="ne",
+                                       padx=(design.px(12), 0), pady=0)
+        self._description.configure(
+            wraplength=max(width if stacked else width - reserve, design.px(140)))
 
     def _secondary_row(self, parent: tk.Frame, row: int, feature: Feature) -> None:
-        """Fine-tuning hint on the left, the matching buttons on the right."""
-        frame = tk.Frame(parent, bg=BACKGROUND)
-        frame.grid(row=row, column=0, sticky="ew", pady=(design.px(4), 0))
+        """Hinweis auf die Feineinstellungen und die passenden Knöpfe."""
+        frame = tk.Frame(parent, bg=CARD)
+        frame.grid(row=row, column=0, sticky="ew", padx=design.px(16),
+                   pady=(design.px(4), 0))
         frame.columnconfigure(0, weight=1)
+        hint: tk.Label | None = None
         if fine_tuning_sections(feature):
-            tk.Label(frame, text=i18n.t("gui.tools.fine_tuning_hint"), bg=BACKGROUND,
-                     fg=TEXT_MUTED, font=design.FONT_SMALL, anchor="w", justify="left",
-                     wraplength=design.px(420)).grid(row=0, column=0, sticky="w")
-        column = 1
+            hint = tk.Label(frame, text=i18n.t("gui.tools.fine_tuning_hint"), bg=CARD,
+                            fg=TEXT_MUTED, font=design.FONT_SMALL, anchor="w",
+                            justify="left", wraplength=design.px(360))
+            hint.grid(row=0, column=0, sticky="w")
+
+        buttons = tk.Frame(frame, bg=CARD)
+        buttons.grid(row=0, column=1, sticky="e")
+        column = 0
         if feature.key in _LLM_FEATURES:
-            RoundButton(frame, i18n.t("gui.button.paste_llm"), self.app._llm_rules_import,
-                        style="normal", height=34).grid(row=0, column=column,
-                                                        sticky="e", padx=(design.px(12), 0))
+            RoundButton(buttons, i18n.t("gui.button.paste_llm"),
+                        self.app._llm_rules_import, style="normal",
+                        height=34).grid(row=0, column=column, sticky="e")
             column += 1
         if fine_tuning_sections(feature):
-            RoundButton(frame, i18n.t("gui.button.fine_tuning"),
+            RoundButton(buttons, i18n.t("gui.button.fine_tuning"),
                         self.app._open_preferences, style="normal", height=34).grid(
-                            row=0, column=column, sticky="e", padx=(design.px(10), 0))
+                            row=0, column=column, sticky="e",
+                            padx=(design.px(10) if column else 0, 0))
+        frame.bind("<Configure>",
+                   lambda event: self._place_secondary(frame, buttons, hint, event),
+                   add="+")
+
+    def _place_secondary(self, frame: tk.Frame, buttons: tk.Frame,
+                         hint: tk.Label | None, event) -> None:
+        """Knöpfe rechts vom Hinweis oder - bei enger Spalte - darunter setzen."""
+        width = max(event.width, 1)
+        buttons_width = buttons.winfo_reqwidth()
+        stacked = width < buttons_width + design.px(196)
+        if self._secondary_placement != (buttons, stacked):
+            self._secondary_placement = (buttons, stacked)
+            if stacked:
+                buttons.grid_configure(row=1, column=0, columnspan=2, padx=0,
+                                       pady=(design.px(8), 0))
+            else:
+                buttons.grid_configure(row=0, column=1, columnspan=1,
+                                       padx=(design.px(12), 0), pady=0)
+        if hint is None:
+            return
+        free = width if stacked else width - buttons_width - design.px(12)
+        hint.configure(wraplength=max(free, design.px(140)))
 
     def _feature_form(self, feature: Feature, row: int) -> tk.Frame:
         """One card per form section; the holder is shown or hidden."""
-        holder = tk.Frame(self, bg=BACKGROUND)
+        holder = tk.Frame(self, bg=CARD)
         holder.grid(row=row, column=0, sticky="ew")
         holder.columnconfigure(0, weight=1)
         sections = form_sections(feature)
@@ -519,3 +567,4 @@ class ToolsTab(tk.Frame):
                 i18n.t("gui.tools.badge.writes" if feature.writes
                        else "gui.tools.badge.readonly"),
                 YELLOW if feature.writes else ACCENT)
+            self._resize_description()

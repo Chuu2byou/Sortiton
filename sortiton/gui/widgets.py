@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable, TypedDict
@@ -30,15 +31,23 @@ def _bg_of(widget: tk.Misc) -> str:
 
 def _rounded_shape(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float,
                    radius: float, **options) -> int:
-    """Draw a rounded rectangle (smooth polygon, no extra packages)."""
-    r = min(radius, (x2 - x1) / 2, (y2 - y1) / 2)
-    points = [
-        x1 + r, y1, x2 - r, y1, x2, y1,
-        x2, y1 + r, x2, y2 - r, x2, y2,
-        x2 - r, y2, x1 + r, y2, x1, y2,
-        x1, y2 - r, x1, y1 + r, x1, y1,
-    ]
-    return canvas.create_polygon(points, smooth=True, splinesteps=24, **options)
+    """Draw a rounded rectangle as an exact arc outline.
+
+    Ein ``smooth``-Polygon (Spline) hinterlässt an der Unterkante kurze
+    Strich-Fragmente; die aus Viertelkreisen zusammengesetzte Kontur ist
+    sauber und bleibt bei jeder Rundung und Skalierung gleichmässig.
+    """
+    r = max(0.0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
+    if r < 0.5:
+        return canvas.create_polygon(x1, y1, x2, y1, x2, y2, x1, y2, **options)
+    steps = max(6, min(16, int(r) * 2))
+    points: list[float] = []
+    for cx, cy, start in ((x2 - r, y1 + r, -90.0), (x2 - r, y2 - r, 0.0),
+                          (x1 + r, y2 - r, 90.0), (x1 + r, y1 + r, 180.0)):
+        for index in range(steps + 1):
+            angle = math.radians(start + 90.0 * index / steps)
+            points.extend((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+    return canvas.create_polygon(points, **options)
 
 
 class _ButtonStyle(TypedDict):
@@ -51,7 +60,16 @@ class _ButtonStyle(TypedDict):
 
 
 class RoundButton(tk.Canvas):
-    """Rounded button with hover, press and disabled states."""
+    """Rounded button with hover, press and disabled states.
+
+    Breite und Höhe entstehen aus den echten Schriftmaßen plus festem
+    Innenabstand. So bleibt über und unter der Beschriftung auch bei anderer
+    Schrift oder Skalierung der gleiche Abstand, statt sich aus einer festen
+    Pixelhöhe zu ergeben.
+    """
+
+    _PAD_X = 15          # seitlicher Innenabstand (logische Pixel)
+    _PAD_Y = 7           # Abstand über und unter der Beschriftung
 
     def __init__(self, parent: tk.Misc, text: str, command: Callable[[], None] | None = None,
                  style: str = "normal", height: int = 34, radius: int = 10) -> None:
@@ -59,12 +77,15 @@ class RoundButton(tk.Canvas):
         self._command: Callable[[], None] | None = command
         self._parent_bg = _bg_of(parent)
         self._text = text
+        self._font = tkfont.Font(font=design.FONT_BUTTON)
         self._radius = design.px(radius)
         self._enabled = True
         self._hover = False
         self._pressed = False
-        width = tkfont.Font(font=design.FONT_BUTTON).measure(text) + design.px(30)
-        super().__init__(parent, width=width, height=design.px(height), bg=self._parent_bg,
+        width = self._font.measure(text) + 2 * design.px(self._PAD_X)
+        height_px = max(design.px(height),
+                        self._font.metrics("linespace") + 2 * design.px(self._PAD_Y))
+        super().__init__(parent, width=width, height=height_px, bg=self._parent_bg,
                          highlightthickness=0, bd=0, cursor="hand2", takefocus=1)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
@@ -146,26 +167,51 @@ class RoundButton(tk.Canvas):
         _rounded_shape(self, 1, 1, width - 1, height - 1, self._radius,
                        fill=bg, outline=border or bg)
         self.create_text(width / 2, height / 2, text=self._text,
-                         fill=fg, font=design.FONT_BUTTON, anchor="center")
+                         fill=fg, font=self._font, anchor="center")
 
 
 class Pill(tk.Canvas):
-    """Small status pill (chip) with a coloured dot."""
+    """Moderner Status-Chip: getönter Grund, farbiger Punkt, ruhige Schrift.
+
+    Statt eines blossen Rahmens trägt der Chip einen Hauch seiner Signalfarbe;
+    Punkt und Schrift bleiben farbig, damit Grün/Gelb/Grau unterscheidbar
+    bleiben, ohne wie ein Formularfeld zu wirken.
+
+    Höhe und Breite entstehen aus den echten Schriftmaßen plus festem
+    Innenabstand. Damit bleibt der Abstand über und unter der Schrift auch auf
+    Systemen mit anderer Schrift oder Skalierung gleich gross, statt sich aus
+    einer festen Pixelhöhe zu ergeben.
+    """
+
+    _PAD_X = 12          # seitlicher Innenabstand (logische Pixel)
+    _PAD_Y = 6           # Abstand über und unter der Schrift
+    _DOT = "●"           # gefüllter Kreis als Text: glatt gezeichnet
 
     def __init__(self, parent: tk.Misc, text: str, colour: str | None = None,
                  dot: bool = True) -> None:
         self._colour = TEXT_MUTED if colour is None else colour
         self._dot = dot
         self._parent_bg = _bg_of(parent)
+        self._font = tkfont.Font(font=design.FONT_SMALL)
+        self._radius = design.px(8)
+        self._pad = design.px(self._PAD_X)
+        self._gap = design.px(10)
+        self._height = max(design.px(26),
+                           self._font.metrics("linespace") + 2 * design.px(self._PAD_Y))
         width = self._width_for(text)
-        super().__init__(parent, width=width, height=design.px(26), bg=self._parent_bg,
+        super().__init__(parent, width=width, height=self._height, bg=self._parent_bg,
                          highlightthickness=0, bd=0)
         self._text = text
         self._draw()
 
+    def _dot_width(self) -> int:
+        """Breite von Punkt und Abstand davor (0 ohne Punkt)."""
+        if not self._dot:
+            return 0
+        return self._font.measure(self._DOT) + self._gap
+
     def _width_for(self, text: str) -> int:
-        padding = design.px(34) if self._dot else design.px(20)
-        return tkfont.Font(font=design.FONT_SMALL).measure(text) + padding
+        return self._font.measure(text) + 2 * self._pad + self._dot_width()
 
     def set_text(self, text: str, colour: str | None = None) -> None:
         """Change the label (and optionally the dot colour) in place."""
@@ -179,15 +225,16 @@ class Pill(tk.Canvas):
         self.delete("all")
         width = self.winfo_reqwidth()
         height = self.winfo_reqheight()
-        _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, height / 2,
-                       fill=CARD, outline=BORDER)
-        x = design.px(11)
+        _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, self._radius,
+                       fill=_blend(self._parent_bg, self._colour, 0.16),
+                       outline=_blend(self._parent_bg, self._colour, 0.34))
+        x = self._pad
         if self._dot:
-            radius = design.px(3)
-            self.create_oval(x - radius, height / 2 - radius, x + radius,
-                             height / 2 + radius, fill=self._colour, outline="")
-            x += design.px(13)
-        self.create_text(x, height / 2, text=self._text, fill=TEXT,
+            self.create_text(x, height / 2, text=self._DOT, fill=self._colour,
+                             font=design.FONT_SMALL, anchor="w")
+            x += self._dot_width()
+        self.create_text(x, height / 2, text=self._text,
+                         fill=_blend(self._colour, TEXT, 0.4),
                          font=design.FONT_SMALL, anchor="w")
 
 
@@ -197,9 +244,10 @@ class Segments(tk.Canvas):
     def __init__(self, parent: tk.Misc, items: list[tuple[str, str]], variable: tk.StringVar,
                  command: Callable[[str], None] | None = None, height: int = 36,
                  radius: int = 10, surface: str | None = None, font=None,
-                 stretch: bool = False) -> None:
+                 stretch: bool = False, navigation: bool = False) -> None:
         self._variable = variable
         self._command: Callable[[str], None] | None = command
+        self._navigation = navigation
         self._font = font or design.FONT_BUTTON
         self._radius = design.px(radius)
         self._surface = CARD if surface is None else surface
@@ -207,6 +255,7 @@ class Segments(tk.Canvas):
         self._hover_index: int | None = None
         self._items: list[tuple[str, str]] = []
         self._widths: list[int] = []
+        self._wanted_height = design.px(height)
         self._trace = ""
         super().__init__(parent, bg=_bg_of(parent), highlightthickness=0, bd=0, cursor="hand2")
         self.set_items(items, height=height)
@@ -246,9 +295,12 @@ class Segments(tk.Canvas):
         self._items = list(items)
         measurer = tkfont.Font(font=self._font)
         self._widths = [measurer.measure(text) + design.px(36) for _, text in self._items]
-        self.configure(width=sum(self._widths) + 2 * self._inner)
         if height is not None:
-            self.configure(height=design.px(height))
+            self._wanted_height = design.px(height)
+        # Höhe aus der Schrift: gleicher Abstand oben/unten bei jeder Skalierung.
+        self.configure(width=sum(self._widths) + 2 * self._inner,
+                       height=max(self._wanted_height,
+                                  measurer.metrics("linespace") + 2 * design.px(7)))
         self._hover_index = None
         self._draw()
 
@@ -290,13 +342,19 @@ class Segments(tk.Canvas):
         self.delete("all")
         width = self._container_width()
         height = self.winfo_reqheight()
-        _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, self._radius,
-                       fill=self._surface, outline=BORDER)
+        if not self._navigation:
+            _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, self._radius,
+                           fill=self._surface, outline=BORDER)
         x = self._inner
         for index, (value, text) in enumerate(self._items):
             segment_width = self._widths[index]
             active = self._variable.get() == value
-            if active:
+            if active and self._navigation:
+                self.create_line(x + design.px(10), height - design.px(2),
+                                 x + segment_width - design.px(10), height - design.px(2),
+                                 fill=ACCENT, width=design.px(3), tags="active-tab")
+                colour = ACCENT
+            elif active:
                 _rounded_shape(self, x + 1, self._inner + 1, x + segment_width - 1,
                                height - self._inner - 1, self._radius - 3,
                                fill=ACCENT, outline="")

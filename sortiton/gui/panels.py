@@ -21,9 +21,9 @@ def _short(text: str, limit: int = MAX_VALUE_LENGTH) -> str:
 
 
 def section_label(parent: tk.Misc, text: str, bg: str | None = None) -> tk.Label:
-    """Small uppercase section title drawn on top of a card."""
+    """Abschnittstitel in normaler Schreibweise."""
     bg = CARD if bg is None else bg
-    return tk.Label(parent, text=text.upper(), bg=bg, fg=TEXT_FAINT,
+    return tk.Label(parent, text=text, bg=bg, fg=TEXT,
                     font=design.FONT_LABEL, anchor="w")
 
 
@@ -31,7 +31,7 @@ class PreviewCard(tk.Frame):
     """Card with the aggregated result of the last preview."""
 
     def __init__(self, parent: tk.Misc, title: str) -> None:
-        super().__init__(parent, bg=CARD, highlightthickness=1,
+        super().__init__(parent, bg=CARD, highlightthickness=0,
                          highlightbackground=BORDER, bd=0)
         self.columnconfigure(0, weight=1)
 
@@ -41,13 +41,13 @@ class PreviewCard(tk.Frame):
 
         head = tk.Frame(inner, bg=CARD)
         head.grid(row=0, column=0, sticky="ew")
-        head.columnconfigure(1, weight=1)
+        head.columnconfigure(0, weight=1)
         section_label(head, title).grid(row=0, column=0, sticky="w")
         self._summary = tk.Label(head, text="", bg=CARD, fg=TEXT_MUTED,
-                                 font=design.FONT_SMALL, anchor="e")
-        self._summary.grid(row=0, column=1, sticky="e")
+                                 font=design.FONT_SMALL, anchor="w")
+        self._summary.grid(row=1, column=0, sticky="w", pady=(design.px(6), 0))
 
-        self._body = tk.Frame(inner, bg=CARD, highlightthickness=1,
+        self._body = tk.Frame(inner, bg=CARD, highlightthickness=0,
                               highlightbackground=BORDER_SOFT, bd=0)
         self._body.grid(row=1, column=0, sticky="ew", pady=(design.px(10), 0))
         self._body.columnconfigure(0, weight=1)
@@ -71,27 +71,31 @@ class PreviewCard(tk.Frame):
             self.hint(empty_text)
             return
 
-        self._reset_body(SURFACE, BORDER_SOFT)
-        table = tk.Frame(self._body, bg=SURFACE)
-        table.grid(row=0, column=0, sticky="ew", padx=design.px(12), pady=design.px(10))
+        self._reset_body(CARD, BORDER_SOFT)
+        table = tk.Frame(self._body, bg=CARD)
+        table.grid(row=0, column=0, sticky="ew", pady=design.px(10))
         table.columnconfigure(4, weight=1)
 
         for index, (field, old, new, extra) in enumerate(rows):
-            top = 0 if index == 0 else design.px(6)
-            tk.Label(table, text=field, bg=SURFACE, fg=TEXT_MUTED, font=design.FONT_SMALL,
+            top = 0
+            row_bg = SURFACE if index % 2 == 0 else CARD
+            table.rowconfigure(index, minsize=design.px(design.ROW_HEIGHT))
+            tk.Frame(table, bg=row_bg).grid(row=index, column=0, columnspan=5,
+                                            sticky="nsew")
+            tk.Label(table, text=field, bg=row_bg, fg=TEXT_MUTED, font=design.FONT_SMALL,
                      anchor="w", width=11).grid(row=index, column=0, sticky="w", pady=(top, 0))
-            tk.Label(table, text=_short(old), bg=SURFACE, fg=TEXT_FAINT,
+            tk.Label(table, text=_short(old), bg=row_bg, fg=TEXT_MUTED,
                      font=design.FONT_SMALL, anchor="w").grid(
                          row=index, column=1, sticky="w", padx=(design.px(10), 0),
                          pady=(top, 0))
-            tk.Label(table, text="→", bg=SURFACE, fg=TEXT_FAINT,
+            tk.Label(table, text="→", bg=row_bg, fg=TEXT_FAINT,
                      font=design.FONT_SMALL).grid(row=index, column=2,
                                                   padx=design.px(10), pady=(top, 0))
-            tk.Label(table, text=_short(new), bg=SURFACE, fg=GREEN,
+            tk.Label(table, text=_short(new), bg=row_bg, fg=GREEN,
                      font=design.FONT_SMALL, anchor="w").grid(
                          row=index, column=3, sticky="w", pady=(top, 0))
             if extra:
-                tk.Label(table, text=extra, bg=SURFACE, fg=TEXT_FAINT,
+                tk.Label(table, text=extra, bg=row_bg, fg=TEXT_FAINT,
                          font=design.FONT_SMALL, anchor="e").grid(
                              row=index, column=4, sticky="e", padx=(design.px(12), 0),
                              pady=(top, 0))

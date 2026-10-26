@@ -50,20 +50,20 @@ _LIGHT: dict[str, str] = {
 
 # Dunkel (gleichwertige Einstellung, gleiche Rollen wie im hellen Thema).
 _DARK: dict[str, str] = {
-    "BACKGROUND": "#0f1117",
-    "CARD":       "#171a21",
-    "SURFACE":    "#12151c",
-    "FIELD":      "#1f232c",
-    "FIELD_ACTIVE": "#262b36",
-    "BORDER":     "#2a3040",
-    "BORDER_SOFT": "#222736",
+    "BACKGROUND": "#141819",
+    "CARD":       "#1D2325",
+    "SURFACE":    "#252D30",
+    "FIELD":      "#252D30",
+    "FIELD_ACTIVE": "#303A3D",
+    "BORDER":     "#3D484C",
+    "BORDER_SOFT": "#303A3D",
     "TEXT":       "#e9ecf2",
     "TEXT_MUTED": "#98a1b3",
-    "TEXT_FAINT": "#6f7889",
+    "TEXT_FAINT": "#A0AAAE",
     "TEXT_DISABLED": "#5c6370",
-    "ACCENT":     "#4f8cff",
-    "ACCENT_LIGHT": "#6ea2ff",
-    "ACCENT_TEXT": "#ffffff",
+    "ACCENT":     "#70D5C9",
+    "ACCENT_LIGHT": "#94E2D8",
+    "ACCENT_TEXT": "#102C29",
     "APPLY":      "#2f9e5f",
     "APPLY_LIGHT": "#39b76f",
     "DANGER":     "#c4453d",
@@ -79,6 +79,32 @@ _DARK: dict[str, str] = {
 
 THEME_VARIABLE = "SORTITON_THEME"
 THEME = "light"
+
+BACKGROUND: str
+CARD: str
+SURFACE: str
+FIELD: str
+FIELD_ACTIVE: str
+BORDER: str
+BORDER_SOFT: str
+TEXT: str
+TEXT_MUTED: str
+TEXT_FAINT: str
+TEXT_DISABLED: str
+ACCENT: str
+ACCENT_LIGHT: str
+ACCENT_TEXT: str
+APPLY: str
+APPLY_LIGHT: str
+DANGER: str
+DANGER_LIGHT: str
+RED: str
+GREEN: str
+YELLOW: str
+LOG_BG: str
+LOG_TEXT: str
+SCROLLBAR: str
+SCROLLBAR_ACTIVE: str
 
 # --- Raster und Größen (logische Pixel; via design.px() skalieren) ----------
 SPACE_XS = 4    # Innenabstände kleiner Elemente
@@ -188,7 +214,7 @@ def theme() -> str:
 FONT           = ("DejaVu Sans", 11)
 FONT_SMALL     = ("DejaVu Sans", 10)
 FONT_LABEL     = ("DejaVu Sans", 10, "bold")
-FONT_TITLE     = ("DejaVu Sans", 18, "bold")
+FONT_TITLE     = ("DejaVu Sans", 15, "bold")
 FONT_SECTION   = ("DejaVu Sans", 12, "bold")
 FONT_BUTTON    = ("DejaVu Sans", 11)
 FONT_MONO      = ("DejaVu Sans Mono", 10)
@@ -229,7 +255,7 @@ def px(value: float) -> int:
 
 
 def load_fonts(root: tk.Tk) -> None:
-    """Pick the nicest available fonts (Inter → Cantarell → …)."""
+    """Verfügbare Desktop-Schriften mit Cantarell als erster Wahl laden."""
     global FONT, FONT_SMALL, FONT_LABEL, FONT_TITLE, FONT_SECTION, FONT_BUTTON, FONT_MONO
     present = {name.lower() for name in tkfont.families(root)}
 
@@ -239,7 +265,7 @@ def load_fonts(root: tk.Tk) -> None:
                 return name
         return default
 
-    family = first_available(["Inter", "Cantarell", "Ubuntu", "Noto Sans", "Open Sans",
+    family = first_available(["Cantarell", "Noto Sans", "Ubuntu", "Open Sans",
                               "DejaVu Sans"],
                              str(tkfont.nametofont("TkDefaultFont").actual("family")))
     mono = first_available(["JetBrains Mono", "Fira Code", "Cascadia Code", "Noto Sans Mono",
@@ -248,7 +274,7 @@ def load_fonts(root: tk.Tk) -> None:
     FONT         = (family, 11)
     FONT_SMALL   = (family, 10)
     FONT_LABEL   = (family, 10, "bold")
-    FONT_TITLE   = (family, 18, "bold")
+    FONT_TITLE   = (family, 15, "bold")
     FONT_SECTION = (family, 12, "bold")
     FONT_BUTTON  = (family, 11)
     FONT_MONO    = (mono, 10)

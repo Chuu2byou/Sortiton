@@ -704,6 +704,8 @@ def _gui_on_size(tk_root, size: tuple[int, int]) -> tuple[object, object, bool]:
 @pytest.mark.parametrize("size", [(1280, 720), (1920, 1080), (2560, 1440)])
 def test_gui_wide_workspace(tk_root, size) -> None:
     """Breite Arbeitsfläche: zwei Spalten, volle Breite, gemeinsame Außenkanten."""
+    import tkinter as tk
+
     gui, root, comparable = _gui_on_size(tk_root, size)
     if not comparable:
         pytest.skip(f"window cannot be sized to {size[0]}x{size[1]}")
@@ -732,33 +734,52 @@ def test_gui_wide_workspace(tk_root, size) -> None:
               >= root.winfo_rootx() + root.winfo_width() - gui._outer_inset() - 2)
         check("tabs stay visible",
               gui._tabs.winfo_ismapped())
-        check("the settings button does not overlap the tabs",
-              gui._tabs.winfo_rootx() + gui._tabs.winfo_width()
-              <= gui._settings_button.winfo_rootx())
-        check("the release bar is visible", gui._actions_area.winfo_ismapped())
-        stacking_order = root.tk.splitlist(
-            root.tk.call("winfo", "children", root._w))
-        check("process actions are above the footer background",
-              stacking_order.index(gui._actions_area._w)
-              > stacking_order.index(gui._footer._w))
+        check("navigation uses exactly one active underline",
+              len(gui._tabs.find_withtag("active-tab")) == 1)
+        check("configuration is a continuous surface",
+              gui.pages["tags"].cget("bg") == gui._config_area.cget("bg"))
+        check("the empty result stays hidden after resizing",
+              not gui._result_area.winfo_ismapped())
+        check("the release bar sits in the header, right of the tabs",
+              gui._actions_area.winfo_ismapped()
+              and gui._tabs.winfo_rootx() + gui._tabs.winfo_width()
+              <= gui._actions_area.winfo_rootx()
+              and gui._actions_area.winfo_rootx() + gui._actions_area.winfo_width()
+              <= gui._tabs_bar.winfo_rootx() + gui._tabs_bar.winfo_width() + 2
+              and gui._actions_area.winfo_rooty()
+              >= gui._tabs_bar.winfo_rooty() - 2,
+              str((gui._tabs.winfo_rootx() + gui._tabs.winfo_width(),
+                   gui._actions_area.winfo_rootx(),
+                   gui._actions_area.winfo_width())))
+        check("the release bar stays above the workspace",
+              gui._actions_area.winfo_rooty() + gui._actions_area.winfo_height()
+              <= gui._workspace.winfo_rooty(),
+              str((gui._actions_area.winfo_rooty(),
+                   gui._workspace.winfo_rooty())))
         footer_children = gui._footer.winfo_children()
         check("the footer keeps all controls inside the window",
-              (sum(child.winfo_reqwidth() for child in footer_children)
-               + gui._actions_area.winfo_reqwidth())
+              sum(child.winfo_reqwidth() for child in footer_children)
               <= gui._footer.winfo_width() + 2)
+        check("settings sit in the footer, left of the status line",
+              gui._settings_button.winfo_ismapped()
+              and gui._settings_button.winfo_rooty() >= gui._workspace.winfo_rooty()
+              and gui._settings_button.winfo_rootx()
+              <= gui._state_dot.winfo_rootx())
         check("the progress bar stays compact on wide windows",
               gui.progress.winfo_width() <= design.px(260),
               str(gui.progress.winfo_width()))
-        placed = sorted(
-            [child for child in footer_children if child.winfo_ismapped()]
-            + [gui._actions_area],
-            key=lambda widget: widget.winfo_rootx())
+        placed = sorted([child for child in footer_children if child.winfo_ismapped()],
+                        key=lambda widget: widget.winfo_rootx())
         check("footer controls do not overlap",
               all(left.winfo_rootx() + left.winfo_width()
                   <= right.winfo_rootx()
                   for left, right in zip(placed, placed[1:])),
               str([(widget.winfo_class(), widget.winfo_rootx(),
                     widget.winfo_width()) for widget in placed]))
+        check("the status group ends at the right edge",
+              placed[-1].winfo_rootx() + placed[-1].winfo_width()
+              >= gui._footer.winfo_rootx() + gui._footer.winfo_width() - 2,
+              str(placed[-1].winfo_rootx() + placed[-1].winfo_width()))
         inset = gui._outer_inset()
         edges = {name: getattr(gui, name).winfo_rootx() - root.winfo_rootx()
                  for name in ("_tabs_bar", "_workspace", "_footer")}
@@ -772,9 +793,96 @@ def test_gui_wide_workspace(tk_root, size) -> None:
 
 
 @pytest.mark.gui
+def test_gui_config_column_starts_at_max_width(tk_root) -> None:
+    """Die Konfigurationsleiste startet immer in ihrer maximalen Breite."""
+    import tkinter as tk
+
+    from sortiton.gui import design
+
+    gui, root, comparable = _gui_on_size(tk_root, (1280, 720))
+    if not comparable or gui._workspace_mode != "wide":
+        pytest.skip("window too small for the two-column layout")
+    try:
+        width = gui._content_canvas.winfo_width()
+        check("start width equals the maximum width", CONFIG_DEFAULT == CONFIG_MAX,
+              f"default={CONFIG_DEFAULT}, max={CONFIG_MAX}")
+        check("the config column starts at its maximum width",
+              abs(width - design.px(CONFIG_MAX)) <= 2, str(width))
+        gui._content_canvas.configure(width=design.px(CONFIG_MAX - 120))
+        gui._sync_content_width()
+        root.update()
+        check("the handle stays usable below the maximum",
+              gui._content_canvas.winfo_width() < design.px(CONFIG_MAX))
+    finally:
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+@pytest.mark.gui
+def test_gui_rule_chips_have_vertical_padding(tk_root) -> None:
+    """Regel-Chips: fester Innenabstand oben/unten, Punkt als glattes Textzeichen."""
+    import tkinter as tk
+
+    from sortiton.gui import design
+    from sortiton.gui.app import SortitonGUI
+
+    gui = SortitonGUI(tk_root)
+    tk_root.update()
+    try:
+        pill = next(child for child in gui._rules_pills.winfo_children()
+                    if type(child).__name__ == "Pill")
+        line = pill._font.metrics("linespace")
+        check("the chip keeps its padding above and below the text",
+              pill.winfo_reqheight() >= line + 2 * design.px(6) - 1,
+              f"height={pill.winfo_reqheight()}, linespace={line}")
+        kinds = [pill.type(item) for item in pill.find_all()]
+        check("the status dot is text, so it is drawn smooth",
+              kinds.count("text") == 2, str(kinds))
+        check("the chip surface stays one polygon",
+              kinds.count("polygon") == 1, str(kinds))
+    finally:
+        try:
+            tk_root.destroy()
+        except tk.TclError:
+            pass
+
+
+@pytest.mark.gui
+def test_gui_buttons_keep_their_vertical_padding(tk_root) -> None:
+    """Knöpfe wachsen mit der Schrift, statt die Beschriftung einzuklemmen."""
+    import tkinter as tk
+
+    from sortiton.gui import design
+    from sortiton.gui.app import SortitonGUI
+
+    gui = SortitonGUI(tk_root)
+    tk_root.update()
+    try:
+        button = next(child for child in gui._footer.winfo_children()
+                      if type(child).__name__ == "RoundButton")
+        line = button._font.metrics("linespace")
+        check("buttons keep padding above and below the label",
+              button.winfo_reqheight() >= line + 2 * design.px(7) - 1,
+              f"height={button.winfo_reqheight()}, linespace={line}")
+        check("buttons keep their side padding",
+              button.winfo_reqwidth()
+              >= button._font.measure(button._text) + 2 * design.px(15) - 1,
+              str(button.winfo_reqwidth()))
+    finally:
+        try:
+            tk_root.destroy()
+        except tk.TclError:
+            pass
+
+
+@pytest.mark.gui
 @pytest.mark.parametrize("size", [(1100, 780), (820, 660)])
 def test_gui_narrow_workspace(tk_root, size) -> None:
     """Schmales Fenster: Konfiguration eingeklappt bzw. oberhalb, ohne Scrollen."""
+    import tkinter as tk
+
     gui, root, comparable = _gui_on_size(tk_root, size)
     if not comparable:
         pytest.skip(f"window cannot be sized to {size[0]}x{size[1]}")
@@ -811,7 +919,7 @@ def test_gui_narrow_workspace(tk_root, size) -> None:
         check("the footer fits the narrow window without overlapping",
               all(widget.winfo_rootx() + widget.winfo_width()
                   <= footer.winfo_rootx() + footer.winfo_width() + 2
-                  for widget in [*footer.winfo_children(), gui._actions_area]
+                  for widget in footer.winfo_children()
                   if widget.winfo_ismapped()),
               str([(widget.winfo_class(), widget.winfo_rootx(),
                     widget.winfo_width())
@@ -821,8 +929,70 @@ def test_gui_narrow_workspace(tk_root, size) -> None:
               gui._tabs.winfo_ismapped()
               and gui._tabs.winfo_rootx() + gui._tabs.winfo_width()
               <= root.winfo_rootx() + root.winfo_width())
+        check("header actions stay inside the narrow window",
+              gui._actions_area.winfo_ismapped()
+              and gui._actions_area.winfo_rootx() + gui._actions_area.winfo_width()
+              <= root.winfo_rootx() + root.winfo_width())
+        check("settings stay fully visible on narrow windows",
+              gui._settings_button.winfo_rootx() + gui._settings_button.winfo_width()
+              <= root.winfo_rootx() + root.winfo_width())
     finally:
         try:
             root.destroy()
+        except tk.TclError:
+            pass
+
+
+def _inside_column(widget, limit: int) -> list[tuple[str, int, int]]:
+    """Alle sichtbaren Kinder, die über die rechte Kante hinausragen."""
+    outside: list[tuple[str, int, int]] = []
+    for child in widget.winfo_children():
+        if not child.winfo_ismapped():
+            continue
+        right = child.winfo_rootx() + child.winfo_width()
+        if right > limit:
+            outside.append((child.winfo_class(), child.winfo_rootx(), child.winfo_width()))
+        outside += _inside_column(child, limit)
+    return outside
+
+
+@pytest.mark.gui
+def test_gui_tools_tab_fits_the_config_column(tk_root) -> None:
+    """Werkzeug-Reiter: Umschalter, Badge und Knopfreihe bleiben in der Spalte."""
+    import tkinter as tk
+
+    from sortiton.gui import design
+    from sortiton.gui.app import SortitonGUI
+    from sortiton.gui.mixins.layout import CONFIG_MAX, CONFIG_MIN
+
+    gui = SortitonGUI(tk_root)
+    tk_root.update()
+    app = gui
+    try:
+        app._show_page("tools")
+        tab = next(child for child in app.pages["tools"].winfo_children()
+                   if type(child).__name__ == "ToolsTab")
+        for key in list(tab._forms):
+            tab._show(key)
+            for logical in (CONFIG_MIN, 420, CONFIG_MAX):
+                app._content_canvas.configure(width=design.px(logical))
+                app._sync_content_width()
+                tk_root.update()
+                canvas = app._content_canvas
+                limit = canvas.winfo_rootx() + canvas.winfo_width() + 2
+                outside = _inside_column(tab, limit)
+                check(f"{key} fits the {logical} px column",
+                      not outside, str(outside))
+        pill = tab._badge
+        if pill is not None:
+            fills = [pill.itemcget(item, "fill") for item in pill.find_all()
+                     if pill.type(item) == "polygon"]
+            check("the status chip carries a tinted surface",
+                  bool(fills) and fills[0] != design.CARD, str(fills))
+            check("the status chip is drawn without spline fragments",
+                  len(fills) == 1, str(fills))
+    finally:
+        try:
+            tk_root.destroy()
         except tk.TclError:
             pass
