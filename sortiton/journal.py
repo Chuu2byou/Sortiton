@@ -9,8 +9,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from . import i18n, output, redact
-from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME, LOG_DIR,
+from . import config, i18n, output, redact
+from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME,
                      LOG_PREFIX, OFF_VALUES)
 from .files import open_new
 
@@ -229,7 +229,7 @@ def find_journals(limit: int | None = JOURNAL_KEEP) -> list[Path]:
             return 0, path.name
 
     try:
-        files = sorted(LOG_DIR.glob(f"{LOG_PREFIX}_*{JOURNAL_SUFFIX}"),
+        files = sorted(config.current_paths().log_dir.glob(f"{LOG_PREFIX}_*{JOURNAL_SUFFIX}"),
                        key=key, reverse=True)
     except OSError:
         return []
@@ -254,7 +254,7 @@ def resolve_journal(path: Path | str | None = None) -> Path | None:
 
 def _link_latest(path: Path) -> None:
     """Point ``latest_journal.jsonl`` at the newest journal (like latest.log)."""
-    link = LOG_DIR / LATEST_JOURNAL_NAME
+    link = config.current_paths().log_dir / LATEST_JOURNAL_NAME
     try:
         link.unlink(missing_ok=True)
         link.symlink_to(path.name)

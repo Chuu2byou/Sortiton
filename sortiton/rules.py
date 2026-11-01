@@ -9,8 +9,8 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import i18n
-from .config import INVISIBLE, RULES_FILE
+from . import config, i18n
+from .config import INVISIBLE
 
 GENRE_ALIASES = {
     "jpop": "J-Pop", "j pop": "J-Pop", "j-pop": "J-Pop",
@@ -94,14 +94,13 @@ def rules_summary() -> str:
     custom = _custom_rules()
     parts: list[str] = []
     if custom.artists:
-        parts.append(_count(len(custom.artists), "rules.summary.artists",
-                            "rules.summary.artists_plural"))
+        parts.append(i18n.t_count("rules.summary.artists", len(custom.artists)))
     if custom.regex:
-        parts.append(i18n.t("rules.summary.regex", count=len(custom.regex)))
+        parts.append(i18n.t_count("rules.summary.regex", len(custom.regex)))
     if custom.genres:
-        parts.append(i18n.t("rules.summary.genre", count=len(custom.genres)))
+        parts.append(i18n.t_count("rules.summary.genre", len(custom.genres)))
     if custom.protected:
-        parts.append(i18n.t("rules.summary.protected", count=len(custom.protected)))
+        parts.append(i18n.t_count("rules.summary.protected", len(custom.protected)))
     return ", ".join(parts)
 
 
@@ -118,11 +117,6 @@ def rules_status() -> dict:
         "custom_total": (len(custom.artists) + len(custom.regex)
                          + len(custom.genres) + len(custom.protected)),
     }
-
-
-def _count(number: int, singular: str, plural: str) -> str:
-    key = singular if number == 1 else plural
-    return i18n.t(key, count=number)
 
 
 @dataclass(frozen=True)
@@ -243,8 +237,10 @@ def _artist_key_form(key: str) -> str:
 
 
 def parse_custom_rules(text: str,
-                       file_name: str = RULES_FILE.name) -> tuple[CustomRules, list[str]]:
+                       file_name: str | None = None) -> tuple[CustomRules, list[str]]:
     """Parse the content of a my_rules.ini - without touching the file system."""
+    if file_name is None:
+        file_name = config.current_paths().rules_file.name
     artists: list[tuple[re.Pattern, str]] = []
     artist_regex: list[tuple[re.Pattern, str]] = []
     genres: dict[str, str] = {}
@@ -340,7 +336,7 @@ def parse_custom_rules(text: str,
 
 def load_custom_rules(path: Path | None = None) -> list[str]:
     """Read the custom rules file and swap in the new rule set."""
-    file = Path(path) if path is not None else RULES_FILE
+    file = Path(path) if path is not None else config.current_paths().rules_file
     if not file.is_file():
         _set_custom_rules(_EMPTY_RULES)
         return []

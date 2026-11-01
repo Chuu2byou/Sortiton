@@ -3,6 +3,7 @@
 from .base import GuiBase
 from .layout import LayoutMixin
 from .log import LogMixin
+from .pages import PageMixin
 from .run import RunMixin
 from .rules import RulesMixin
 from .settings import SettingsMixin
@@ -11,6 +12,7 @@ __all__ = [
     "GuiBase",
     "LayoutMixin",
     "LogMixin",
+    "PageMixin",
     "RunMixin",
     "RulesMixin",
     "SettingsMixin",

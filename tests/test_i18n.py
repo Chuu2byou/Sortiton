@@ -57,6 +57,24 @@ def _python_files() -> list[Path]:
     return sorted((BASE / "sortiton").rglob("*.py")) + sorted(BASE.glob("sortiton*.py"))
 
 
+def test_count_and_number_formatting() -> None:
+    """Plural und Zahlformat werden sprachabhängig zentral bestimmt."""
+    previous = i18n.get_language()
+    try:
+        i18n.set_language("en")
+        assert i18n.t_count("rules.summary.artists", 1) == "1 artist"
+        assert i18n.t_count("rules.summary.artists", 0) == "0 artists"
+        assert i18n.t_count("rules.summary.artists", 1842) == "1,842 artists"
+        assert i18n.t_count("rules.summary.artists", 1842, lang="de") == "1.842 Künstler"
+        assert i18n.get_language() == "en"
+        assert i18n.format_number(-1842, lang="de") == "-1.842"
+        assert i18n.format_number(None) == "None"
+        assert i18n.t_count("missing.key", 2) == "missing.key"
+        assert i18n.t_in("en", "rules.summary.regex", count=1234) == "1234 regex"
+    finally:
+        i18n.set_language(previous)
+
+
 def test_catalog_has_no_duplicate_keys() -> None:
     """A key written twice loses its first translation without any error."""
     counts = _literal_key_counts()

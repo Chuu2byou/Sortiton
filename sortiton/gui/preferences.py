@@ -5,7 +5,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .. import external, i18n, settings
+from .. import external, settings
+from . import translations as i18n
 from . import design
 from .design import (BACKGROUND, BORDER, CARD, GREEN, TEXT, TEXT_FAINT, TEXT_MUTED,
                      YELLOW)
@@ -31,7 +32,7 @@ class PreferencesWindow:
         parent = app.root
         self.window = tk.Toplevel(parent)
         self.window.withdraw()
-        self.window.title(i18n.t("gui.settings.title"))
+        i18n.bind_title(self.window, i18n.t("gui.settings.title"))
         self.window.configure(bg=BACKGROUND)
         self.window.transient(parent.winfo_toplevel())
         self.window.resizable(True, True)
@@ -122,6 +123,9 @@ class PreferencesWindow:
                             int(screen_width * WIDTH_RATIO)),
                         design.px(MAX_WIDTH))
         width = min(max(content_width, preferred), available_width)
+        parent_width = parent.winfo_width()
+        if parent_width >= design.px(MIN_WIDTH):
+            width = min(width, parent_width)
         height = min(max(content_height, design.px(MIN_HEIGHT)),
                      max(int(screen_height * HEIGHT_RATIO), design.px(MIN_HEIGHT)))
         self.window.minsize(min(design.px(MIN_WIDTH), available_width),
@@ -210,9 +214,9 @@ class PreferencesWindow:
     def _head(self, parent: tk.Misc, row: int) -> None:
         head = tk.Frame(parent, bg=BACKGROUND)
         head.grid(row=row, column=0, sticky="ew")
-        tk.Label(head, text=i18n.t("gui.settings.heading"), bg=BACKGROUND, fg=TEXT,
+        i18n.Label(head, text=i18n.t("gui.settings.heading"), bg=BACKGROUND, fg=TEXT,
                  font=design.FONT_SECTION, anchor="w").grid(row=0, column=0, sticky="w")
-        tk.Label(head, text=i18n.t("gui.settings.scale",
+        i18n.Label(head, text=i18n.t("gui.settings.scale",
                                    percent=round(design.UI_SCALE * 100)),
                  bg=BACKGROUND, fg=TEXT_FAINT, font=design.FONT_SMALL,
                  anchor="w").grid(row=1, column=0, sticky="w",
@@ -286,7 +290,7 @@ class PreferencesWindow:
         inner.columnconfigure(0, weight=1)
         if not title:
             return inner
-        tk.Label(inner, text=title.upper(), bg=CARD, fg=TEXT_FAINT,
+        i18n.Label(inner, text=title.upper(), bg=CARD, fg=TEXT_FAINT,
                  font=design.FONT_LABEL, anchor="w").grid(row=0, column=0, sticky="w")
         body = tk.Frame(inner, bg=CARD)
         body.grid(row=1, column=0, sticky="ew", pady=(design.px(12), 0))
@@ -303,7 +307,7 @@ class PreferencesWindow:
     def _hint(self, parent: tk.Misc, text: str,
               colour: str = TEXT_MUTED) -> tk.Label:
         """A helper line that wraps with its card instead of fixing its width."""
-        label = tk.Label(parent, text=text, bg=CARD, fg=colour,
+        label = i18n.Label(parent, text=text, bg=CARD, fg=colour,
                          font=design.FONT_SMALL, anchor="w", justify="left",
                          wraplength=design.px(420))
         self._wrap_to_parent(label, parent)
@@ -381,7 +385,7 @@ class PreferencesWindow:
         for feature, section, options in cards:
             title = section_title(section)
             if len(owners) > 1:
-                title = f"{feature_label(feature)} · {title}"
+                title = feature_label(feature) + " · " + title
             body = self._card(parent, title)
             form.fields(body, feature, options)
 

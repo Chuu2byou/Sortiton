@@ -14,11 +14,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
-from . import i18n, journal
+from . import config, i18n, journal
 from .backup import backup_files, prune_backups
 from .cancel import NO_CANCEL, Cancelled
-from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, LOG_DIR,
-                     RULES_FILE, WRITE_WORKERS)
+from .config import BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, WRITE_WORKERS
 from .fileops import atomic_write_text, copy_new, move_no_clobber
 from .files import build_name, free_target, iter_audio, safe_name, same_content
 from .output import (banner, clear_stats, colorize, current_run_context,
@@ -774,7 +773,7 @@ def cmd_rules(args: CmdArgs) -> int:
         message(i18n.t("rules.builtin.note2"))
         return 0
 
-    file = RULES_FILE
+    file = config.current_paths().rules_file
 
     if getattr(args, "template", False):
         if file.exists():
@@ -949,7 +948,7 @@ def _list_journals() -> int:
     """Print the available journals (``restore --list``)."""
     files = journal.find_journals()
     if not files:
-        message(i18n.t("restore.list.none", path=LOG_DIR))
+        message(i18n.t("restore.list.none", path=config.current_paths().log_dir))
         return 0
 
     message(i18n.t("restore.list.title", count=len(files)))

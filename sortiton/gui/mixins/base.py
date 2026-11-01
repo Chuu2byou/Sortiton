@@ -52,6 +52,8 @@ class GuiBase:
         result_panel: ResultPanel
         progress: ProgressBar
         progress_label: tk.Label
+        _preview_area: tk.Frame
+        _action_frames: dict[str, tk.Frame]
         _result_area: tk.Frame
         _footer: tk.Frame
         _result_height: int

@@ -6,9 +6,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from ... import external, i18n, output
+from ... import config, external, i18n, output
 from ...cancel import NO_CANCEL, Cancelled
-from ...config import EXPORT_DIR, READ_WORKERS
+from ...config import READ_WORKERS
 from ...files import free_path
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import fingerprint, reader, report
@@ -151,7 +151,8 @@ def cmd_export(args: CmdArgs) -> int:
     if args.output:
         outdir = Path(args.output).expanduser()
     else:
-        outdir = free_path(EXPORT_DIR / f"export_{datetime.now():%Y%m%d_%H%M%S}")
+        outdir = free_path(config.current_paths().export_dir /
+                           f"export_{datetime.now():%Y%m%d_%H%M%S}")
     created_here = not outdir.exists()
     try:
         outdir.mkdir(parents=True, exist_ok=True)

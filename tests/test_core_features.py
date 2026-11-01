@@ -7,7 +7,7 @@ import pytest
 
 from sortiton import cli
 from sortiton.core_features import CORE_FEATURES, PATTERN_DEFAULT
-from sortiton.gui.mixins.layout import LayoutMixin
+from sortiton.gui.mixins.pages import PageMixin
 
 
 @pytest.mark.parametrize("key", ["tags", "rename", "sort", "all"])
@@ -66,7 +66,7 @@ def test_core_page_uses_declared_fields_and_actions(feature):
     setattr(app, feature.run_method, run)
     if feature.pattern_var:
         setattr(app, feature.pattern_var, pattern)
-    assert LayoutMixin._core_page(app, object(), feature.key) is page
+    assert PageMixin._core_page(app, object(), feature.key) is page
     assert [entry[1] for entry in app._folder_card.call_args.args[3]] == [source, target]
     app._mode_row.assert_called_once_with(options, 2 if feature.pattern_var else 0, mode)
     assert app._pattern_row.call_count == bool(feature.pattern_var)

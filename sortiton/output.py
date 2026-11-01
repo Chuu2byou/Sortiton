@@ -14,8 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
 
-from . import i18n
-from .config import (JOURNAL_SUFFIX, LATEST_LOG_NAME, LOG_DIR, LOG_KEEP,
+from . import config, i18n
+from .config import (JOURNAL_SUFFIX, LATEST_LOG_NAME, LOG_KEEP,
                      LOG_PREFIX, MUTAGEN_AVAILABLE, READ_WORKERS, WRITE_WORKERS)
 from .files import open_new
 
@@ -73,6 +73,7 @@ class RunContext:
     plan_sink: Callable | None = None
     stats_sink: Callable | None = None
     log_to_file: bool = True
+    paths: config.AppPaths | None = None
     stats: dict[str, dict] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -93,7 +94,11 @@ def use_run_context(context: RunContext) -> Iterator[None]:
     """Kontext nur für den aktuellen Ausführungspfad aktivieren."""
     token = _run_context.set(context)
     try:
-        yield
+        if context.paths is None:
+            yield
+        else:
+            with config.use_paths(context.paths):
+                yield
     finally:
         _run_context.reset(token)
 
@@ -247,15 +252,27 @@ def latest_log_file() -> Path | None:
     return _log_path
 
 
+LOG_DIR = config.current_paths().log_dir
+_DEFAULT_LOG_DIR = LOG_DIR
+
+
+def _log_dir() -> Path:
+    paths = config.selected_paths()
+    if paths is not None:
+        return paths.log_dir
+    return LOG_DIR if LOG_DIR != _DEFAULT_LOG_DIR else config.current_paths().log_dir
+
+
 def open_log_file(title: str = "") -> Path | None:
     """Open a new log file; every message() is also stored there."""
     global _log_file, _log_path
     close_log_file()
 
+    log_dir = _log_dir()
     try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        path, handle = open_new(LOG_DIR / f"{LOG_PREFIX}_{stamp}.log")
+        path, handle = open_new(log_dir / f"{LOG_PREFIX}_{stamp}.log")
     except (OSError, RuntimeError):
         with _log_lock:
             _log_file = None
@@ -277,7 +294,7 @@ def open_log_file(title: str = "") -> Path | None:
     _log_line("#" + "-" * 62)
 
     try:
-        link = LOG_DIR / LATEST_LOG_NAME
+        link = log_dir / LATEST_LOG_NAME
         link.unlink(missing_ok=True)
         link.symlink_to(path.name)
     except OSError:
@@ -327,7 +344,7 @@ def _prune_old_logs(keep: int = LOG_KEEP) -> None:
             return 0, path.name
 
     try:
-        logs = sorted(LOG_DIR.glob(f"{LOG_PREFIX}_*.log"),
+        logs = sorted(_log_dir().glob(f"{LOG_PREFIX}_*.log"),
                       key=recent, reverse=True)
         for old in logs[keep:]:
             old.unlink(missing_ok=True)

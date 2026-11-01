@@ -11,6 +11,7 @@ from .. import config, i18n, settings
 from ..cancel import CancelToken
 from . import design
 from .common import _LOG_HEIGHT_BASE, _RESULT_HEIGHT_BASE
+from .log_history import LogHistory
 from .panels import PreviewCard
 from .preferences import PreferencesWindow
 from .widgets import RoundButton
@@ -45,7 +46,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self._llm_status: tk.StringVar | None = None
         self._llm_status_label: tk.Label | None = None
         self._restore_window: tk.Toplevel | None = None
-        self._log_history: list[str] = []
+        self._history = LogHistory()
         self._log_lines = 0
         self.pages: dict[str, tk.Frame] = {}
 

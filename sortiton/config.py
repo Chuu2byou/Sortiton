@@ -6,33 +6,47 @@ import importlib.util
 import os
 import re
 import sys
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, fields
 from pathlib import Path
 
-PACKAGE_DIR = Path(__file__).resolve().parent
-SOURCE_DIR = PACKAGE_DIR.parent
 
-FROZEN = bool(getattr(sys, "frozen", False))
-IN_SOURCE_TREE = not FROZEN and (SOURCE_DIR / "sortiton.py").is_file()
-_XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME", "").strip()
-DATA_HOME = Path(_XDG_DATA_HOME) if _XDG_DATA_HOME else Path.home() / ".local" / "share"
-_DATA_DIR = os.environ.get("SORTITON_DATA_DIR", "").strip()
-PROJECT_DIR = (Path(_DATA_DIR) if _DATA_DIR else
-               SOURCE_DIR if IN_SOURCE_TREE else DATA_HOME / "sortiton")
+@dataclass(frozen=True)
+class AppPaths:
+    """Unveränderliche Pfade eines Anwendungsstarts."""
 
-ASSETS_DIR = Path(getattr(sys, "_MEIPASS", SOURCE_DIR)) / "assets"
+    package_dir: Path
+    source_dir: Path
+    data_home: Path
+    project_dir: Path
+    assets_dir: Path
+    config_home: Path
+    downloads_dir: Path
+    rules_file: Path
+    log_dir: Path
+    settings_file: Path
+    backup_dir: Path
+    export_dir: Path
+    cache_dir: Path
+    legacy_cache_dir: Path
+    music_source_dir: Path
+    music_target_dir: Path
+    frozen: bool
+    in_source_tree: bool
 
-_XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", "").strip()
-CONFIG_HOME = Path(_XDG_CONFIG_HOME) if _XDG_CONFIG_HOME else Path.home() / ".config"
 
-
-def _xdg_user_dir(variable: str, fallback: Path) -> Path:
+def _xdg_user_dir(variable: str, fallback: Path, config_home: Path | None = None,
+                  home: Path | None = None) -> Path:
     """Der XDG-Nutzerordner ``variable`` (z. B. ``XDG_DOWNLOAD_DIR``).
 
     Gelesen wird ``~/.config/user-dirs.dirs``; fehlt die Datei oder der
     Eintrag, gilt ``fallback``. ``$HOME`` in der Datei wird aufgelöst.
     """
     try:
-        text = (CONFIG_HOME / "user-dirs.dirs").read_text(encoding="utf-8")
+        directory = config_home if config_home is not None else current_paths().config_home
+        text = (directory / "user-dirs.dirs").read_text(encoding="utf-8")
     except OSError:
         return fallback
     for line in text.splitlines():
@@ -41,12 +55,78 @@ def _xdg_user_dir(variable: str, fallback: Path) -> Path:
             continue
         value = line.split("=", 1)[1].strip().strip('"')
         if value:
-            return Path(value.replace("$HOME", str(Path.home())))
+            return Path(value.replace("$HOME", str(home or Path.home())))
     return fallback
 
 
-DOWNLOADS_DIR = _xdg_user_dir("XDG_DOWNLOAD_DIR", Path.home() / "Downloads")
-"""Der Standard-Downloadordner des Nutzers (XDG, sonst ``~/Downloads``)."""
+def production_paths(*, environ: Mapping[str, str] | None = None,
+                     home: Path | None = None, source_dir: Path | None = None,
+                     frozen: bool | None = None, assets_base: Path | None = None) -> AppPaths:
+    """Produktionspfade aus Umgebung und Installation zum Aufrufzeitpunkt bestimmen."""
+    env = os.environ if environ is None else environ
+    home = Path.home() if home is None else Path(home)
+    package = Path(__file__).resolve().parent
+    source = package.parent if source_dir is None else Path(source_dir)
+    is_frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    in_source = not is_frozen and (source / "sortiton.py").is_file()
+    data_value = env.get("XDG_DATA_HOME", "").strip()
+    data_home = Path(data_value) if data_value else home / ".local" / "share"
+    project_value = env.get("SORTITON_DATA_DIR", "").strip()
+    project = (Path(project_value) if project_value else
+               source if in_source else data_home / "sortiton")
+    config_value = env.get("XDG_CONFIG_HOME", "").strip()
+    config_home = Path(config_value) if config_value else home / ".config"
+    downloads = _xdg_user_dir("XDG_DOWNLOAD_DIR", home / "Downloads", config_home, home)
+    assets = Path(getattr(sys, "_MEIPASS", source) if assets_base is None else assets_base)
+    assets /= "assets"
+    folder_value = env.get("SORTITON_FOLDER", "").strip()
+    music_source = Path(folder_value) if folder_value else project.parent / "Musik"
+    if not music_source.is_dir():
+        music_source = home / "Musik"
+    target_value = env.get("SORTITON_TARGET", "").strip()
+    music_target = Path(target_value) if target_value else home / "Musik"
+    return AppPaths(
+        package, source, data_home, project, assets, config_home, downloads,
+        Path(env.get("SORTITON_RULES", project / "my_rules.ini")),
+        Path(env.get("SORTITON_LOG_DIR", project / "logs")),
+        Path(env.get("SORTITON_SETTINGS", project / "settings.ini")),
+        Path(env.get("SORTITON_BACKUP_DIR", project / "backups")),
+        Path(env.get("SORTITON_EXPORT_DIR") or downloads / "Sortiton"),
+        Path(env.get("SORTITON_CACHE_DIR", project / "cache")),
+        Path(env.get("XDG_CACHE_HOME", home / ".cache")) / "musik_export",
+        music_source, music_target, is_frozen, in_source,
+    )
+
+
+_PATH_NAMES = {item.name.upper(): item.name for item in fields(AppPaths)}
+_paths_context: ContextVar[AppPaths | None] = ContextVar("sortiton_paths", default=None)
+
+
+def selected_paths() -> AppPaths | None:
+    """Explizit für den aktuellen Ausführungskontext gewählte Pfade liefern."""
+    return _paths_context.get()
+
+
+def current_paths() -> AppPaths:
+    """Gewählte Pfade oder die aktuelle Produktionskonfiguration liefern."""
+    return selected_paths() or production_paths()
+
+
+@contextmanager
+def use_paths(paths: AppPaths) -> Iterator[None]:
+    """Pfade für einen Lauf setzen und anschließend den Kontext wiederherstellen."""
+    token = _paths_context.set(paths)
+    try:
+        yield
+    finally:
+        _paths_context.reset(token)
+
+
+def __getattr__(name: str):
+    """Alte Konstantennamen als dynamischen Kompatibilitätsadapter anbieten."""
+    if name in _PATH_NAMES:
+        return getattr(current_paths(), _PATH_NAMES[name])
+    raise AttributeError(name)
 
 AUDIO_EXTENSIONS = {
     ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".wma",
@@ -68,17 +148,6 @@ INVISIBLE = re.compile(
 )
 
 INVALID_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1F\x7F]')
-
-RULES_FILE = Path(os.environ.get("SORTITON_RULES", PROJECT_DIR / "my_rules.ini"))
-LOG_DIR = Path(os.environ.get("SORTITON_LOG_DIR", PROJECT_DIR / "logs"))
-SETTINGS_FILE = Path(os.environ.get("SORTITON_SETTINGS", PROJECT_DIR / "settings.ini"))
-
-BACKUP_DIR = Path(os.environ.get("SORTITON_BACKUP_DIR", PROJECT_DIR / "backups"))
-
-# Ausgaben gehören dem Nutzer, nicht dem Projekt: standardmäßig in einem
-# eigenen Ordner im Download-Verzeichnis, damit dort nichts im Quellbaum landet.
-EXPORT_DIR = Path(os.environ.get("SORTITON_EXPORT_DIR") or DOWNLOADS_DIR / "Sortiton")
-CACHE_DIR = Path(os.environ.get("SORTITON_CACHE_DIR", PROJECT_DIR / "cache"))
 
 DEFAULT_LANGUAGE = "en"
 

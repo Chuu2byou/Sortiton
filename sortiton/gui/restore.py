@@ -8,7 +8,8 @@ from pathlib import Path
 from tkinter import ttk
 from typing import Callable, cast
 
-from .. import i18n, journal
+from .. import journal
+from . import translations as i18n
 from . import design
 from .confirm import ask_confirm
 from .design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD, TEXT,
@@ -90,7 +91,7 @@ class RestoreWindow(tk.Toplevel):
         self._entries: list[tuple[Path, int, str]] = []
         self._loaded = threading.Event()
 
-        self.title(i18n.t("gui.restore.title"))
+        i18n.bind_title(self, i18n.t("gui.restore.title"))
         self.configure(bg=BACKGROUND)
         self.transient(cast(tk.Wm, parent.winfo_toplevel()))
         width, height = design.px(900), design.px(580)
@@ -104,9 +105,9 @@ class RestoreWindow(tk.Toplevel):
         header = tk.Frame(self, bg=BACKGROUND)
         header.grid(row=0, column=0, sticky="ew", padx=design.px(20),
                     pady=(design.px(16), design.px(8)))
-        tk.Label(header, text=i18n.t("gui.restore.heading"), bg=BACKGROUND, fg=TEXT,
+        i18n.Label(header, text=i18n.t("gui.restore.heading"), bg=BACKGROUND, fg=TEXT,
                  font=design.FONT_SECTION).grid(row=0, column=0, sticky="w")
-        tk.Label(header, text=i18n.t("gui.restore.note"), bg=BACKGROUND, fg=TEXT_MUTED,
+        i18n.Label(header, text=i18n.t("gui.restore.note"), bg=BACKGROUND, fg=TEXT_MUTED,
                  font=design.FONT_SMALL, justify="left",
                  wraplength=design.px(840)).grid(
                      row=1, column=0, sticky="w", pady=(design.px(2), 0))
@@ -143,7 +144,7 @@ class RestoreWindow(tk.Toplevel):
                     pady=(design.px(10), design.px(16)))
         footer.columnconfigure(0, weight=1)
         self._status = tk.StringVar(value="")
-        tk.Label(footer, textvariable=self._status, bg=BACKGROUND, fg=TEXT_FAINT,
+        i18n.Label(footer, textvariable=self._status, bg=BACKGROUND, fg=TEXT_FAINT,
                  font=design.FONT_SMALL).grid(row=0, column=0, sticky="w")
 
         buttons = tk.Frame(footer, bg=BACKGROUND)
@@ -155,7 +156,15 @@ class RestoreWindow(tk.Toplevel):
         self._undo_button.pack(side="left", padx=(design.px(8), 0))
 
         self.bind("<Escape>", lambda _e: self.destroy())
+        i18n.subscribe(self, "preview", self._translate_preview)
         self._fill()
+
+    def _translate_preview(self) -> None:
+        """Vorschau für die vorhandene Auswahl in der neuen Sprache anzeigen."""
+        if self._selected() is not None:
+            self._pick()
+        elif not self._journals:
+            self._status.set(i18n.t("gui.restore.none"))
 
     def _fill(self) -> None:
         """Start reading the journals in the background, then fill the list."""

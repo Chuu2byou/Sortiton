@@ -5,7 +5,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ... import config, i18n, rules
+from ... import config, rules
+from .. import translations as i18n
 from ...fileops import atomic_write_text
 from .. import design
 from ..confirm import ask_choice
@@ -49,7 +50,7 @@ class RulesMixin(GuiBase):
                 Pill(pills, i18n.t(key, count=count), GREEN)
                 shown += 1
         if not shown:
-            tk.Label(pills, text=i18n.t("gui.pill.none"), bg=CARD, fg=TEXT_MUTED,
+            i18n.Label(pills, text=i18n.t("gui.pill.none"), bg=CARD, fg=TEXT_MUTED,
                      font=design.FONT_SMALL)
 
         builtin = status["builtin_artists"] + status["builtin_genres"]
@@ -107,7 +108,7 @@ class RulesMixin(GuiBase):
 
         window = tk.Toplevel(self.root)
         self._rules_window = window
-        window.title(i18n.t("gui.rules.editor.title"))
+        i18n.bind_title(window, i18n.t("gui.rules.editor.title"))
         window.configure(bg=BACKGROUND)
         window.transient(self.root)
         width, height = design.px(860), design.px(640)
@@ -121,9 +122,9 @@ class RulesMixin(GuiBase):
         header = tk.Frame(window, bg=BACKGROUND)
         header.grid(row=0, column=0, sticky="ew", padx=design.px(20),
                     pady=(design.px(16), design.px(8)))
-        tk.Label(header, text=i18n.t("gui.rules.editor.heading"), font=design.FONT_SECTION,
+        i18n.Label(header, text=i18n.t("gui.rules.editor.heading"), font=design.FONT_SECTION,
                  bg=BACKGROUND, fg=TEXT).grid(row=0, column=0, sticky="w")
-        tk.Label(header, text=i18n.t("gui.rules.editor.hint", path=config.RULES_FILE),
+        i18n.Label(header, text=i18n.t("gui.rules.editor.hint", path=config.RULES_FILE),
                  font=design.FONT_SMALL, bg=BACKGROUND, fg=TEXT_MUTED,
                  wraplength=design.px(800), justify="left").grid(
                      row=1, column=0, sticky="w", pady=(design.px(2), 0))
@@ -164,7 +165,7 @@ class RulesMixin(GuiBase):
                     pady=(design.px(10), design.px(16)))
         footer.columnconfigure(0, weight=1)
         self._rules_status = tk.StringVar(value="")
-        self._rules_status_label = tk.Label(footer, textvariable=self._rules_status,
+        self._rules_status_label = i18n.Label(footer, textvariable=self._rules_status,
                                             bg=BACKGROUND, fg=TEXT_MUTED,
                                             font=design.FONT_SMALL)
         self._rules_status_label.grid(row=0, column=0, sticky="w")
@@ -193,6 +194,11 @@ class RulesMixin(GuiBase):
     def _set_rules_status(self, text: str, colour: str | None = None) -> None:
         if self._rules_status is not None:
             self._rules_status.set(text)
+            if self._rules_status_label is not None:
+                variable = self._rules_status
+                callback = (lambda: variable.set(i18n.resolve(text))) \
+                    if isinstance(text, i18n.Text) else None
+                i18n.subscribe(self._rules_status_label, "status", callback)
         if self._rules_status_label is not None:
             try:
                 self._rules_status_label.configure(
@@ -274,7 +280,7 @@ class RulesMixin(GuiBase):
 
         window = tk.Toplevel(self.root)
         self._llm_window = window
-        window.title(i18n.t("gui.llm.title"))
+        i18n.bind_title(window, i18n.t("gui.llm.title"))
         window.configure(bg=BACKGROUND)
         window.transient(self.root)
         width, height = design.px(780), design.px(520)
@@ -288,7 +294,7 @@ class RulesMixin(GuiBase):
         header = tk.Frame(window, bg=BACKGROUND)
         header.grid(row=0, column=0, sticky="ew", padx=design.px(20),
                     pady=(design.px(16), design.px(8)))
-        tk.Label(header, text=i18n.t("gui.llm.hint"), font=design.FONT_SMALL,
+        i18n.Label(header, text=i18n.t("gui.llm.hint"), font=design.FONT_SMALL,
                  bg=BACKGROUND, fg=TEXT_MUTED, wraplength=design.px(720),
                  justify="left").grid(row=0, column=0, sticky="w")
 
@@ -316,7 +322,7 @@ class RulesMixin(GuiBase):
                     pady=(design.px(10), design.px(16)))
         footer.columnconfigure(0, weight=1)
         self._llm_status = tk.StringVar(value="")
-        self._llm_status_label = tk.Label(footer, textvariable=self._llm_status,
+        self._llm_status_label = i18n.Label(footer, textvariable=self._llm_status,
                                           bg=BACKGROUND, fg=TEXT_MUTED,
                                           font=design.FONT_SMALL,
                                           wraplength=design.px(720), justify="left")
@@ -335,6 +341,11 @@ class RulesMixin(GuiBase):
     def _set_llm_status(self, text: str, colour: str = TEXT_MUTED) -> None:
         if self._llm_status is not None:
             self._llm_status.set(text)
+            if self._llm_status_label is not None:
+                variable = self._llm_status
+                callback = (lambda: variable.set(i18n.resolve(text))) \
+                    if isinstance(text, i18n.Text) else None
+                i18n.subscribe(self._llm_status_label, "status", callback)
         if self._llm_status_label is not None:
             try:
                 self._llm_status_label.configure(fg=colour)

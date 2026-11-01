@@ -121,7 +121,11 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/gui/app.py` | Composition root: `SortitonGUI`, `__init__`, window startup |
 | `sortiton/gui/common.py` | GUI-Konstanten und Formatierungshilfen |
 | `sortiton/gui/preview.py` | Tk-freie Vorschauaggregation und Signaturen |
-| `sortiton/gui/mixins/` | Layout, log view, task runs, rules editor and settings mixins |
+| `sortiton/gui/translations.py` | Translatable GUI texts that follow a language switch |
+| `sortiton/gui/log_history.py` | Log history and line colours without widget dependencies |
+| `sortiton/gui/mixins/` | Mixins for the window frame, pages, log view, runs, rules and settings |
+| `sortiton/gui/mixins/layout.py` | Window frame: header, shared workspace, page switching |
+| `sortiton/gui/mixins/pages.py` | The five pages with cards, fields and action bars |
 | `tools/checks.sh` | Runs every check (syntax, imports, pytest, pylint, security, CLI) |
 | `tools/build_app.sh` | Freezes the program for the release (tar.gz, `--appimage`) |
 | `packaging/` | AppImage glue: `AppRun` and the `.desktop` entry |
@@ -145,6 +149,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | Change a visible text / add a language | `sortiton/i18n.py` |
 | Appearance (colours/fonts) | `sortiton/gui/design.py` |
 | Neue Option für einen Kernauftrag | `sortiton/core_features.py` |
+| New field or new page in the GUI | `sortiton/gui/mixins/pages.py` |
 | New control | `sortiton/gui/widgets.py` |
 
 ## Conventions
@@ -165,6 +170,11 @@ The scripts in the main folder are entry points; the logic lives in the
   (CLI) or a `SimpleNamespace` (GUI) with the same field names.
 - Every user path can be overridden with an environment variable
   (`SORTITON_RULES`, `SORTITON_LOG_DIR`, `SORTITON_SETTINGS`, …).
+  Für isolierte Aufrufe erzeugt `config.production_paths()` einen unveränderlichen
+  `AppPaths`-Wert; `config.use_paths(pfade)` oder `RunContext(paths=pfade)` bindet
+  ihn an den aktuellen Kontext. Poolaufträge benötigen `submit_with_context()`.
+- Anzahltexte verwenden `i18n.t_count()`, Zahlen `i18n.format_number()`;
+  Pluralformen erhalten den Katalogschlüssel mit dem Suffix `_plural`.
 - A preview is the default and `--apply` writes; existing files stay untouched
   (`sortiton/files.py::free_path()` appends `(2)`, `(3)`, …).
 - `sortiton/__init__.py::__all__` is the stable interface; new public names

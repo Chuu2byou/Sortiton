@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable, TypedDict
 
-from . import design
+from . import design, translations
 from .design import (ACCENT, ACCENT_LIGHT, ACCENT_TEXT, APPLY, APPLY_LIGHT, BORDER, CARD,
                      DANGER, DANGER_LIGHT, FIELD, FIELD_ACTIVE, BACKGROUND, TEXT,
                      TEXT_DISABLED, TEXT_MUTED)
@@ -110,6 +110,22 @@ class RoundButton(tk.Canvas):
         self.bind("<Return>", self._on_key)
         self.bind("<space>", self._on_key)
         self._draw()
+        self._bind_text(text)
+
+    def _bind_text(self, text: str) -> None:
+        callback = (lambda: self._apply_text(translations.resolve(text))) \
+            if isinstance(text, translations.Text) else None
+        translations.subscribe(self, "text", callback)
+
+    def _apply_text(self, text: str) -> None:
+        self._text = text
+        self.configure(width=self._font.measure(text) + 2 * design.px(self._PAD_X))
+        self._draw()
+
+    def set_text(self, text: str) -> None:
+        """Beschriftung und Breite ohne Austausch des Knopfes aktualisieren."""
+        self._bind_text(text)
+        self._apply_text(text)
 
     def _on_key(self, _event) -> str:
         if self._enabled and self._command is not None:
@@ -219,6 +235,12 @@ class Pill(tk.Canvas):
                          highlightthickness=0, bd=0)
         self._text = text
         self._draw()
+        self._bind_text(text)
+
+    def _bind_text(self, text: str) -> None:
+        callback = (lambda: self._apply_text(translations.resolve(text))) \
+            if isinstance(text, translations.Text) else None
+        translations.subscribe(self, "text", callback)
 
     def _dot_width(self) -> int:
         """Breite von Punkt und Abstand davor (0 ohne Punkt)."""
@@ -231,9 +253,13 @@ class Pill(tk.Canvas):
 
     def set_text(self, text: str, colour: str | None = None) -> None:
         """Change the label (and optionally the dot colour) in place."""
-        self._text = text
+        self._bind_text(text)
         if colour is not None:
             self._colour = colour
+        self._apply_text(text)
+
+    def _apply_text(self, text: str) -> None:
+        self._text = text
         self.configure(width=self._width_for(text))
         self._draw()
 
@@ -275,11 +301,13 @@ class Segments(tk.Canvas):
         self._trace = ""
         super().__init__(parent, bg=_bg_of(parent), highlightthickness=0, bd=0, cursor="hand2")
         self.set_items(items, height=height)
+        if any(isinstance(text, translations.Text) for _, text in items):
+            translations.subscribe(self, "items", self._translate_items)
         self._trace = self._variable.trace_add("write", self._on_change)
         self.bind("<Button-1>", self._on_click)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda _e: self._set_hover(None))
-        self.bind("<Destroy>", self._on_destroy)
+        self.bind("<Destroy>", self._on_destroy, add="+")
         if stretch:
             self.bind("<Configure>", self._on_configure)
 
@@ -319,6 +347,14 @@ class Segments(tk.Canvas):
                                   measurer.metrics("linespace") + 2 * design.px(7)))
         self._hover_index = None
         self._draw()
+
+    def _translate_items(self) -> None:
+        items = [(value, translations.Text(text.render) if isinstance(text, translations.Text)
+                  else text) for value, text in self._items]
+        self.set_items(items)
+        if self.winfo_width() > 1:
+            self.event_generate("<Configure>", width=self.winfo_width(),
+                                height=self.winfo_height())
 
     def _segment_at(self, x: float) -> int | None:
         pos = self._inner

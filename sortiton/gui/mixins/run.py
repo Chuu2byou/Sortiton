@@ -10,7 +10,8 @@ import tkinter as tk
 import traceback
 from types import SimpleNamespace
 
-from ... import config, i18n, journal, output, rules, settings
+from ... import config, journal, output, rules, settings
+from .. import translations as i18n
 from ...cancel import CancelToken, Cancelled
 from ...core_features import PATTERN_DEFAULT
 from ...features import get as feature_by_key
@@ -390,6 +391,7 @@ class RunMixin(GuiBase):
             stats_sink=lambda kind, values: self.queue.put(
                 ("scan_stats", (token, (kind, values)))),
             log_to_file=False,
+            paths=config.current_paths(),
         )
 
         def worker() -> None:
@@ -411,10 +413,13 @@ class RunMixin(GuiBase):
         label = self._stats_labels.get(page or "")
         if label is None:
             return
+        def number(key: str) -> i18n.Text:
+            value = values.get(key, 0)
+            return i18n.Text(lambda: _fmt_number(value))
+
         label.configure(text=i18n.t("gui.stats.summary",
-                                    files=_fmt_number(values.get("files", 0)),
-                                    albums=_fmt_number(values.get("albums", 0)),
-                                    artists=_fmt_number(values.get("artists", 0))))
+                                    files=number("files"), albums=number("albums"),
+                                    artists=number("artists")))
 
     def _absorb_stats(self, kind: str, values: dict) -> None:
         """Route the counters: a folder scan fills the line, a run fills the card."""
@@ -432,7 +437,8 @@ class RunMixin(GuiBase):
         self._render_stats(kind, values)
 
     def _render_stats(self, kind: str, values: dict) -> None:
-        number = _fmt_number
+        def number(value: object) -> i18n.Text:
+            return i18n.Text(lambda: _fmt_number(value))
         self._last_result_kind = kind
         self._last_result_values = dict(values)
         if kind == "all":
@@ -501,6 +507,7 @@ class RunMixin(GuiBase):
             progress_sink=lambda i, n, text: self.queue.put(("prog", (i, n, text))),
             plan_sink=lambda event: self.queue.put(("plan", event)),
             stats_sink=lambda kind, values: self.queue.put(("stats", (kind, values))),
+            paths=config.current_paths(),
         )
 
         def worker() -> None:

@@ -454,7 +454,7 @@ def test_gui(tk_root) -> None:
               gui.var_tool[export.key]["examples"].get())
         gui._language_changed("en")
         root.update()
-        check("tools form is rebuilt after a language switch",
+        check("tools form remains available after a language switch",
               (export.key, "folder") in gui._tool_widgets)
 
         # Fine-tuning is stored in settings.ini (temp file in this run) and
@@ -602,7 +602,7 @@ def test_gui(tk_root) -> None:
 
 @pytest.mark.gui
 def test_gui_aux_windows_follow_language(tk_root) -> None:
-    """Language switch reopens Toplevels in the new language, keeping content."""
+    """Sprachwechsel aktualisiert bestehende Fenster und erhält ihre Inhalte."""
     import tkinter as tk
     import unittest.mock as mock
 
@@ -638,34 +638,38 @@ def test_gui_aux_windows_follow_language(tk_root) -> None:
             gui._open_preferences()
             root.update()
             old_prefs = gui._prefs_window
+            old_rules = gui._rules_window
+            old_llm = gui._llm_window
+            old_restore = gui._restore_window
+            old_page = gui.pages["tags"]
             check("the settings window is open", old_prefs is not None)
 
             gui._language_changed("de")
             root.update()
 
             check("the rules editor uses the new language",
-                  gui._rules_window is not None
+                  gui._rules_window is old_rules
                   and gui._rules_window.title() == i18n.t("gui.rules.editor.title"),
                   gui._rules_window.title() if gui._rules_window else "-")
             check("the rules text survived",
                   gui._rules_text is not None
                   and "# keep this text" in gui._rules_text.get("1.0", "end-1c"))
             check("the LLM dialog uses the new language",
-                  gui._llm_window is not None
+                  gui._llm_window is old_llm
                   and gui._llm_window.title() == i18n.t("gui.llm.title"),
                   gui._llm_window.title() if gui._llm_window else "-")
             check("the pasted LLM text survived",
                   gui._llm_text is not None
                   and "pasted answer" in gui._llm_text.get("1.0", "end-1c"))
             check("the restore window uses the new language",
-                  gui._restore_window is not None
+                  gui._restore_window is old_restore
                   and gui._restore_window.title() == i18n.t("gui.restore.title"),
                   gui._restore_window.title() if gui._restore_window else "-")
-            check("the settings window was rebuilt with the new language",
-                  gui._prefs_window is not None
-                  and gui._prefs_window is not old_prefs
+            check("the settings window remains open in the new language",
+                  gui._prefs_window is old_prefs
                   and gui._prefs_window.window.title() == i18n.t("gui.settings.title"),
                   gui._prefs_window.window.title() if gui._prefs_window else "-")
+            check("the main page remains the same widget", gui.pages["tags"] is old_page)
         finally:
             if getattr(gui, "_prefs_window", None) is not None:
                 try:
@@ -1016,3 +1020,17 @@ def test_gui_tools_tab_fits_the_config_column(tk_root) -> None:
             tk_root.destroy()
         except tk.TclError:
             pass
+
+
+def test_page_builders_stay_in_the_page_mixin() -> None:
+    """Page building and the window frame stay separate building blocks."""
+    from sortiton.gui.mixins.layout import LayoutMixin
+    from sortiton.gui.mixins.pages import PageMixin
+
+    assert issubclass(LayoutMixin, PageMixin)
+    for name in ("_core_page", "_page_tools", "_card", "_folder_card",
+                 "_actions", "_reset_pages"):
+        assert name in vars(PageMixin), name
+    for name in ("_build_window", "_build_workspace", "_build_config_pane",
+                 "_build_pages", "_show_page"):
+        assert name in vars(LayoutMixin), name

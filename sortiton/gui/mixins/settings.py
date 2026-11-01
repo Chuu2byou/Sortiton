@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from ... import i18n, settings
+from ... import config, settings
+from .. import translations as i18n
 from ...core_features import PATTERN_DEFAULT
 from ...features import FEATURES
 from .. import design
-from ..common import DEFAULT_FOLDER, TARGET_FOLDER
 from ..dialogs import _show_warning
 from ..preferences import PreferencesWindow
 from ..tools import apply_stored, fine_tuning_items, make_tool_vars, stored_values
@@ -20,19 +20,20 @@ class SettingsMixin(GuiBase):
 
     def _make_vars(self) -> None:
         """Create every StringVar once - they survive a language switch."""
-        self.var_tags_folder = tk.StringVar(value=str(DEFAULT_FOLDER))
-        self.var_tags_target = tk.StringVar(value=str(DEFAULT_FOLDER))
+        paths = config.current_paths()
+        self.var_tags_folder = tk.StringVar(value=str(paths.music_source_dir))
+        self.var_tags_target = tk.StringVar(value=str(paths.music_source_dir))
         self.var_tags_mode = tk.StringVar(value="copy")
-        self.var_ren_folder = tk.StringVar(value=str(DEFAULT_FOLDER))
-        self.var_ren_target = tk.StringVar(value=str(DEFAULT_FOLDER))
+        self.var_ren_folder = tk.StringVar(value=str(paths.music_source_dir))
+        self.var_ren_target = tk.StringVar(value=str(paths.music_source_dir))
         self.var_ren_pattern = tk.StringVar(value=PATTERN_DEFAULT)
         self.var_ren_mode = tk.StringVar(value="copy")
-        self.var_source = tk.StringVar(value=str(DEFAULT_FOLDER))
-        self.var_target = tk.StringVar(value=str(TARGET_FOLDER))
+        self.var_source = tk.StringVar(value=str(paths.music_source_dir))
+        self.var_target = tk.StringVar(value=str(paths.music_target_dir))
         self.var_sort_pattern = tk.StringVar(value=PATTERN_DEFAULT)
         self.var_sort_mode = tk.StringVar(value="copy")
-        self.var_all_source = tk.StringVar(value=str(DEFAULT_FOLDER))
-        self.var_all_target = tk.StringVar(value=str(TARGET_FOLDER))
+        self.var_all_source = tk.StringVar(value=str(paths.music_source_dir))
+        self.var_all_target = tk.StringVar(value=str(paths.music_target_dir))
         self.var_all_pattern = tk.StringVar(value=PATTERN_DEFAULT)
         self.var_all_mode = tk.StringVar(value="copy")
         self.var_page = tk.StringVar(value="tags")
@@ -41,7 +42,7 @@ class SettingsMixin(GuiBase):
         self.var_track_format = tk.StringVar(value=settings.resolve_track_format())
         self.var_tool = make_tool_vars()
         self.var_tool_choice = tk.StringVar(value=FEATURES[0].key if FEATURES else "")
-        self.status_var = tk.StringVar(value="")
+        self.status_var = i18n.StringVar(master=self.root, value="")
         self._seed_tool_folders()
         apply_stored(self.var_tool)
         self._watch_fine_tuning()
@@ -54,7 +55,7 @@ class SettingsMixin(GuiBase):
                     continue
                 variable = self.var_tool[feature.key][option.name]
                 if not str(variable.get()).strip():
-                    variable.set(str(DEFAULT_FOLDER))
+                    variable.set(str(config.current_paths().music_source_dir))
 
     def _watch_fine_tuning(self) -> None:
         """Store fine-tuning changes in settings.ini (debounced to one write)."""
@@ -102,23 +103,16 @@ class SettingsMixin(GuiBase):
             self._prefs_window = None
 
     def _language_changed(self, code: str) -> None:
-        """Switch the interface language and rebuild the window."""
+        """Sprache speichern und bestehende Oberflächen benachrichtigen."""
         if self.running:
             _show_warning(i18n.t("gui.dialog.busy.title"), i18n.t("gui.dialog.busy.text"))
             self.var_language.set(i18n.get_language())
             return
-        reopen = self._prefs_window is not None
-        if reopen and self._prefs_window is not None:
-            try:
-                self._prefs_window.window.destroy()
-            except tk.TclError:
-                pass
-            self._prefs_window = None
         i18n.set_language(code)
         settings.save_language(code)
-        self._build_all()
-        if reopen:
-            self._open_preferences()
+        i18n.notify(self.root)
+        for page in self.pages:
+            self._render_preview(page)
 
     def _theme_changed(self, mode: str) -> None:
         """Apply the selected appearance immediately by rebuilding the GUI."""

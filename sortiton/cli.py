@@ -6,8 +6,7 @@ import argparse
 import sys
 import time
 
-from . import external, i18n, journal, output, redact, settings
-from .config import RULES_FILE
+from . import config, external, i18n, journal, output, redact, settings
 from .core_features import CORE_FEATURES, PATTERN_DEFAULT as _PATTERN_DEFAULT
 from .features import FEATURES
 from .features.base import add_feature_parser, add_options
@@ -136,7 +135,7 @@ def main() -> int:
             message(i18n.t("cli.rule_warning", text=warning))
         summary = rules_summary()
         if summary:
-            message(i18n.t("cli.custom_rules", summary=summary, file=RULES_FILE.name))
+            message(i18n.t("cli.custom_rules", summary=summary, file=config.current_paths().rules_file.name))
 
     rc = 99
     try:

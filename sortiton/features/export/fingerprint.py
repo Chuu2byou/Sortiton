@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -79,7 +78,7 @@ def _wait_fpcalc(proc: subprocess.Popen[str], cancel: CancelToken) -> tuple[str,
 
 def _legacy_fp_cache_path(key: str) -> Path:
     """Cache file the old standalone script used (read once, for migration)."""
-    base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "musik_export"
+    base = config.current_paths().legacy_cache_dir
     return base / f"fp_{key}.json"
 
 

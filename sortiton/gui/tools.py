@@ -5,7 +5,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .. import config, i18n, settings
+from .. import config, settings
+from . import translations as i18n
 from ..features import FEATURES
 from ..features.base import Feature, Option
 from . import design
@@ -290,7 +291,7 @@ class OptionForm:
             label = self._option_label(feature, option)
         wrap = self._wide if span == 2 else self._narrow
         pad_right = design.px(14) if span == 1 and column == 0 else 0
-        field_label = tk.Label(body, text=label, bg=CARD, fg=TEXT_MUTED,
+        field_label = i18n.Label(body, text=label, bg=CARD, fg=TEXT_MUTED,
                                font=design.FONT_SMALL, anchor="w", justify="left",
                                wraplength=wrap)
         self._bind_responsive_wrap(body, field_label,
@@ -311,7 +312,7 @@ class OptionForm:
         line.grid(row=row, column=0, columnspan=span, sticky="ew",
                   pady=(0, design.px(8)))
         line.columnconfigure(0, weight=1)
-        text = tk.Label(line, text=label, bg=CARD, fg=TEXT, font=design.FONT_SMALL,
+        text = i18n.Label(line, text=label, bg=CARD, fg=TEXT, font=design.FONT_SMALL,
                         anchor="w", justify="left", wraplength=self._wide,
                         cursor="hand2")
         self._bind_responsive_wrap(line, text, reserve=80)
@@ -354,6 +355,15 @@ class OptionForm:
                 pass
 
         box.bind("<<ComboboxSelected>>", on_select)
+
+        def translate_choices() -> None:
+            labels = [_choice_label(option, value) for value in values]
+            by_label.clear()
+            by_label.update(zip(labels, values))
+            box.configure(values=labels)
+            on_value()
+
+        i18n.subscribe(box, "choices", translate_choices)
         trace = variable.trace_add("write", on_value)
 
         def on_destroy(event) -> None:
@@ -364,7 +374,7 @@ class OptionForm:
             except (tk.TclError, ValueError):
                 pass
 
-        box.bind("<Destroy>", on_destroy)
+        box.bind("<Destroy>", on_destroy, add="+")
         return box
 
     def _path_line(self, parent: tk.Frame, option: Option,
@@ -450,6 +460,15 @@ class ToolsTab(tk.Frame):
         box.bind("<<ComboboxSelected>>",
                  lambda _event: self._show(by_label.get(display.get(), FEATURES[0].key)))
 
+        def translate_choices() -> None:
+            titles = [(feature.key, feature_label(feature)) for feature in FEATURES]
+            by_label.clear()
+            by_label.update((label, key) for key, label in titles)
+            box.configure(values=[label for _, label in titles])
+            display.set(dict(titles).get(self.app.var_tool_choice.get(), titles[0][1]))
+
+        i18n.subscribe(box, "choices", translate_choices)
+
     def _description_row(self, row: int) -> int:
         """Ein Satz zum gewählten Werkzeug plus Badge "read only"/"writes files"."""
         frame = tk.Frame(self, bg=CARD)
@@ -457,7 +476,7 @@ class ToolsTab(tk.Frame):
                    pady=(0, design.px(14)))
         frame.columnconfigure(0, weight=1)
         self._description_frame = frame
-        self._description = tk.Label(frame, text="", bg=CARD, fg=TEXT_MUTED,
+        self._description = i18n.Label(frame, text="", bg=CARD, fg=TEXT_MUTED,
                                      font=design.FONT, anchor="w", justify="left")
         self._description.grid(row=0, column=0, sticky="w")
         self._badge = Pill(frame, "", TEXT_MUTED)
@@ -493,7 +512,7 @@ class ToolsTab(tk.Frame):
         frame.columnconfigure(0, weight=1)
         hint: tk.Label | None = None
         if fine_tuning_sections(feature):
-            hint = tk.Label(frame, text=i18n.t("gui.tools.fine_tuning_hint"), bg=CARD,
+            hint = i18n.Label(frame, text=i18n.t("gui.tools.fine_tuning_hint"), bg=CARD,
                             fg=TEXT_MUTED, font=design.FONT_SMALL, anchor="w",
                             justify="left", wraplength=design.px(360))
             hint.grid(row=0, column=0, sticky="w")

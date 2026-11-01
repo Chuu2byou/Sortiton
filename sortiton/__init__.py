@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 __version__ = "1.0.0"
 
-from .config import (AUDIO_EXTENSIONS, BACKUP_DIR, FALLBACK_ARTIST, LOG_DIR, MAX_NAME_LENGTH,
-                     MUTAGEN_AVAILABLE, PROJECT_DIR, RULES_FILE)
+BACKUP_DIR: Path
+LOG_DIR: Path
+PROJECT_DIR: Path
+RULES_FILE: Path
+
+from . import config
+from .config import AUDIO_EXTENSIONS, FALLBACK_ARTIST, MAX_NAME_LENGTH, MUTAGEN_AVAILABLE
 from .files import build_name, free_path, free_target, iter_audio, safe_name, same_content
 from .journal import (find_journals, latest_journal, read_journal, resolve_journal,
                       summarize as summarize_journal)
@@ -19,6 +26,13 @@ from .tasks import (CmdArgs, cmd_all, cmd_rename, cmd_restore, cmd_rules, cmd_sc
                     cmd_sort, cmd_tags)
 from .features.export import cmd_export
 from .features.fixes import cmd_fixes
+
+def __getattr__(name: str):
+    """Frühere Pfadexporte dynamisch aus der aktiven Konfiguration beziehen."""
+    if name in {"BACKUP_DIR", "LOG_DIR", "PROJECT_DIR", "RULES_FILE"}:
+        return getattr(config, name)
+    raise AttributeError(name)
+
 
 __all__ = [
     "__version__",

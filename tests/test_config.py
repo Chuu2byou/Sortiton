@@ -28,6 +28,92 @@ def test_data_dir_environment_wins_in_checkout() -> None:
     check("SORTITON_DATA_DIR is honoured", result.stdout.strip() == data, result.stdout)
 
 
+def test_paths_are_resolved_and_injected_per_run(tmp_path) -> None:
+    """Zwei Läufe können nach dem Import unabhängige Pfade verwenden."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from sortiton import config, journal, output, rules
+    from sortiton.features.export.fingerprint import fp_cache_path
+
+    def paths_for(name):
+        base = tmp_path / name
+        return config.production_paths(environ={"SORTITON_DATA_DIR": str(base),
+                                                 "SORTITON_LOG_DIR": str(base / "logs"),
+                                                 "SORTITON_EXPORT_DIR": str(base / "export"),
+                                                 "SORTITON_CACHE_DIR": str(base / "cache")},
+                                       home=tmp_path)
+
+    first, second = paths_for("first"), paths_for("second")
+    initial = config.selected_paths()
+    with config.use_paths(first):
+        assert settings.write_value("language", "de")
+        assert settings.read_value("language") == "de"
+        assert config.RULES_FILE == first.rules_file
+        assert fp_cache_path(tmp_path).parent == first.cache_dir / "fingerprints"
+        log = output.open_log_file("isoliert")
+        try:
+            assert log is not None and log.parent == first.log_dir
+        finally:
+            output.close_log_file()
+        with config.use_paths(second):
+            assert settings.write_value("language", "en")
+            assert settings.read_value("language") == "en"
+        assert settings.read_value("language") == "de"
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            assert output.submit_with_context(pool, config.current_paths).result() == first
+        (first.log_dir / "sortiton_2026-01-01_00-00-00.jsonl").write_text("", encoding="utf-8")
+        assert len(journal.find_journals()) == 1
+        assert rules.parse_custom_rules("[Genre]\nbroken\n")[1]
+    assert config.selected_paths() is initial
+    assert first.settings_file != second.settings_file
+    assert output.RunContext(paths=second).execute(
+        lambda: 0 if config.current_paths() == second else 1).returncode == 0
+    assert config.selected_paths() is initial
+
+
+def test_paths_follow_environment_after_import(tmp_path, monkeypatch) -> None:
+    """Auch später gesetzte Umgebungswerte wirken auf neue Konfigurationen."""
+    from dataclasses import FrozenInstanceError
+
+    import pytest
+
+    from sortiton import config
+
+    folder = tmp_path / "Musikquelle"
+    folder.mkdir()
+    monkeypatch.setenv("SORTITON_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SORTITON_FOLDER", str(folder))
+    monkeypatch.setenv("SORTITON_TARGET", str(tmp_path / "Ziel"))
+    paths = config.production_paths()
+    assert paths.project_dir == tmp_path
+    assert paths.music_source_dir == folder
+    assert paths.music_target_dir == tmp_path / "Ziel"
+    assert config.PROJECT_DIR == tmp_path
+    with pytest.raises(FrozenInstanceError):
+        paths.project_dir = folder
+    with pytest.raises(RuntimeError), config.use_paths(paths):
+        raise RuntimeError("Abbruch")
+    assert config.selected_paths() is None
+
+
+def test_production_paths_resolve_xdg_and_frozen_install(tmp_path) -> None:
+    """XDG-Nutzerordner und Paketpfade werden aus dem Adapter bestimmt."""
+    from sortiton import config
+
+    xdg = tmp_path / "konfiguration"
+    xdg.mkdir()
+    (xdg / "user-dirs.dirs").write_text('XDG_DOWNLOAD_DIR="$HOME/Heruntergeladen"\n',
+                                        encoding="utf-8")
+    paths = config.production_paths(environ={"XDG_CONFIG_HOME": str(xdg)},
+                                    home=tmp_path, source_dir=tmp_path / "install",
+                                    frozen=True, assets_base=tmp_path / "bundle")
+    assert paths.frozen and not paths.in_source_tree
+    assert paths.project_dir == tmp_path / ".local/share/sortiton"
+    assert paths.downloads_dir == tmp_path / "Heruntergeladen"
+    assert paths.export_dir == tmp_path / "Heruntergeladen/Sortiton"
+    assert paths.assets_dir == tmp_path / "bundle/assets"
+
+
 def test_track_format_setting() -> None:
     """track_format defaults to keep, accepts the three modes and ignores junk."""
     with tempfile.TemporaryDirectory() as folder:

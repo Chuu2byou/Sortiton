@@ -46,7 +46,7 @@ def skip(name: str, detail: str = "") -> None:
     print(f"  [skip] {name}{(' - ' + detail) if detail else ''}")
 
 
-KEY_RE = re.compile(r"""i18n\.t\(\s*["']([A-Za-z0-9_.-]+)["']""")
+KEY_RE = re.compile(r"""i18n\.t(?:_count)?\(\s*["']([A-Za-z0-9_.-]+)["']""")
 
 _INFO_TO_RECORD = {"artist": "artist", "album_artist": "albumartist", "album": "album",
                    "title": "title", "genre": "genre", "track": "track",

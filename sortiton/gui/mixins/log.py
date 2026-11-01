@@ -7,10 +7,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk
 
-from ... import config, i18n
-from .. import design
-from ..common import (ROW_FOOTER, ROW_LINE_BOTTOM, ROW_RESULT, _ERROR_MARKERS,
-                      _INFO_MARKERS, _LOG_MAX_LINES, _LOG_TRIM_LINES, _OK_MARKERS)
+from ... import config
+from .. import design, translations as i18n
+from ..common import ROW_FOOTER, ROW_LINE_BOTTOM, ROW_RESULT, _LOG_MAX_LINES, _LOG_TRIM_LINES
+from ..log_history import line_marker
 from ..design import (ACCENT, BACKGROUND, BORDER, GREEN, LOG_BG, LOG_TEXT, RED,
                       TEXT, TEXT_FAINT, TEXT_MUTED)
 from ..panels import ResultPanel
@@ -21,6 +21,10 @@ from .base import GuiBase
 
 class LogMixin(GuiBase):
     """Result area, log view, footer and the open-* actions."""
+
+    @property
+    def _log_history(self) -> list[str]:
+        return self._history.lines()
 
     def _build_result_area(self) -> None:
         """Ergebnis und Log öffnen sich bedarfsgerecht - kein dauerhafter Block."""
@@ -52,7 +56,7 @@ class LogMixin(GuiBase):
         header.grid(row=0, column=0, sticky="ew", padx=design.px(12),
                     pady=(design.px(10), design.px(6)))
         header.columnconfigure(1, weight=1)
-        tk.Label(header, text=i18n.t("gui.label.log").upper(), bg=LOG_BG, fg=TEXT_FAINT,
+        i18n.Label(header, text=i18n.t("gui.label.log").upper(), bg=LOG_BG, fg=TEXT_FAINT,
                  font=design.FONT_LABEL).grid(row=0, column=0, sticky="w")
         RoundButton(header, i18n.t("gui.button.back"), self._show_result_view,
                     style="quiet", height=28).grid(row=0, column=2, sticky="e")
@@ -133,20 +137,12 @@ class LogMixin(GuiBase):
         self.result_panel.set_recent(self._log_history)
 
     def _log_line(self, line: str = "") -> None:
-        self._log_history.append(line)
-        if len(self._log_history) > 2000:
-            del self._log_history[:1000]
+        self._history.append(line)
         self._insert_log(line)
         self._refresh_recent()
 
     def _insert_log(self, line: str) -> None:
-        marker = None
-        if any(word in line for word in _ERROR_MARKERS):
-            marker = "err"
-        elif any(word in line for word in _OK_MARKERS):
-            marker = "ok"
-        elif any(word in line for word in _INFO_MARKERS):
-            marker = "info"
+        marker = line_marker(line)
 
         self.logbox.configure(state="normal")
         if marker:
@@ -166,7 +162,7 @@ class LogMixin(GuiBase):
             self._insert_log(line)
 
     def _clear_log(self) -> None:
-        self._log_history = []
+        self._history.clear()
         self._log_lines = 0
         self.logbox.configure(state="normal")
         self.logbox.delete("1.0", "end")
@@ -196,9 +192,10 @@ class LogMixin(GuiBase):
         self._state_dot.grid(row=0, column=2, sticky="e")
         self._set_state(TEXT_MUTED)
 
-        tk.Label(footer, textvariable=self.status_var, bg=BACKGROUND, fg=TEXT_MUTED,
-                 font=design.FONT_SMALL).grid(row=0, column=3, sticky="e",
-                                              padx=(design.px(8), 0))
+        status = tk.Label(footer, textvariable=self.status_var, bg=BACKGROUND, fg=TEXT_MUTED,
+                          font=design.FONT_SMALL)
+        status.grid(row=0, column=3, sticky="e", padx=(design.px(8), 0))
+        i18n.subscribe(status, "status", self.status_var.refresh)
         progress_holder = tk.Frame(footer, bg=BACKGROUND)
         progress_holder.grid(row=0, column=4, sticky="e",
                              padx=(design.px(16), 0))

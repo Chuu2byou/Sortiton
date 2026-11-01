@@ -75,6 +75,34 @@ def test_run_worker_emits_live_events_before_completion(monkeypatch):
     assert output._sink is saved_sink
 
 
+def test_gui_worker_receives_explicit_paths(monkeypatch, tmp_path):
+    """Der GUI-Arbeitsthread übernimmt den Pfadwert des aufrufenden Kontexts."""
+    from sortiton import config
+
+    paths = config.production_paths(environ={"SORTITON_DATA_DIR": str(tmp_path)},
+                                    home=tmp_path)
+    monkeypatch.setattr(output, "open_log_file", lambda _title: None)
+    monkeypatch.setattr(output, "close_log_file", lambda _rc: None)
+    monkeypatch.setattr(journal, "close", lambda: None)
+    app = SimpleNamespace(
+        running=False, _cancel_scan=Mock(), _cancel_button=None,
+        _begin_plan=Mock(), _signature=Mock(return_value=("signature",)),
+        _set_buttons=Mock(), _render_preview=Mock(), progress=Mock(),
+        progress_label=Mock(), _set_state=Mock(), status_var=Mock(),
+        _log_line=Mock(), _log_rules=Mock(), queue=Queue())
+    seen = Queue()
+
+    def action(_args):
+        seen.put(config.current_paths())
+        return 0
+
+    with config.use_paths(paths):
+        assert RunMixin._start(app, "sort", "Sortieren", action,
+                               SimpleNamespace(apply=False), ".")
+    assert seen.get(timeout=5) == paths
+    assert app.queue.get(timeout=5) == ("done", 0)
+
+
 def test_run_stops_when_journal_cannot_be_opened(monkeypatch):
     class ImmediateThread:
         def __init__(self, target, daemon):

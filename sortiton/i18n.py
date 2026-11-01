@@ -1741,6 +1741,25 @@ def t(key: str, **fmt: object) -> str:
     return t_in(_language, key, **fmt)
 
 
+def format_number(value: object, *, lang: str | None = None) -> str:
+    """Eine Zahl mit den Gruppierungstrennzeichen der Sprache formatieren."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    text = f"{number:,}"
+    return text.replace(",", ".") if (lang or _language) == "de" else text
+
+
+def t_count(key: str, count: int, *, lang: str | None = None, **fmt: object) -> str:
+    """Eine Anzahl einschließlich passender Pluralform und Zahlformat übersetzen."""
+    language = lang or _language
+    plural_key = f"{key}_plural"
+    if count != 1 and (plural_key in _CATALOGS.get(language, {}) or plural_key in _EN):
+        key = plural_key
+    return t_in(language, key, count=format_number(count, lang=language), **fmt)
+
+
 def catalog(code: str) -> dict[str, str]:
     """Raw translation table for ``code`` (empty if unknown)."""
     return dict(_CATALOGS.get(code, {}))

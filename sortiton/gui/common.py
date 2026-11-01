@@ -2,17 +2,7 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 from .. import config, i18n
-
-_ENV_FOLDER = os.environ.get("SORTITON_FOLDER", "").strip()
-DEFAULT_FOLDER = Path(_ENV_FOLDER) if _ENV_FOLDER else config.PROJECT_DIR.parent / "Musik"
-if not DEFAULT_FOLDER.is_dir():
-    DEFAULT_FOLDER = Path.home() / "Musik"
-_ENV_TARGET = os.environ.get("SORTITON_TARGET", "").strip()
-TARGET_FOLDER = Path(_ENV_TARGET) if _ENV_TARGET else Path.home() / "Musik"
 
 ROW_TABS, ROW_LINE_TOP, ROW_CONTENT, ROW_ACTIONS, ROW_RESULT = 0, 1, 2, 3, 4
 ROW_LINE_BOTTOM, ROW_FOOTER = 5, 6
@@ -27,19 +17,9 @@ _MAX_PATH_CHARS = 52
 _LOG_MAX_LINES = 5000
 _LOG_TRIM_LINES = 1000
 
-_ERROR_MARKERS = ("ERROR", "FEHLER")
-_OK_MARKERS = ("Done.", "OK:", "Renamed:", "Fertig.", "Umbenannt:")
-_INFO_MARKERS = ("->", "PREVIEW", "VORSCHAU")
-
-
 def _fmt_number(value) -> str:
-    """Format a count in the active language (1842 -> 1,842 en / 1.842 de)."""
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return str(value)
-    text = f"{number:,}"
-    return text if i18n.get_language() == "en" else text.replace(",", ".")
+    """Eine Anzahl in der aktiven Sprache formatieren."""
+    return i18n.format_number(value)
 
 
 def _fmt_duration(value) -> str:

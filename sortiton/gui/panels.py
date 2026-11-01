@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 
-from .. import i18n
+from . import translations as i18n
 from . import design
 from .design import (BORDER, BORDER_SOFT, CARD, GREEN, SURFACE, TEXT, TEXT_FAINT,
                      TEXT_MUTED, YELLOW)
@@ -23,7 +23,7 @@ def _short(text: str, limit: int = MAX_VALUE_LENGTH) -> str:
 def section_label(parent: tk.Misc, text: str, bg: str | None = None) -> tk.Label:
     """Abschnittstitel in normaler Schreibweise."""
     bg = CARD if bg is None else bg
-    return tk.Label(parent, text=text, bg=bg, fg=TEXT,
+    return i18n.Label(parent, text=text, bg=bg, fg=TEXT,
                     font=design.FONT_LABEL, anchor="w")
 
 
@@ -43,7 +43,7 @@ class PreviewCard(tk.Frame):
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(0, weight=1)
         section_label(head, title).grid(row=0, column=0, sticky="w")
-        self._summary = tk.Label(head, text="", bg=CARD, fg=TEXT_MUTED,
+        self._summary = i18n.Label(head, text="", bg=CARD, fg=TEXT_MUTED,
                                  font=design.FONT_SMALL, anchor="w")
         self._summary.grid(row=1, column=0, sticky="w", pady=(design.px(6), 0))
 
@@ -58,7 +58,7 @@ class PreviewCard(tk.Frame):
         colour = TEXT_FAINT if colour is None else colour
         self._reset_body(CARD, BORDER_SOFT)
         self._summary.configure(text="", fg=TEXT_MUTED)
-        tk.Label(self._body, text=text, bg=CARD, fg=colour, font=design.FONT_SMALL,
+        i18n.Label(self._body, text=text, bg=CARD, fg=colour, font=design.FONT_SMALL,
                  anchor="w", justify="left").grid(row=0, column=0, sticky="w",
                                                    padx=design.px(12),
                                                    pady=design.px(10))
@@ -82,20 +82,20 @@ class PreviewCard(tk.Frame):
             table.rowconfigure(index, minsize=design.px(design.ROW_HEIGHT))
             tk.Frame(table, bg=row_bg).grid(row=index, column=0, columnspan=5,
                                             sticky="nsew")
-            tk.Label(table, text=field, bg=row_bg, fg=TEXT_MUTED, font=design.FONT_SMALL,
+            i18n.Label(table, text=field, bg=row_bg, fg=TEXT_MUTED, font=design.FONT_SMALL,
                      anchor="w", width=11).grid(row=index, column=0, sticky="w", pady=(top, 0))
-            tk.Label(table, text=_short(old), bg=row_bg, fg=TEXT_MUTED,
+            i18n.Label(table, text=_short(old), bg=row_bg, fg=TEXT_MUTED,
                      font=design.FONT_SMALL, anchor="w").grid(
                          row=index, column=1, sticky="w", padx=(design.px(10), 0),
                          pady=(top, 0))
-            tk.Label(table, text="→", bg=row_bg, fg=TEXT_FAINT,
+            i18n.Label(table, text="→", bg=row_bg, fg=TEXT_FAINT,
                      font=design.FONT_SMALL).grid(row=index, column=2,
                                                   padx=design.px(10), pady=(top, 0))
-            tk.Label(table, text=_short(new), bg=row_bg, fg=GREEN,
+            i18n.Label(table, text=_short(new), bg=row_bg, fg=GREEN,
                      font=design.FONT_SMALL, anchor="w").grid(
                          row=index, column=3, sticky="w", pady=(top, 0))
             if extra:
-                tk.Label(table, text=extra, bg=row_bg, fg=TEXT_FAINT,
+                i18n.Label(table, text=extra, bg=row_bg, fg=TEXT_FAINT,
                          font=design.FONT_SMALL, anchor="e").grid(
                              row=index, column=4, sticky="e", padx=(design.px(12), 0),
                              pady=(top, 0))
@@ -145,9 +145,9 @@ class ResultPanel(tk.Frame):
 
         recent = tk.Frame(columns, bg=CARD)
         recent.grid(row=0, column=1, sticky="nw", padx=(design.px(24), 0))
-        tk.Label(recent, text=recent_title, bg=CARD, fg=TEXT_FAINT,
+        i18n.Label(recent, text=recent_title, bg=CARD, fg=TEXT_FAINT,
                  font=design.FONT_LABEL, anchor="w").grid(row=0, column=0, sticky="w")
-        self._recent = tk.Label(recent, text="", bg=CARD, fg=TEXT_MUTED,
+        self._recent = i18n.Label(recent, text="", bg=CARD, fg=TEXT_MUTED,
                                 font=design.FONT_MONO, anchor="nw", justify="left")
         self._recent.grid(row=1, column=0, sticky="w", pady=(design.px(6), 0))
 
@@ -156,20 +156,20 @@ class ResultPanel(tk.Frame):
         for child in self._counters.winfo_children():
             child.destroy()
         if not rows:
-            tk.Label(self._counters, text=i18n.t("gui.result.none"), bg=CARD,
+            i18n.Label(self._counters, text=i18n.t("gui.result.none"), bg=CARD,
                      fg=TEXT_FAINT, font=design.FONT_SMALL, anchor="w").grid(
                          row=0, column=0, columnspan=3, sticky="w")
             return
         for index, (colour, glyph, value, label) in enumerate(rows):
             top = 0 if index == 0 else design.px(4)
-            tk.Label(self._counters, text=glyph, bg=CARD, fg=colour,
+            i18n.Label(self._counters, text=glyph, bg=CARD, fg=colour,
                      font=design.FONT_SMALL).grid(row=index, column=0, sticky="w",
                                                   pady=(top, 0))
-            tk.Label(self._counters, text=value, bg=CARD, fg=TEXT, width=9,
+            i18n.Label(self._counters, text=value, bg=CARD, fg=TEXT, width=9,
                      font=design.FONT_SMALL, anchor="e").grid(
                          row=index, column=1, sticky="e",
                          padx=(design.px(8), design.px(10)), pady=(top, 0))
-            tk.Label(self._counters, text=label, bg=CARD, fg=TEXT_MUTED,
+            i18n.Label(self._counters, text=label, bg=CARD, fg=TEXT_MUTED,
                      font=design.FONT_SMALL, anchor="w").grid(
                          row=index, column=2, sticky="w", pady=(top, 0))
 

@@ -6,9 +6,12 @@ import configparser
 import os
 import re
 
-from . import i18n
-from .config import DEFAULT_LANGUAGE, OFF_VALUES, SETTINGS_FILE
+from . import config, i18n
+from .config import DEFAULT_LANGUAGE, OFF_VALUES
 from .fileops import atomic_write_text
+
+SETTINGS_FILE = config.current_paths().settings_file
+_DEFAULT_SETTINGS_FILE = SETTINGS_FILE
 
 SECTION = "general"
 KEY_LANGUAGE = "language"
@@ -28,10 +31,19 @@ SECTION_TOOLS = "tools"
 _KEY_LINE = re.compile(r"^(?P<key>[^=:#\s][^=:]*?)(?P<sep>\s*[=:]\s*)(?P<value>.*)$")
 
 
+def _settings_file():
+    paths = config.selected_paths()
+    if paths is not None:
+        return paths.settings_file
+    if SETTINGS_FILE != _DEFAULT_SETTINGS_FILE:
+        return SETTINGS_FILE
+    return config.current_paths().settings_file
+
+
 def _parser() -> configparser.ConfigParser:
     parser = configparser.ConfigParser(interpolation=None)
     try:
-        parser.read(SETTINGS_FILE, encoding="utf-8")
+        parser.read(_settings_file(), encoding="utf-8")
     except (OSError, configparser.Error):
         pass
     return parser
@@ -94,10 +106,10 @@ def _write(parser: configparser.ConfigParser) -> bool:
     """Write the parser back to settings.ini. False if that failed."""
     try:
         try:
-            text = SETTINGS_FILE.read_text(encoding="utf-8")
+            text = _settings_file().read_text(encoding="utf-8")
         except OSError:
             text = ""
-        atomic_write_text(SETTINGS_FILE, _merge_settings(text, parser))
+        atomic_write_text(_settings_file(), _merge_settings(text, parser))
     except OSError:
         return False
     return True
