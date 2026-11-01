@@ -29,6 +29,7 @@ class Option:
     choices: tuple[str, ...] = ()
     minimum: float | None = None
     maximum: float | None = None
+    optional_positional: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,10 @@ def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:
     help_text = i18n.t(option.help_key) if option.help_key else None
 
     if option.positional:
-        parser.add_argument(option.name, help=help_text)
+        if option.optional_positional:
+            parser.add_argument(option.name, nargs="?", default=option.default, help=help_text)
+        else:
+            parser.add_argument(option.name, help=help_text)
         return
 
     if not option.flags:
@@ -83,6 +87,12 @@ def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:
         raise ValueError(f"unknown option kind: {option.kind!r}")
 
 
+def add_options(parser: argparse.ArgumentParser, options: tuple[Option, ...]) -> None:
+    """Die beschriebenen Optionen in ihrer vorgegebenen Reihenfolge registrieren."""
+    for option in options:
+        _add_option(parser, option)
+
+
 def add_feature_parser(subparsers, feature: Feature,
                        common_parent: argparse.ArgumentParser | None = None
                        ) -> argparse.ArgumentParser:
@@ -90,8 +100,7 @@ def add_feature_parser(subparsers, feature: Feature,
     parents = [common_parent] if common_parent is not None else []
     parser = subparsers.add_parser(feature.key, parents=parents,
                                    help=i18n.t(feature.help_key))
-    for option in feature.options:
-        _add_option(parser, option)
+    add_options(parser, feature.options)
     parser.set_defaults(func=feature.run, feature=feature)
     return parser
 

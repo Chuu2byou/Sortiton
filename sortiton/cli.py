@@ -8,14 +8,15 @@ import time
 
 from . import external, i18n, journal, output, redact, settings
 from .config import RULES_FILE
+from .core_features import CORE_FEATURES, PATTERN_DEFAULT as _PATTERN_DEFAULT
 from .features import FEATURES
-from .features.base import add_feature_parser
+from .features.base import add_feature_parser, add_options
 from .output import close_log_file, message, open_log_file
 from .rules import load_custom_rules, rules_summary
 from .tasks import (cmd_all, cmd_rename, cmd_restore, cmd_rules, cmd_scan, cmd_sort,
                     cmd_tags)
 
-PATTERN_DEFAULT = "%artist% - %title%"
+PATTERN_DEFAULT = _PATTERN_DEFAULT
 
 READ_COMMANDS = frozenset({"tags", "rename", "sort", "scan", "all"})
 WRITE_COMMANDS = frozenset({"restore"})
@@ -33,56 +34,12 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("-q", "--quiet", action="store_true", help=i18n.t("cli.quiet"))
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_tags = sub.add_parser("tags", parents=[common], help=i18n.t("cli.tags.help"))
-    p_tags.add_argument("folder", help=i18n.t("cli.tags.folder"))
-    p_tags.add_argument("target", nargs="?", default=None, help=i18n.t("cli.tags.target"))
-    p_tags.add_argument("--move", action="store_true", help=i18n.t("cli.tags.move"))
-    p_tags.add_argument("--apply", action="store_true", help=i18n.t("cli.tags.apply"))
-    p_tags.add_argument("--backup", action="store_true", help=i18n.t("cli.tags.backup"))
-    p_tags.add_argument("--track-format", dest="track_format", default=None,
-                        choices=settings.TRACK_FORMATS,
-                        help=i18n.t("cli.tags.track_format"))
-    p_tags.add_argument("--diff", action="store_true",
-                        help=i18n.t("cli.tags.diff"))
-    p_tags.add_argument("--diff-csv", dest="diff_csv", default=None,
-                        help=i18n.t("cli.tags.diff_csv"))
-    p_tags.set_defaults(func=cmd_tags)
-
-    p_rename = sub.add_parser("rename", parents=[common], help=i18n.t("cli.rename.help"))
-    p_rename.add_argument("folder", help=i18n.t("cli.rename.folder"))
-    p_rename.add_argument("target", nargs="?", default=None,
-                          help=i18n.t("cli.rename.target"))
-    p_rename.add_argument("--pattern", default=PATTERN_DEFAULT,
-                          help=i18n.t("cli.rename.pattern"))
-    p_rename.add_argument("--move", action="store_true", help=i18n.t("cli.rename.move"))
-    p_rename.add_argument("--apply", action="store_true", help=i18n.t("cli.rename.apply"))
-    p_rename.set_defaults(func=cmd_rename)
-
-    p_sort = sub.add_parser("sort", parents=[common], help=i18n.t("cli.sort.help"))
-    p_sort.add_argument("source", help=i18n.t("cli.sort.source"))
-    p_sort.add_argument("target", help=i18n.t("cli.sort.target"))
-    p_sort.add_argument("--pattern", default=PATTERN_DEFAULT,
-                        help=i18n.t("cli.sort.pattern"))
-    p_sort.add_argument("--move", action="store_true", help=i18n.t("cli.sort.move"))
-    p_sort.add_argument("--apply", action="store_true", help=i18n.t("cli.sort.apply"))
-    p_sort.set_defaults(func=cmd_sort)
-
-    p_all = sub.add_parser("all", parents=[common], help=i18n.t("cli.all.help"))
-    p_all.add_argument("source", help=i18n.t("cli.all.source"))
-    p_all.add_argument("target", help=i18n.t("cli.all.target"))
-    p_all.add_argument("--pattern", default=PATTERN_DEFAULT,
-                       help=i18n.t("cli.all.pattern"))
-    p_all.add_argument("--move", action="store_true", help=i18n.t("cli.all.move"))
-    p_all.add_argument("--apply", action="store_true", help=i18n.t("cli.all.apply"))
-    p_all.add_argument("--backup", action="store_true", help=i18n.t("cli.all.backup"))
-    p_all.add_argument("--track-format", dest="track_format", default=None,
-                       choices=settings.TRACK_FORMATS,
-                       help=i18n.t("cli.all.track_format"))
-    p_all.add_argument("--diff", action="store_true",
-                       help=i18n.t("cli.all.diff"))
-    p_all.add_argument("--diff-csv", dest="diff_csv", default=None,
-                       help=i18n.t("cli.all.diff_csv"))
-    p_all.set_defaults(func=cmd_all)
+    commands = {"tags": cmd_tags, "rename": cmd_rename, "sort": cmd_sort, "all": cmd_all}
+    for feature in CORE_FEATURES:
+        command = sub.add_parser(feature.key, parents=[common],
+                                 help=i18n.t(f"cli.{feature.key}.help"))
+        add_options(command, feature.options)
+        command.set_defaults(func=commands[feature.key])
 
     p_scan = sub.add_parser("scan", parents=[common], help=i18n.t("cli.scan.help"))
     p_scan.add_argument("folder", help=i18n.t("cli.scan.folder"))
@@ -183,7 +140,7 @@ def main() -> int:
 
     rc = 99
     try:
-        rc = args.func(args)
+        rc = output.default_run_context().execute(lambda: args.func(args)).returncode
     except KeyboardInterrupt:
         message("\n" + i18n.t("cli.cancelled"))
         rc = 130

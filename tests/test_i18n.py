@@ -90,7 +90,7 @@ def test_render_keys_exist_in_both_languages() -> None:
 def test_dynamic_keys_exist_in_both_languages() -> None:
     """Keys assembled from data stay complete when a variant is added."""
     from sortiton.features.export.analysis import date_fmt
-    from sortiton.gui.common import PLAN_FIELDS
+    from sortiton.gui.preview import PLAN_FIELDS
 
     expected_fields = {"artist", "album_artist", "title", "album", "genre",
                        "track", "disc", "year"}
@@ -163,3 +163,23 @@ def test_used_keys_exist_in_both_languages() -> None:
     empty_prefixes = [prefix for prefix in prefixes
                       if not any(key.startswith(prefix) for key in en)]
     check("dynamic key prefixes exist", not empty_prefixes, ", ".join(empty_prefixes))
+
+
+def test_settings_fine_tuning_uses_concise_labels() -> None:
+    """Die Einstellungen zeigen kurze, zweisprachige Bezeichnungen."""
+    from sortiton.gui.tools import OptionForm, fine_tuning_items
+
+    previous = i18n.get_language()
+    form = OptionForm(None, concise_labels=True)
+    try:
+        for language in ("en", "de"):
+            i18n.set_language(language)
+            for feature, option in fine_tuning_items():
+                key = f"gui.settings.option.{feature.key}.{option.name}"
+                label = form._option_label(feature, option)
+                check(f"{key} is translated in {language}",
+                      key in i18n.catalog(language) and label == i18n.t(key), label)
+                check(f"{key} is shorter than the tool description",
+                      label != i18n.t(option.help_key), label)
+    finally:
+        i18n.set_language(previous)

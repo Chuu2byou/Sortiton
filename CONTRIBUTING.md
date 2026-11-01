@@ -100,12 +100,13 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/config.py` | Constants and paths (project folder, `logs/`, `my_rules.ini`, `settings.ini`) |
 | `sortiton/i18n.py` | Translations - every visible text lives here |
 | `sortiton/settings.py` | User settings (`settings.ini`: language, backup, fine-tuning) |
-| `sortiton/output.py` | Console/GUI output, progress, log file |
+| `sortiton/output.py` | Laufkontext, Live-Ausgabe, Fortschritt und Logdatei |
 | `sortiton/journal.py` | Run journal: what a run changed, the basis for `restore` |
 | `sortiton/rules.py` | Rule tables, `my_rules.ini`, text cleanup |
 | `sortiton/files.py` | File names, target paths, content comparison |
 | `sortiton/tags.py` | Read/write tags (mutagen or ffprobe/ffmpeg) |
 | `sortiton/tasks.py` | The tasks (`cmd_*`) |
+| `sortiton/core_features.py` | Gemeinsame Beschreibungen der vier Kernaufträge für CLI und GUI |
 | `sortiton/features/base.py` | Feature interface (`Feature`, `Option`, argparse builder) |
 | `sortiton/features/export/` | Read-only export for an LLM (`cmd_export`) |
 | `sortiton/cli.py` | Command line arguments |
@@ -118,7 +119,8 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/gui/restore.py` | Undo window (pick a journal, check the plan, undo) |
 | `sortiton/gui/dialogs.py` | System dialogs (`kdialog` → `zenity` → Tkinter) |
 | `sortiton/gui/app.py` | Composition root: `SortitonGUI`, `__init__`, window startup |
-| `sortiton/gui/common.py` | Shared GUI imports, layout constants and formatters |
+| `sortiton/gui/common.py` | GUI-Konstanten und Formatierungshilfen |
+| `sortiton/gui/preview.py` | Tk-freie Vorschauaggregation und Signaturen |
 | `sortiton/gui/mixins/` | Layout, log view, task runs, rules editor and settings mixins |
 | `tools/checks.sh` | Runs every check (syntax, imports, pytest, pylint, security, CLI) |
 | `tools/build_app.sh` | Freezes the program for the release (tar.gz, `--appimage`) |
@@ -142,7 +144,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | Change command behaviour | `sortiton/tasks.py` |
 | Change a visible text / add a language | `sortiton/i18n.py` |
 | Appearance (colours/fonts) | `sortiton/gui/design.py` |
-| New command line option | `sortiton/cli.py` |
+| Neue Option für einen Kernauftrag | `sortiton/core_features.py` |
 | New control | `sortiton/gui/widgets.py` |
 
 ## Conventions
@@ -152,9 +154,13 @@ The scripts in the main folder are entry points; the logic lives in the
 - Every visible text lives in `sortiton/i18n.py`, in `_EN` **and** `_DE` (keep
   the lines aligned); `tests/test_public_api.py` enforces both catalogs and every
   `i18n.t("literal")`.
-- Never print directly: all output goes through `output.message()`, progress via
-  `report_plan()`, `report_stats()` and `_progress()`. The GUI attaches itself
-  with `set_logger` / `set_progress` / `set_plan_sink` / `set_stats_sink`.
+- Ausgaben laufen über `output.message()`, Fortschritt über `progress()` und
+  strukturierte Ergebnisse über `report_plan()` und `report_stats()`. Die GUI
+  verwendet pro Lauf beziehungsweise Scan einen eigenen `RunContext`; dessen
+  Adapter senden Ereignisse live an die GUI-Queue. Poolaufträge übernehmen den
+  Kontext mit `submit_with_context()`. Die bisherigen `set_*`-Funktionen bleiben
+  für bestehende Aufrufer verfügbar. Logdatei und Journal sind weiterhin global
+  und erlauben keine beliebigen parallelen Schreibläufe.
 - The `cmd_*` functions in `sortiton/tasks.py` take an `argparse.Namespace`
   (CLI) or a `SimpleNamespace` (GUI) with the same field names.
 - Every user path can be overridden with an environment variable

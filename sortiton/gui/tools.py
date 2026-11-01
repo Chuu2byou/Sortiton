@@ -11,7 +11,7 @@ from ..features.base import Feature, Option
 from . import design
 from .design import (ACCENT, BORDER, CARD, FIELD, FIELD_ACTIVE, TEXT,
                      TEXT_MUTED, YELLOW)
-from .widgets import Pill, RoundButton, Segments, Switch
+from .widgets import Pill, RoundButton, Segments, Switch, fit_wraplength
 
 SEGMENT_LIMIT = 3
 
@@ -244,8 +244,10 @@ def tool_value(option: Option, variable: tk.Variable) -> object:
 class OptionForm:
     """Paints option cards into a body frame; shared by tab and settings."""
 
-    def __init__(self, app, width: int | None = None) -> None:
+    def __init__(self, app, width: int | None = None, *,
+                 concise_labels: bool = False) -> None:
         self.app = app
+        self.concise_labels = concise_labels
         base = width or design.px(640)
         self._wide = base
         self._narrow = max(base // 2 - design.px(20), design.px(120))
@@ -260,12 +262,20 @@ class OptionForm:
             else:
                 self._field_cell(body, grid_row, column, span, feature, option)
 
+    def _option_label(self, feature: Feature, option: Option) -> str:
+        if self.concise_labels:
+            key = f"gui.settings.option.{feature.key}.{option.name}"
+            label = i18n.t(key)
+            if label != key:
+                return label
+        return i18n.t(option.help_key) if option.help_key else option.name
+
     def _bind_responsive_wrap(self, parent: tk.Frame, label: tk.Label, *,
                               columns: int = 1, reserve: int = 24) -> None:
         """Adapt a form label's wrapping to the width of its grid cell."""
         def resize(event) -> None:
             available = max(event.width - design.px(reserve), design.px(120))
-            label.configure(wraplength=max(design.px(120), available // columns))
+            fit_wraplength(label, available // columns)
 
         parent.bind("<Configure>", resize, add="+")
 
@@ -277,7 +287,7 @@ class OptionForm:
             label = i18n.t("gui.export.output",
                            path=config.display_path(config.EXPORT_DIR))
         else:
-            label = i18n.t(option.help_key) if option.help_key else option.name
+            label = self._option_label(feature, option)
         wrap = self._wide if span == 2 else self._narrow
         pad_right = design.px(14) if span == 1 and column == 0 else 0
         field_label = tk.Label(body, text=label, bg=CARD, fg=TEXT_MUTED,
@@ -296,7 +306,7 @@ class OptionForm:
                     option: Option, span: int) -> None:
         """A switch that belongs to a full-width, clickable row."""
         variable = self.app.var_tool[feature.key][option.name]
-        label = i18n.t(option.help_key) if option.help_key else option.name
+        label = self._option_label(feature, option)
         line = tk.Frame(body, bg=CARD)
         line.grid(row=row, column=0, columnspan=span, sticky="ew",
                   pady=(0, design.px(8)))
@@ -404,7 +414,7 @@ class ToolsTab(tk.Frame):
         self._description: tk.Label | None = None
         self._description_frame: tk.Frame | None = None
         self._badge: Pill | None = None
-        self._secondary_placement: tuple[tk.Frame, bool] | None = None
+        self._secondary_placement: tuple[tk.Frame, bool, bool] | None = None
         self._build()
 
     def _build(self) -> None:
@@ -472,8 +482,8 @@ class ToolsTab(tk.Frame):
         else:
             self._badge.grid_configure(row=0, column=1, sticky="ne",
                                        padx=(design.px(12), 0), pady=0)
-        self._description.configure(
-            wraplength=max(width if stacked else width - reserve, design.px(140)))
+        fit_wraplength(self._description,
+                       width if stacked else width - reserve, minimum=140)
 
     def _secondary_row(self, parent: tk.Frame, row: int, feature: Feature) -> None:
         """Hinweis auf die Feineinstellungen und die passenden Knöpfe."""
@@ -505,24 +515,48 @@ class ToolsTab(tk.Frame):
                    lambda event: self._place_secondary(frame, buttons, hint, event),
                    add="+")
 
+    @staticmethod
+    def _button_row_width(buttons: tk.Frame) -> int:
+        """Breite der Knopfreihe, auch wenn sie gerade untereinander steht."""
+        children = buttons.winfo_children()
+        gaps = max(len(children) - 1, 0) * design.px(10)
+        return sum(child.winfo_reqwidth() for child in children) + gaps
+
     def _place_secondary(self, frame: tk.Frame, buttons: tk.Frame,
                          hint: tk.Label | None, event) -> None:
-        """Knöpfe rechts vom Hinweis oder - bei enger Spalte - darunter setzen."""
+        """Knöpfe rechts vom Hinweis oder - bei enger Spalte - darunter setzen.
+
+        Reicht auch die gestapelte Zeile nicht aus, rücken die Knöpfe
+        untereinander, damit keiner aus der Konfigurationsspalte läuft.
+        """
         width = max(event.width, 1)
-        buttons_width = buttons.winfo_reqwidth()
+        buttons_width = self._button_row_width(buttons)
         stacked = width < buttons_width + design.px(196)
-        if self._secondary_placement != (buttons, stacked):
-            self._secondary_placement = (buttons, stacked)
+        vertical = stacked and buttons_width > width
+        state = (buttons, stacked, vertical)
+        if self._secondary_placement != state:
+            self._secondary_placement = state
             if stacked:
                 buttons.grid_configure(row=1, column=0, columnspan=2, padx=0,
-                                       pady=(design.px(8), 0))
+                                       pady=(design.px(8), 0), sticky="w")
             else:
                 buttons.grid_configure(row=0, column=1, columnspan=1,
-                                       padx=(design.px(12), 0), pady=0)
+                                       padx=(design.px(12), 0), pady=0, sticky="e")
+            for index, child in enumerate(buttons.winfo_children()):
+                if vertical:
+                    child.grid_configure(row=index, column=0, sticky="w", padx=0,
+                                         pady=(design.px(6) if index else 0, 0))
+                else:
+                    child.grid_configure(
+                        row=0, column=index, sticky="e", pady=0,
+                        padx=(design.px(10) if index else 0, 0))
         if hint is None:
             return
-        free = width if stacked else width - buttons_width - design.px(12)
-        hint.configure(wraplength=max(free, design.px(140)))
+        if stacked:
+            free = width
+        else:
+            free = width - buttons_width - design.px(12)
+        fit_wraplength(hint, free, minimum=140)
 
     def _feature_form(self, feature: Feature, row: int) -> tk.Frame:
         """One card per form section; the holder is shown or hidden."""

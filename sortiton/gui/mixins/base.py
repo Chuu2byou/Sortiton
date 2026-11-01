@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import queue
+import tkinter as tk
 from typing import TYPE_CHECKING, Any
 
-from ..common import (
-    Path,
-    PreviewCard,
-    ProgressBar,
-    ResultPanel,
-    RoundButton,
-    queue,
-    tk,
-)
+from ..panels import PreviewCard, ResultPanel
+from ..widgets import ProgressBar, RoundButton
 
 
 class GuiBase:

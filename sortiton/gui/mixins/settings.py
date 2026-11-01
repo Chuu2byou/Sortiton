@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
+import tkinter as tk
+
+from ... import i18n, settings
+from ...core_features import PATTERN_DEFAULT
+from ...features import FEATURES
 from .. import design
-from ..common import (
-    DEFAULT_FOLDER,
-    FEATURES,
-    PATTERN_DEFAULT,
-    PreferencesWindow,
-    TARGET_FOLDER,
-    _show_warning,
-    apply_stored,
-    fine_tuning_items,
-    i18n,
-    make_tool_vars,
-    settings,
-    stored_values,
-    tk,
-)
+from ..common import DEFAULT_FOLDER, TARGET_FOLDER
+from ..dialogs import _show_warning
+from ..preferences import PreferencesWindow
+from ..tools import apply_stored, fine_tuning_items, make_tool_vars, stored_values
 from .base import GuiBase
 
 

@@ -2,38 +2,20 @@
 
 from __future__ import annotations
 
-from ..common import (
-    ACCENT,
-    BACKGROUND,
-    BORDER,
-    GREEN,
-    LOG_BG,
-    LOG_TEXT,
-    Path,
-    ProgressBar,
-    RED,
-    ROW_FOOTER,
-    ROW_LINE_BOTTOM,
-    ROW_RESULT,
-    RestoreWindow,
-    ResultPanel,
-    RoundButton,
-    TEXT,
-    TEXT_FAINT,
-    TEXT_MUTED,
-    _ERROR_MARKERS,
-    _INFO_MARKERS,
-    _LOG_MAX_LINES,
-    _LOG_TRIM_LINES,
-    _OK_MARKERS,
-    config,
-    design,
-    i18n,
-    output,
-    subprocess,
-    tk,
-    ttk,
-)
+import subprocess
+from pathlib import Path
+import tkinter as tk
+from tkinter import ttk
+
+from ... import config, i18n
+from .. import design
+from ..common import (ROW_FOOTER, ROW_LINE_BOTTOM, ROW_RESULT, _ERROR_MARKERS,
+                      _INFO_MARKERS, _LOG_MAX_LINES, _LOG_TRIM_LINES, _OK_MARKERS)
+from ..design import (ACCENT, BACKGROUND, BORDER, GREEN, LOG_BG, LOG_TEXT, RED,
+                      TEXT, TEXT_FAINT, TEXT_MUTED)
+from ..panels import ResultPanel
+from ..restore import RestoreWindow
+from ..widgets import ProgressBar, RoundButton
 from .base import GuiBase
 
 
@@ -318,7 +300,7 @@ class LogMixin(GuiBase):
 
     def _copy_prompt(self) -> None:
         """Put ``00_prompt.md`` of the last export on the clipboard."""
-        outdir = output.last_stats("export").get("outdir")
+        outdir = (getattr(self, "_last_result_values", None) or {}).get("outdir")
         if not outdir:
             return
         try:

@@ -2,39 +2,22 @@
 
 from __future__ import annotations
 
-from ..common import (
-    ACCENT,
-    ACCENT_TEXT,
-    BACKGROUND,
-    BORDER,
-    CARD,
-    FIELD,
-    FIELD_ACTIVE,
-    LOG_BG,
-    Path,
-    PreviewCard,
-    ROW_CONTENT,
-    ROW_LINE_TOP,
-    ROW_TABS,
-    RoundButton,
-    SCROLLBAR,
-    SCROLLBAR_ACTIVE,
-    Segments,
-    TEXT,
-    TEXT_FAINT,
-    TEXT_MUTED,
-    ToolsTab,
-    _pick_file,
-    _pick_folder,
-    config,
-    design,
-    feature_by_key,
-    feature_run_label,
-    i18n,
-    section_label,
-    tk,
-    ttk,
-)
+from pathlib import Path
+import tkinter as tk
+from tkinter import ttk
+
+from ... import config, i18n
+from ...core_features import core_feature
+from ...features import get as feature_by_key
+from .. import design
+from ..common import ROW_CONTENT, ROW_LINE_TOP, ROW_TABS
+from ..design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD,
+                      FIELD_ACTIVE, LOG_BG, SCROLLBAR, SCROLLBAR_ACTIVE,
+                      TEXT, TEXT_FAINT, TEXT_MUTED)
+from ..dialogs import _pick_file, _pick_folder
+from ..panels import PreviewCard, section_label
+from ..tools import ToolsTab, feature_run_label
+from ..widgets import RoundButton, Segments, fit_wraplength
 from .base import GuiBase
 
 # Arbeitsbereich: Zwei Spalten ab 1200 logischen Pixeln, einklappbare
@@ -619,71 +602,41 @@ class LayoutMixin(GuiBase):
         tk.Label(header, text=title, bg=CARD, fg=TEXT,
                  font=design.FONT_TITLE, anchor="w").grid(row=0, column=0, sticky="w")
 
-    def _page_tags(self, parent: tk.Frame) -> tk.Frame:
-        """Folder -> active rules -> preview -> actions."""
+    def _core_page(self, parent: tk.Frame, key: str) -> tk.Frame:
+        """Eine Kernseite anhand derselben Beschreibung wie die CLI aufbauen."""
+        feature = core_feature(key)
         page = self._new_page(parent)
-        self._page_header(page, 0, i18n.t("gui.tab.tags"), i18n.t("gui.hint.tags"))
-        self._folder_card(page, 1, "tags", [(i18n.t("gui.label.source_folder"),
-                                             self.var_tags_folder),
-                                            (i18n.t("gui.label.target_folder"),
-                                             self.var_tags_target)])
+        self._page_header(page, 0, i18n.t(f"gui.tab.{key}"), i18n.t(f"gui.hint.{key}"))
+        self._folder_card(page, 1, key, [
+            (i18n.t("gui.label.source_folder"), getattr(self, feature.source_var)),
+            (i18n.t("gui.label.target_folder"), getattr(self, feature.target_var)),
+        ])
         options = self._card(page, 2, i18n.t("gui.section.options"))
-        self._mode_row(options, 0, self.var_tags_mode)
-        self._rules_card(page, 3)
-        self._preview_card(page, 4, "tags")
-        self._actions("tags", preview=lambda: self._run_tags(False),
-                      execute=lambda: self._run_tags(True),
-                      execute_text=i18n.t("gui.button.write_tags"))
+        if feature.pattern_var:
+            self._pattern_row(options, 0, getattr(self, feature.pattern_var))
+        self._mode_row(options, 2 if feature.pattern_var else 0,
+                       getattr(self, feature.mode_var))
+        if feature.show_pattern_hint:
+            self._hint(options, 4, i18n.t("gui.hint.rename_placeholders"))
+        if feature.show_rules:
+            self._rules_card(page, 3)
+        self._preview_card(page, 4 if feature.show_rules else 3, key)
+        run = getattr(self, feature.run_method)
+        self._actions(key, preview=lambda: run(False), execute=lambda: run(True),
+                      execute_text=i18n.t(feature.execute_key))
         return page
+
+    def _page_tags(self, parent: tk.Frame) -> tk.Frame:
+        return self._core_page(parent, "tags")
 
     def _page_rename(self, parent: tk.Frame) -> tk.Frame:
-        page = self._new_page(parent)
-        self._page_header(page, 0, i18n.t("gui.tab.rename"), i18n.t("gui.hint.rename"))
-        self._folder_card(page, 1, "rename", [(i18n.t("gui.label.source_folder"),
-                                               self.var_ren_folder),
-                                              (i18n.t("gui.label.target_folder"),
-                                               self.var_ren_target)])
-        options = self._card(page, 2, i18n.t("gui.section.options"))
-        self._pattern_row(options, 0, self.var_ren_pattern)
-        self._mode_row(options, 2, self.var_ren_mode)
-        self._hint(options, 4, i18n.t("gui.hint.rename_placeholders"))
-        self._preview_card(page, 3, "rename")
-        self._actions("rename", preview=lambda: self._run_rename(False),
-                      execute=lambda: self._run_rename(True),
-                      execute_text=i18n.t("gui.button.rename"))
-        return page
+        return self._core_page(parent, "rename")
 
     def _page_sort(self, parent: tk.Frame) -> tk.Frame:
-        page = self._new_page(parent)
-        self._page_header(page, 0, i18n.t("gui.tab.sort"), i18n.t("gui.hint.sort"))
-        self._folder_card(page, 1, "sort", [(i18n.t("gui.label.source_folder"),
-                                             self.var_source),
-                                            (i18n.t("gui.label.target_folder"),
-                                             self.var_target)])
-        options = self._card(page, 2, i18n.t("gui.section.options"))
-        self._pattern_row(options, 0, self.var_sort_pattern)
-        self._mode_row(options, 2, self.var_sort_mode)
-        self._preview_card(page, 3, "sort")
-        self._actions("sort", preview=lambda: self._run_sort(False),
-                      execute=lambda: self._run_sort(True),
-                      execute_text=i18n.t("gui.button.sort"))
-        return page
+        return self._core_page(parent, "sort")
 
     def _page_all(self, parent: tk.Frame) -> tk.Frame:
-        page = self._new_page(parent)
-        self._page_header(page, 0, i18n.t("gui.tab.all"), i18n.t("gui.hint.all"))
-        self._folder_card(page, 1, "all", [(i18n.t("gui.label.source_folder"),
-                                            self.var_all_source),
-                                           (i18n.t("gui.label.target_folder"),
-                                            self.var_all_target)])
-        options = self._card(page, 2, i18n.t("gui.section.options"))
-        self._pattern_row(options, 0, self.var_all_pattern)
-        self._mode_row(options, 2, self.var_all_mode)
-        self._preview_card(page, 3, "all")
-        self._actions("all", preview=lambda: self._run_all(False),
-                      execute=lambda: self._run_all(True),
-                      execute_text=i18n.t("gui.button.run_all"))
-        return page
+        return self._core_page(parent, "all")
 
     def _page_tools(self, parent: tk.Frame) -> tk.Frame:
         """Tools tab: one form per registered feature, with a matching action bar."""
@@ -831,8 +784,8 @@ class LayoutMixin(GuiBase):
                          justify="left", anchor="w", wraplength=design.px(660))
         label.grid(row=row, column=0, sticky="w", pady=(design.px(8), 0))
         card.bind("<Configure>",
-                  lambda event: label.configure(
-                      wraplength=max(event.width - design.px(4), design.px(160))),
+                  lambda event: fit_wraplength(
+                      label, event.width - design.px(4), minimum=160),
                   add="+")
 
     def _choose_folder(self, variable: tk.StringVar) -> None:

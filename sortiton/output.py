@@ -7,8 +7,12 @@ import re
 import shutil
 import sys
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar, copy_context
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Callable, Iterator
 
 from . import i18n
 from .config import (JOURNAL_SUFFIX, LATEST_LOG_NAME, LOG_DIR, LOG_KEEP,
@@ -25,6 +29,95 @@ _stats_lock = threading.Lock()
 _log_file = None
 _log_path: Path | None = None
 _log_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class PlanEvent:
+    """Ein Planereignis und seine auftragsspezifischen Daten."""
+
+    kind: str
+    data: dict
+
+
+@dataclass(frozen=True)
+class TagPlanEvent(PlanEvent):
+    """Geplante Änderung von Tagfeldern einer Datei."""
+
+    path: str | Path
+    changes: dict[str, tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class FilePlanEvent(PlanEvent):
+    """Geplante Dateioperation mit optionaler Referenzdatei."""
+
+    source: str | Path
+    target: str | Path
+    keep: str | Path | None = None
+
+
+@dataclass(frozen=True)
+class RunReport:
+    """Abschlussstatus und Zähler eines einzelnen Laufs."""
+
+    returncode: int
+    stats: dict[str, dict]
+
+
+@dataclass
+class RunContext:
+    """Ausgabe und Zähler eines Laufs; Callbacks werden unmittelbar aufgerufen."""
+
+    logger: Callable | None = None
+    progress_sink: Callable | None = None
+    plan_sink: Callable | None = None
+    stats_sink: Callable | None = None
+    log_to_file: bool = True
+    stats: dict[str, dict] = field(default_factory=dict)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def execute(self, action: Callable[[], int]) -> RunReport:
+        """Aktion im Kontext ausführen und ihren Abschlussbericht zurückgeben."""
+        with use_run_context(self):
+            returncode = action()
+        with self.lock:
+            stats = {kind: dict(values) for kind, values in self.stats.items()}
+        return RunReport(returncode, stats)
+
+
+_run_context: ContextVar[RunContext | None] = ContextVar("sortiton_run_context", default=None)
+
+
+@contextmanager
+def use_run_context(context: RunContext) -> Iterator[None]:
+    """Kontext nur für den aktuellen Ausführungspfad aktivieren."""
+    token = _run_context.set(context)
+    try:
+        yield
+    finally:
+        _run_context.reset(token)
+
+
+def current_run_context() -> RunContext | None:
+    """Aktiven Kontext zurückgeben; ohne Lauf gelten die bisherigen Senken."""
+    return _run_context.get()
+
+
+def default_run_context() -> RunContext:
+    """Die bisherigen Ausgabesenken für einen einzelnen Lauf übernehmen."""
+    plan_sink = _plan_sink
+    return RunContext(
+        logger=_sink,
+        progress_sink=_progress_sink,
+        plan_sink=(lambda event: plan_sink(event.kind, event.data)) if plan_sink else None,
+        stats_sink=_stats_sink,
+    )
+
+
+def submit_with_context(pool, function, *args):
+    """Den Ausführungskontext für jeden Poolauftrag einzeln übernehmen."""
+    context = copy_context()
+    return pool.submit(context.run, function, *args)
 
 
 def _emit(sink, *args) -> None:
@@ -46,9 +139,12 @@ def set_logger(sink) -> None:
 def message(text: str = "") -> None:
     """Write a line to the console/GUI and always into the log file."""
     line = str(text)
-    _log_line(line)
-    if _sink is not None:
-        _sink(line)
+    context = current_run_context()
+    if context is None or context.log_to_file:
+        _log_line(line)
+    sink = context.logger if context is not None else _sink
+    if sink is not None:
+        sink(line)
     else:
         print(line, flush=True)
 
@@ -61,7 +157,9 @@ def set_progress(sink) -> None:
 
 def progress(current: int, total: int, text: str = "") -> None:
     """Report progress to the current sink: ``sink(current, total, text)``."""
-    _emit(_progress_sink, current, total, str(text))
+    context = current_run_context()
+    sink = context.progress_sink if context is not None else _progress_sink
+    _emit(sink, current, total, str(text))
 
 
 def set_plan_sink(sink) -> None:
@@ -72,7 +170,18 @@ def set_plan_sink(sink) -> None:
 
 def report_plan(kind: str, **data) -> None:
     """Publish one planned change."""
-    _emit(_plan_sink, kind, data)
+    context = current_run_context()
+    if context is None:
+        _emit(_plan_sink, kind, data)
+    else:
+        if kind == "tags" and "path" in data and "changes" in data:
+            event = TagPlanEvent(kind, data, data["path"], data["changes"])
+        elif "source" in data and "target" in data:
+            event = FilePlanEvent(kind, data, data["source"], data["target"],
+                                  data.get("keep"))
+        else:
+            event = PlanEvent(kind, data)
+        _emit(context.plan_sink, event)
 
 
 _COLORS = {"red": "31", "green": "32", "yellow": "33", "dim": "2"}
@@ -81,7 +190,9 @@ _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 def colorize(text: str, color: str) -> str:
     """Colour ``text`` on a real terminal, but never in the GUI or a pipe."""
-    if _sink is not None or sys.stdout is None or not sys.stdout.isatty():
+    context = current_run_context()
+    sink = context.logger if context is not None else _sink
+    if sink is not None or sys.stdout is None or not sys.stdout.isatty():
         return text
     if "NO_COLOR" in os.environ:
         return text
@@ -100,17 +211,32 @@ def report_stats(kind: str, **values) -> None:
     snapshot = dict(values)
     with _stats_lock:
         _last_stats[kind] = snapshot
-    _emit(_stats_sink, kind, dict(snapshot))
+    context = current_run_context()
+    if context is None:
+        _emit(_stats_sink, kind, dict(snapshot))
+    else:
+        with context.lock:
+            context.stats[kind] = snapshot
+        _emit(context.stats_sink, kind, dict(snapshot))
 
 
 def last_stats(kind: str) -> dict:
     """Counters of the most recent ``kind`` run; empty if there was none."""
+    context = current_run_context()
+    if context is not None:
+        with context.lock:
+            return dict(context.stats.get(kind, {}))
     with _stats_lock:
         return dict(_last_stats.get(kind, {}))
 
 
 def clear_stats(*kinds: str) -> None:
     """Forget old counters before a combined run reads them again."""
+    context = current_run_context()
+    if context is not None:
+        with context.lock:
+            for kind in kinds:
+                context.stats.pop(kind, None)
     with _stats_lock:
         for kind in kinds:
             _last_stats.pop(kind, None)

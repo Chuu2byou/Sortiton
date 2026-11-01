@@ -10,7 +10,7 @@ from . import design
 from .design import (BACKGROUND, BORDER, CARD, GREEN, TEXT, TEXT_FAINT, TEXT_MUTED,
                      YELLOW)
 from .tools import OptionForm, feature_label, fine_tuning_cards, section_title
-from .widgets import Pill, RoundButton, Segments
+from .widgets import Pill, RoundButton, Segments, fit_wraplength
 
 # Startbreite: breit genug für zwei Formularspalten, aber nie breiter als der
 # Bildschirm. Auf großen Monitoren wächst das Fenster mit, bleibt aber lesbar.
@@ -104,9 +104,6 @@ class PreferencesWindow:
                  self._theme_variable, command=self._theme_changed, height=34,
                  font=design.FONT_SMALL, stretch=True).grid(
                      row=0, column=0, sticky="ew")
-        hint = self._hint(card, i18n.t("gui.settings.theme_hint"))
-        hint.grid(row=1, column=0, sticky="ew", pady=(design.px(8), 0))
-
     def _theme_changed(self, mode: str) -> None:
         """Delegate live theme changes to the application."""
         self.app._theme_changed(mode)
@@ -299,8 +296,7 @@ class PreferencesWindow:
     def _wrap_to_parent(self, label: tk.Label, parent: tk.Misc) -> None:
         """Keep helper text readable as its card changes width."""
         def resize(event) -> None:
-            label.configure(wraplength=max(design.px(160),
-                                           event.width - design.px(24)))
+            fit_wraplength(label, event.width - design.px(24), minimum=160)
 
         parent.bind("<Configure>", resize, add="+")
 
@@ -366,10 +362,7 @@ class PreferencesWindow:
         pills.bind("<Configure>", self._layout_pills, add="+")
         self._layout_pills()
 
-        hint = self._hint(card, i18n.t("gui.settings.tools_hint"))
-        hint.grid(row=1, column=0, sticky="ew", pady=(design.px(8), 0))
-
-        hint_row = 2
+        hint_row = 1
         for tool in missing:
             if not tool.hint_key:
                 continue
@@ -384,7 +377,7 @@ class PreferencesWindow:
         if not cards:
             return
         owners = {feature.key for feature, _section, _options in cards}
-        form = OptionForm(self.app, width=design.px(360))
+        form = OptionForm(self.app, width=design.px(360), concise_labels=True)
         for feature, section, options in cards:
             title = section_title(section)
             if len(owners) > 1:
@@ -399,9 +392,6 @@ class PreferencesWindow:
                  language, command=on_language, height=34,
                  font=design.FONT_SMALL, stretch=True).grid(
                      row=0, column=0, sticky="ew")
-        hint = self._hint(card, i18n.t("gui.settings.language_hint"))
-        hint.grid(row=1, column=0, sticky="ew", pady=(design.px(8), 0))
-
     def _numbers_card(self, parent: tk.Misc, track_format: tk.StringVar,
                       on_change) -> None:
         """Choose whether track/disc numbers keep their total or are padded."""

@@ -21,8 +21,9 @@ from .config import (BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, LOG_DIR,
                      RULES_FILE, WRITE_WORKERS)
 from .fileops import atomic_write_text, copy_new, move_no_clobber
 from .files import build_name, free_target, iter_audio, safe_name, same_content
-from .output import (progress, banner, clear_stats, colorize, last_stats, message,
-                     report_plan, report_stats)
+from .output import (banner, clear_stats, colorize, current_run_context,
+                     default_run_context, message, progress, report_plan,
+                     report_stats, submit_with_context)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
                     load_custom_rules, rules_summary, rules_template)
 from .rules import snapshot as rules_snapshot
@@ -203,7 +204,8 @@ def _place_files(plan: list[tuple[Path, Path]], target: Path, move: bool,
                 message(i18n.t("task.error.file", name=source.name, error=error))
 
     pool = ThreadPoolExecutor(max_workers=COPY_WORKERS)
-    futures = [pool.submit(place, source, destination) for source, destination in plan]
+    futures = [submit_with_context(pool, place, source, destination)
+               for source, destination in plan]
     try:
         for done, future in enumerate(as_completed(futures), start=1):
             cancel.check()
@@ -374,7 +376,7 @@ def cmd_tags(args: CmdArgs) -> int:
                     message(i18n.t("task.error.file", name=path.name, error=error))
 
         pool = ThreadPoolExecutor(max_workers=WRITE_WORKERS)
-        futures = [pool.submit(store, path, before, diff)
+        futures = [submit_with_context(pool, store, path, before, diff)
                    for path, before, diff in plan]
         try:
             for done, future in enumerate(as_completed(futures), start=1):
@@ -646,7 +648,7 @@ def cmd_sort(args: CmdArgs) -> int:
                     message(i18n.t("task.error.file", name=path.name, error=error))
 
         pool = ThreadPoolExecutor(max_workers=COPY_WORKERS)
-        futures = [pool.submit(place, p, t) for p, t in plan]
+        futures = [submit_with_context(pool, place, p, t) for p, t in plan]
         try:
             for done, future in enumerate(as_completed(futures), start=1):
                 cancel.check()
@@ -706,6 +708,13 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
 
 def cmd_all(args: CmdArgs) -> int:
     """All-in-one: clean tags -> rename -> sort."""
+    if current_run_context() is None:
+        clear_stats("tags", "rename", "sort")
+        return default_run_context().execute(lambda: _cmd_all(args)).returncode
+    return _cmd_all(args)
+
+
+def _cmd_all(args: CmdArgs) -> int:
     banner(i18n.t("task.title.all"), not args.apply)
     message(i18n.t("task.label.source", value=args.source))
     message(i18n.t("task.label.target", value=args.target))
@@ -738,9 +747,12 @@ def cmd_all(args: CmdArgs) -> int:
         message(i18n.t("task.hint.apply_run"))
     message(_SUMMARY_LINE)
 
-    tags_stats = last_stats("tags")
-    rename_stats = last_stats("rename")
-    sort_stats = last_stats("sort")
+    context = current_run_context()
+    assert context is not None
+    with context.lock:
+        tags_stats = dict(context.stats.get("tags", {}))
+        rename_stats = dict(context.stats.get("rename", {}))
+        sort_stats = dict(context.stats.get("sort", {}))
     errors = (tags_stats.get("errors", 0) + rename_stats.get("errors", 0)
               + sort_stats.get("errors", 0))
     report_stats("all", files=sort_stats.get("files", 0), steps=len(steps),

@@ -2,29 +2,18 @@
 
 from __future__ import annotations
 
-# pylint: disable=unused-import  # Re-exported for tests and mixins.
-from .common import (
-    CancelToken,
-    Path,
-    PreferencesWindow,
-    PreviewCard,
-    RoundButton,
-    _LOG_HEIGHT_BASE,
-    _RESULT_HEIGHT_BASE,
-    _ask_yes_no,
-    _fmt_duration,
-    _fmt_number,
-    _pretty_path,
-    config,
-    design,
-    i18n,
-    output,
-    queue,
-    settings,
-    shutil,
-    tk,
-)
-# pylint: enable=unused-import
+from pathlib import Path
+import queue
+import shutil
+import tkinter as tk
+
+from .. import config, i18n, settings
+from ..cancel import CancelToken
+from . import design
+from .common import _LOG_HEIGHT_BASE, _RESULT_HEIGHT_BASE
+from .panels import PreviewCard
+from .preferences import PreferencesWindow
+from .widgets import RoundButton
 
 from .mixins.layout import LayoutMixin
 from .mixins.log import LogMixin
@@ -85,7 +74,6 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         design.load_fonts(root)
         self._apply_scale()
         self._make_vars()
-        self._install_output_hooks()
         self.root.bind("<Configure>", self._align_fixed_rows, add="+")
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._build_all()
@@ -99,14 +87,6 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         """Scale the layout heights once the screen scale is known."""
         self._result_height = design.px(_RESULT_HEIGHT_BASE)
         self._log_height = design.px(_LOG_HEIGHT_BASE)
-
-    def _install_output_hooks(self) -> None:
-        """Route everything the tasks report into the queue."""
-        output.set_logger(lambda text: self.queue.put(("log", text)))
-        output.set_progress(lambda i, n, text: self.queue.put(("prog", (i, n, text))))
-        output.set_plan_sink(lambda kind, data: self.queue.put(("plan", (kind, data))))
-        output.set_stats_sink(lambda kind, values: self.queue.put(("stats", (kind, values))))
-
 
 def main() -> int:
     settings.apply_language()

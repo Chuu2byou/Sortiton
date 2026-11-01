@@ -2,30 +2,17 @@
 
 from __future__ import annotations
 
+import tkinter as tk
+from tkinter import ttk
+
+from ... import config, i18n, rules
 from ...fileops import atomic_write_text
-from ..common import (
-    ACCENT,
-    BACKGROUND,
-    BORDER,
-    CARD,
-    GREEN,
-    LOG_BG,
-    LOG_TEXT,
-    Pill,
-    RoundButton,
-    TEXT,
-    TEXT_MUTED,
-    YELLOW,
-    _ask_yes_no,
-    _show_error,
-    ask_choice,
-    config,
-    design,
-    i18n,
-    rules,
-    tk,
-    ttk,
-)
+from .. import design
+from ..confirm import ask_choice
+from ..design import (ACCENT, BACKGROUND, BORDER, CARD, GREEN, LOG_BG, LOG_TEXT,
+                      TEXT, TEXT_MUTED, YELLOW)
+from ..dialogs import _ask_yes_no, _show_error
+from ..widgets import Pill, RoundButton
 from .base import GuiBase
 
 

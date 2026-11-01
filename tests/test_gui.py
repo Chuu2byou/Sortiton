@@ -113,11 +113,29 @@ def test_gui(tk_root) -> None:
 
     root = tk_root
 
-    from sortiton.gui import app as gui_app
+    from sortiton.gui import common as gui_common
     from sortiton.gui.app import SortitonGUI
     from sortiton.gui.mixins import run as gui_run
     try:
         gui = SortitonGUI(root)
+        root.update()
+        # Der Start maximiert das Fenster, wo der Fenstermanager das unterstützt.
+        # Für die Höhenprüfung unten braucht das Fenster wieder Raum zum Wachsen.
+        try:
+            root.attributes("-zoomed", False)
+        except tk.TclError:
+            pass
+        try:
+            root.state("normal")
+        except tk.TclError:
+            pass
+        root.update()
+        base_height = min(760, root.winfo_screenheight() - 280)
+        if base_height < 460:
+            pytest.skip("display too short for the preview growth check")
+        base_width = min(max(root.winfo_width(), 1000),
+                         root.winfo_screenwidth() - 40)
+        root.geometry(f"{base_width}x{base_height}+20+20")
         root.update()
         check("clean tags starts with matching source and target",
               gui.var_tags_target.get() == gui.var_tags_folder.get())
@@ -248,14 +266,14 @@ def test_gui(tk_root) -> None:
         check("restore has no page of its own", "restore" not in gui.pages)
         check("a restore signature can be built", bool(gui._signature("restore")))
 
-        check("home is shortened", gui_app._pretty_path(Path.home() / "Musik") == "~/Musik")
+        check("home is shortened", gui_common._pretty_path(Path.home() / "Musik") == "~/Musik")
         spoken = i18n.get_language()
         i18n.set_language("en")
-        check("numbers use separators (en)", gui_app._fmt_number(1842) == "1,842",
-              gui_app._fmt_number(1842))
+        check("numbers use separators (en)", gui_common._fmt_number(1842) == "1,842",
+              gui_common._fmt_number(1842))
         i18n.set_language("de")
-        check("numbers use separators (de)", gui_app._fmt_number(1842) == "1.842",
-              gui_app._fmt_number(1842))
+        check("numbers use separators (de)", gui_common._fmt_number(1842) == "1.842",
+              gui_common._fmt_number(1842))
         i18n.set_language(spoken)
 
         # Der Tools-Tab erzeugt ein Formular aus der Feature-Liste, hat keinen
@@ -305,6 +323,8 @@ def test_gui(tk_root) -> None:
         prefs = gui._prefs_window
         check("settings window builds",
               prefs is not None and bool(prefs.window.winfo_exists()))
+        check("track and disc numbers fill the left column",
+              int(prefs._cards[-1][0].grid_info()["column"]) == 0)
         center_x = (root.winfo_rootx() + root.winfo_width() // 2)
         settings_center_x = (prefs.window.winfo_rootx()
                              + prefs.window.winfo_width() // 2)

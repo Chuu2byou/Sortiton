@@ -2,45 +2,25 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import queue
+import threading
 import time
+import tkinter as tk
+import traceback
+from types import SimpleNamespace
 
-from ..common import (
-    CancelToken,
-    Cancelled,
-    GREEN,
-    PATTERN_DEFAULT,
-    PLAN_FIELDS,
-    Path,
-    RED,
-    SimpleNamespace,
-    TEXT_FAINT,
-    TEXT_MUTED,
-    YELLOW,
-    _ask_yes_no,
-    _fmt_number,
-    _pretty_path,
-    _show_error,
-    _show_warning,
-    ask_confirm,
-    cmd_all,
-    cmd_rename,
-    cmd_restore,
-    cmd_scan,
-    cmd_sort,
-    cmd_tags,
-    config,
-    feature_by_key,
-    i18n,
-    journal,
-    output,
-    queue,
-    rules,
-    settings,
-    threading,
-    tk,
-    tool_value,
-    traceback,
-)
+from ... import config, i18n, journal, output, rules, settings
+from ...cancel import CancelToken, Cancelled
+from ...core_features import PATTERN_DEFAULT
+from ...features import get as feature_by_key
+from ...tasks import cmd_all, cmd_rename, cmd_restore, cmd_scan, cmd_sort, cmd_tags
+from .. import preview
+from ..common import _fmt_number, _pretty_path
+from ..confirm import ask_confirm
+from ..design import GREEN, RED, TEXT_FAINT, TEXT_MUTED, YELLOW
+from ..dialogs import _ask_yes_no, _show_error, _show_warning
+from ..tools import tool_value
 from .base import GuiBase
 
 
@@ -280,44 +260,10 @@ class RunMixin(GuiBase):
 
     def _begin_plan(self, page: str, source: str = "",
                     target_root: str = "") -> None:
-        """Reset the aggregated plan of ``page`` before a run starts."""
-        self._plans[page] = {"kind": page, "files": 0, "changes_total": 0, "fields": {},
-                             "examples": [], "source": source, "target": target_root,
-                             "signature": None}
+        self._plans[page] = preview.begin_plan(page, source, target_root)
 
-    def _absorb_plan(self, kind: str, data: dict) -> None:
-        """Aggregate one planned change - counters plus a few examples only."""
-        plan = self._plans.get(self._job_page)
-        if plan is None:
-            return
-
-        if kind == "tags":
-            plan["kind"] = "tags"
-            changes = data.get("changes") or {}
-            plan["files"] += 1
-            plan["changes_total"] += len(changes)
-            for field, pair in changes.items():
-                entry = plan["fields"].setdefault(field, {"count": 0, "examples": []})
-                entry["count"] += 1
-                example = (pair[0], pair[1])
-                if example not in entry["examples"]:
-                    entry["examples"].append(example)
-            return
-
-        source = data.get("source")
-        target = data.get("target")
-        if source is None or target is None:
-            return
-        plan["files"] += 1
-        if len(plan["examples"]) < 3:
-            new = Path(target).name
-            root = plan.get("target") or ""
-            if root:
-                try:
-                    new = str(Path(target).relative_to(root))
-                except (ValueError, OSError):
-                    pass
-            plan["examples"].append((Path(source).name, new))
+    def _absorb_plan(self, event: output.PlanEvent) -> None:
+        preview.absorb_plan(self._plans.get(self._job_page), event)
 
     def _watch_inputs(self) -> None:
         """Invalidate a preview as soon as one of its inputs changes."""
@@ -343,36 +289,35 @@ class RunMixin(GuiBase):
             return "-"
 
     def _signature(self, page: str) -> tuple:
-        """Everything a preview depends on - detects outdated previews."""
         rules_id = (self._rules_fingerprint(), rules.rules_status()["custom_total"])
         if page == "tags":
-            return ("tags", self.var_tags_folder.get().strip(),
-                    self.var_tags_target.get().strip(),
-                    self.var_tags_mode.get(), self.var_track_format.get(), rules_id)
-        if page == "rename":
-            return ("rename", self.var_ren_folder.get().strip(),
-                    self.var_ren_target.get().strip(),
-                    self.var_ren_mode.get(),
-                    self.var_ren_pattern.get().strip(), rules_id)
-        if page == "sort":
-            return ("sort", self.var_source.get().strip(), self.var_target.get().strip(),
-                    self.var_sort_pattern.get().strip(), self.var_sort_mode.get())
-        if page == "tools":
+            values = (self.var_tags_folder.get(), self.var_tags_target.get(),
+                      self.var_tags_mode.get(), self.var_track_format.get())
+        elif page == "rename":
+            values = (self.var_ren_folder.get(), self.var_ren_target.get(),
+                      self.var_ren_mode.get(), self.var_ren_pattern.get())
+        elif page == "sort":
+            values = (self.var_source.get(), self.var_target.get(),
+                      self.var_sort_pattern.get(), self.var_sort_mode.get())
+        elif page == "tools":
             feature = feature_by_key(self.var_tool_choice.get())
             if feature is None:
-                return ("tools",)
-            values = tuple((option.name, self.var_tool[feature.key][option.name].get())
-                           for option in feature.options)
-            return ("tools", feature.key, values)
-        if page == "restore":
-            return ("restore", str((self._plans.get("restore") or {}).get("source", "")))
-        return ("all", self.var_all_source.get().strip(), self.var_all_target.get().strip(),
-                self.var_all_pattern.get().strip(), self.var_all_mode.get(),
-                self.var_track_format.get(), rules_id)
+                values = ()
+            else:
+                options = tuple((option.name, self.var_tool[feature.key][option.name].get())
+                                for option in feature.options)
+                values = (feature.key, options)
+        elif page == "restore":
+            values = ((self._plans.get("restore") or {}).get("source", ""),)
+        else:
+            values = (self.var_all_source.get(), self.var_all_target.get(),
+                      self.var_all_pattern.get(), self.var_all_mode.get(),
+                      self.var_track_format.get())
+        return preview.signature(page, values, rules_id)
 
     def _preview_ready(self, page: str) -> bool:
         plan = self._plans.get(page)
-        return bool(plan and plan.get("signature") == self._signature(page))
+        return bool(plan and preview.ready(plan, self._signature(page)))
 
     def _inputs_changed(self, *_args) -> None:
         if self._dirty:
@@ -386,68 +331,31 @@ class RunMixin(GuiBase):
             self._render_preview(page)
 
     def _render_preview(self, page: str) -> None:
-        """Draw the aggregated plan of ``page`` and gate its action button."""
+        """Zeige den Plan und schalte die zugehörige Aktion frei."""
         card = self._previews.get(page)
         if card is None:
             return
         button = self._execute_buttons.get(page)
         note = self._preview_notes.get(page)
-        plan = self._plans.get(page)
-
+        state = preview.view(self._plans.get(page), self._preview_ready(page),
+                             self.running, page == self._job_page,
+                             i18n.t, _fmt_number, _pretty_path)
         if button is not None:
-            button.set_enabled(self._preview_ready(page) and not self.running)
-
-        if plan is None:
+            button.set_enabled(state.enabled)
+        if state.state == "none":
             card.hint(i18n.t("gui.preview.none"))
             if note is not None:
                 note.configure(text=i18n.t("gui.preview.run_first"), fg=TEXT_FAINT)
             return
-
-        if plan.get("signature") is None and self.running and page == self._job_page:
+        if state.state == "running":
             card.hint(i18n.t("gui.preview.running"))
             return
-
-        card.show(self._plan_summary(plan), self._plan_rows(plan),
-                  i18n.t("gui.preview.unchanged"))
+        card.show(state.summary, list(state.rows), i18n.t("gui.preview.unchanged"))
         if note is not None:
-            if self._preview_ready(page):
+            if state.state == "ready":
                 note.configure(text="", fg=TEXT_MUTED)
             else:
                 note.configure(text=i18n.t("gui.preview.stale"), fg=YELLOW)
-
-    def _plan_summary(self, plan: dict) -> str:
-        files = _fmt_number(plan.get("files", 0))
-        if plan.get("kind") == "tags":
-            return i18n.t("gui.preview.summary_tags",
-                          changes=_fmt_number(plan.get("changes_total", 0)), files=files)
-        return i18n.t("gui.preview.summary_files", files=files)
-
-    def _plan_rows(self, plan: dict) -> list[tuple[str, str, str, str]]:
-        rows: list[tuple[str, str, str, str]] = []
-        if plan.get("kind") == "tags":
-            for field in PLAN_FIELDS:
-                entry = (plan.get("fields") or {}).get(field)
-                if not entry or not entry["examples"]:
-                    continue
-                old, new = entry["examples"][0]
-                extra = (i18n.t("gui.preview.more", count=entry["count"] - 1)
-                         if entry["count"] > 1 else "")
-                rows.append((i18n.t("gui.field." + field), old, new, extra))
-            if plan.get("target"):
-                rows.append((i18n.t("gui.field.folder"), _pretty_path(plan.get("source", "")),
-                             _pretty_path(plan.get("target", "")), ""))
-            return rows
-
-        examples = plan.get("examples") or []
-        if examples:
-            old, new = examples[0]
-            extra = (i18n.t("gui.preview.more", count=plan["files"] - 1)
-                     if plan["files"] > 1 else "")
-            rows.append((i18n.t("gui.field.file"), old, new, extra))
-        if plan.get("target"):
-            rows.append((i18n.t("gui.field.folder"), _pretty_path(plan.get("source", "")),
-                         _pretty_path(plan.get("target", "")), ""))
-        return rows
 
     def _folder_var(self, page: str) -> tk.StringVar:
         return {"tags": self.var_tags_folder, "rename": self.var_ren_folder,
@@ -475,16 +383,27 @@ class RunMixin(GuiBase):
         self.status_var.set(i18n.t("gui.status.scanning"))
         self._set_state(YELLOW)
 
+        context = output.RunContext(
+            logger=lambda text: self.queue.put(("scan_log", (token, text))),
+            progress_sink=lambda i, n, text: self.queue.put(
+                ("scan_prog", (token, (i, n, text)))),
+            stats_sink=lambda kind, values: self.queue.put(
+                ("scan_stats", (token, (kind, values)))),
+            log_to_file=False,
+        )
+
         def worker() -> None:
-            rc = 99
-            try:
-                rc = cmd_scan(SimpleNamespace(folder=folder, cancel=token))
-            except Cancelled:
-                rc = 130
-            except Exception:  # noqa: BLE001
-                output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
-            finally:
-                self.queue.put(("scan_done", rc))
+            def scan() -> int:
+                try:
+                    return cmd_scan(SimpleNamespace(folder=folder, cancel=token))
+                except Cancelled:
+                    return 130
+                except Exception:  # noqa: BLE001
+                    output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
+                    return 99
+
+            report = context.execute(scan)
+            self.queue.put(("scan_done", (token, report.returncode)))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -577,25 +496,36 @@ class RunMixin(GuiBase):
         self._log_line(i18n.t("gui.log.job", description=description))
         self._log_rules(i18n.t("gui.rules.prefix"))
 
+        context = output.RunContext(
+            logger=lambda text: self.queue.put(("log", text)),
+            progress_sink=lambda i, n, text: self.queue.put(("prog", (i, n, text))),
+            plan_sink=lambda event: self.queue.put(("plan", event)),
+            stats_sink=lambda kind, values: self.queue.put(("stats", (kind, values))),
+        )
+
         def worker() -> None:
-            rc = 99
-            try:
-                log_file = output.open_log_file(f"{description} · {self.last_path}")
-                if log_file:
-                    output.message(i18n.t("gui.log.log_file", path=log_file))
-                if getattr(args, "apply", False) and journal.enabled():
-                    if log_file is None or journal.open_for(log_file) is None:
-                        output.message(i18n.t("journal.error.open"))
-                        rc = 2
-                        return
-                rc = function(args)
-            except Exception:
-                output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
+            def run() -> int:
                 rc = 99
-            finally:
-                journal.close()
-                output.close_log_file(rc)
-                self.queue.put(("done", rc))
+                try:
+                    log_file = output.open_log_file(f"{description} · {self.last_path}")
+                    if log_file:
+                        output.message(i18n.t("gui.log.log_file", path=log_file))
+                    if getattr(args, "apply", False) and journal.enabled():
+                        if log_file is None or journal.open_for(log_file) is None:
+                            output.message(i18n.t("journal.error.open"))
+                            rc = 2
+                            return rc
+                    rc = function(args)
+                except Exception:
+                    output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
+                    rc = 99
+                finally:
+                    journal.close()
+                    output.close_log_file(rc)
+                return rc
+
+            report = context.execute(run)
+            self.queue.put(("done", report.returncode))
 
         threading.Thread(target=worker, daemon=True).start()
         return True
@@ -608,15 +538,9 @@ class RunMixin(GuiBase):
         self._cancel = None
         if self._cancel_button is not None:
             self._cancel_button.grid_remove()
-        plan = self._plans.get(self._job_page)
-        applied = getattr(self, "_job_applied", False)
-        signature = getattr(self, "_job_signature", None)
-        if plan is not None:
-            plan["signature"] = signature if rc == 0 and not applied else None
-        if applied:
-            for page, other in self._plans.items():
-                if page != self._job_page:
-                    other["signature"] = None
+        preview.finish(self._plans, self._job_page,
+                       getattr(self, "_job_signature", None),
+                       getattr(self, "_job_applied", False), rc)
         self._set_buttons(True)
         self._refresh_preview_states()
         if rc == 0:
@@ -685,18 +609,30 @@ class RunMixin(GuiBase):
             if kind == "log":
                 self._log_line(value)
             elif kind == "prog":
-                if self._scan_page is None or not self.running:
-                    self._set_progress(*value)
+                self._set_progress(*value)
             elif kind == "plan":
-                self._absorb_plan(*value)
+                self._absorb_plan(value)
             elif kind == "stats":
                 self._absorb_stats(*value)
-            elif kind == "scan_done":
-                self._scan_finished()
+            elif kind in ("scan_log", "scan_prog", "scan_stats", "scan_done"):
+                token, payload = value
+                if token is not self._scan_cancel:
+                    return
+                if kind == "scan_done":
+                    self._scan_finished()
+                elif not token.is_set():
+                    if kind == "scan_log":
+                        self._log_line(payload)
+                    elif kind == "scan_prog":
+                        self._set_progress(*payload)
+                    else:
+                        self._absorb_stats(*payload)
             elif kind == "done":
                 self._finish(value)
         except Exception:
-            output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
+            context = output.RunContext(logger=self._log_line)
+            with output.use_run_context(context):
+                output.message(i18n.t("gui.log.error", text=traceback.format_exc()))
 
     def _scan_finished(self) -> None:
         """A folder scan is over (also when it failed and sent no counters)."""

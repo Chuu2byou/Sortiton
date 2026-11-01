@@ -29,6 +29,22 @@ def _bg_of(widget: tk.Misc) -> str:
         return BACKGROUND
 
 
+def fit_wraplength(label: tk.Label, width: float, minimum: float = 120) -> None:
+    """Set a label's wraplength for meaningful width changes only.
+
+    Wrapping changes a label's requested size, which can nudge the surrounding
+    grid by a pixel and trigger another ``<Configure>``. Ignoring tiny deltas
+    breaks that feedback loop while still following real window resizes.
+    """
+    wrap = max(design.px(minimum), int(width))
+    try:
+        current = int(label.cget("wraplength"))
+    except (tk.TclError, ValueError):
+        current = 0
+    if abs(wrap - current) >= design.px(4):
+        label.configure(wraplength=wrap)
+
+
 def _rounded_shape(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float,
                    radius: float, **options) -> int:
     """Draw a rounded rectangle as an exact arc outline.
