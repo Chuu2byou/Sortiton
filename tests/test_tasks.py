@@ -11,7 +11,7 @@ import unittest.mock as mock
 
 import pytest
 
-from _support import Path, SimpleNamespace, check, config, output, tempfile
+from _support import Path, SimpleNamespace, check, config, current_stats, tempfile
 
 
 def test_all_pipeline() -> None:
@@ -59,15 +59,13 @@ def test_all_preview_passes_cleaned_tags_and_renamed_paths_forward() -> None:
         args = SimpleNamespace(source=source_dir, target=target_dir,
                                pattern="%artist% - %title%", move=False,
                                apply=False, backup=False)
-        out.set_plan_sink(lambda kind, data: plans.append((kind, data)))
-        try:
-            with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
-                    mock.patch.object(tasks, "clean_artist",
-                                      side_effect=lambda value, _rules:
-                                      "NewArtist" if value == "OldArtist" else value):
-                rc = tasks.cmd_all(args)
-        finally:
-            out.set_plan_sink(None)
+        context = out.RunContext(
+            plan_sink=lambda event: plans.append((event.kind, event.data)))
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                mock.patch.object(tasks, "clean_artist",
+                                  side_effect=lambda value, _rules:
+                                  "NewArtist" if value == "OldArtist" else value):
+            rc = context.execute(lambda: tasks.cmd_all(args)).returncode
 
         rename_plan = next(data for kind, data in plans if kind == "rename")
         sort_plan = next(data for kind, data in plans if kind == "sort")
@@ -110,18 +108,16 @@ def test_all_preview_accounts_for_tag_changes_before_identical_check() -> None:
 
             args = SimpleNamespace(source=source_dir, target=target_dir,
                                    pattern="%title%", move=False, apply=False, backup=False)
-            out.set_plan_sink(lambda kind, data: plans.append((kind, data)))
-            try:
-                with mock.patch.object(tasks, "probe_many", side_effect=probe), \
-                        mock.patch.object(tasks, "write_tags", side_effect=write):
-                    preview_rc = tasks.cmd_all(args)
-                    preview_targets = [data["target"] for kind, data in plans if kind == "sort"]
-                    plans.clear()
-                    args.apply = True
-                    apply_rc = tasks.cmd_all(args)
-                    applied_targets = [data["target"] for kind, data in plans if kind == "sort"]
-            finally:
-                out.set_plan_sink(None)
+            context = out.RunContext(
+                plan_sink=lambda event: plans.append((event.kind, event.data)))
+            with mock.patch.object(tasks, "probe_many", side_effect=probe), \
+                    mock.patch.object(tasks, "write_tags", side_effect=write):
+                preview_rc = context.execute(lambda: tasks.cmd_all(args)).returncode
+                preview_targets = [data["target"] for kind, data in plans if kind == "sort"]
+                plans.clear()
+                args.apply = True
+                apply_rc = context.execute(lambda: tasks.cmd_all(args)).returncode
+                applied_targets = [data["target"] for kind, data in plans if kind == "sort"]
 
             expected = [existing.with_name("Song (2).mp3")] if dirty else []
             check("both pipeline runs succeed", preview_rc == apply_rc == 0)
@@ -158,7 +154,7 @@ def test_stats_count_only_written_files() -> None:
                 mock.patch.object(tasks, "write_tags", fake_write):
             rc = tasks.cmd_tags(args)
 
-    stats = output.last_stats("tags")
+    stats = current_stats("tags")
     check("the run reports the failed write", rc == 1, str(rc))
     check("only the written file counts as changed", stats.get("changed") == 1, str(stats))
     check("the failed file counts as an error", stats.get("errors") == 1, str(stats))
@@ -509,8 +505,8 @@ def test_scan_counts_files_and_can_be_cancelled() -> None:
         (Path(tmp) / "track.mp3").write_bytes(b"\x00" * 64)
         rc = cmd_scan(SimpleNamespace(folder=tmp))
         check("scan runs", rc == 0)
-        check("scan counts files", output.last_stats("scan").get("files") == 1,
-              str(output.last_stats("scan")))
+        check("scan counts files", current_stats("scan").get("files") == 1,
+              str(current_stats("scan")))
         check("scan of a missing folder fails",
               cmd_scan(SimpleNamespace(folder=str(Path(tmp) / "nope"))) == 2)
 

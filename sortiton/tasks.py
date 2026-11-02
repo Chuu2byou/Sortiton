@@ -21,8 +21,8 @@ from .config import BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, WRITE_WORKERS
 from .fileops import atomic_write_text, copy_new, move_no_clobber
 from .files import build_name, free_target, iter_audio, safe_name, same_content
 from .output import (banner, clear_stats, colorize, current_run_context,
-                     default_run_context, message, progress, report_plan,
-                     report_stats, submit_with_context)
+                     message, progress, report_plan, report_stats,
+                     require_run_context, submit_with_context)
 from .rules import (builtin_rules_text, clean_artist, clean_genre, clean_text_field,
                     load_custom_rules, rules_summary, rules_template)
 from .rules import snapshot as rules_snapshot
@@ -234,6 +234,7 @@ def _finish(key: str, fields: dict, *, changed: int, errors: int, applied: bool,
 
 def cmd_tags(args: CmdArgs) -> int:
     """Clean the tags of every audio file below ``args.folder``."""
+    require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
     root = Path(args.folder).expanduser()
     if not root.is_dir():
@@ -419,6 +420,7 @@ def cmd_tags(args: CmdArgs) -> int:
 
 def cmd_rename(args: CmdArgs) -> int:
     """Rename the files below ``args.folder`` from their tags."""
+    require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
     root = Path(args.folder).expanduser()
     if not root.is_dir():
@@ -546,6 +548,7 @@ def cmd_rename(args: CmdArgs) -> int:
 
 def cmd_sort(args: CmdArgs) -> int:
     """Sort the files below ``args.source`` into ``args.target``."""
+    require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
     source = Path(args.source).expanduser()
     target = Path(args.target).expanduser()
@@ -707,13 +710,7 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
 
 def cmd_all(args: CmdArgs) -> int:
     """All-in-one: clean tags -> rename -> sort."""
-    if current_run_context() is None:
-        clear_stats("tags", "rename", "sort")
-        return default_run_context().execute(lambda: _cmd_all(args)).returncode
-    return _cmd_all(args)
-
-
-def _cmd_all(args: CmdArgs) -> int:
+    require_run_context()
     banner(i18n.t("task.title.all"), not args.apply)
     message(i18n.t("task.label.source", value=args.source))
     message(i18n.t("task.label.target", value=args.target))
@@ -808,6 +805,7 @@ def cmd_rules(args: CmdArgs) -> int:
 
 def cmd_scan(args: CmdArgs) -> int:
     """Count files, albums and artists below ``args.folder``."""
+    require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
     root = Path(args.folder).expanduser()
     if not root.is_dir():
@@ -964,6 +962,7 @@ def _list_journals() -> int:
 
 def cmd_restore(args: CmdArgs) -> int:
     """Undo the changes of an earlier run (recorded in its journal)."""
+    require_run_context()
     if getattr(args, "list_journals", False):
         return _list_journals()
 

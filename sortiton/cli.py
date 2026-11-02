@@ -117,8 +117,10 @@ def main() -> int:
             message(external.format_missing(lacking))
             return 2
 
-    if not getattr(args, "quiet", False) and sys.stderr.isatty():
-        output.set_progress(console_progress)
+    progress_sink = (console_progress
+                     if not getattr(args, "quiet", False) and sys.stderr.isatty()
+                     else None)
+    context = output.RunContext(progress_sink=progress_sink)
 
     log = open_log_file(" ".join(redact.command(sys.argv[1:])))
     if log:
@@ -139,7 +141,7 @@ def main() -> int:
 
     rc = 99
     try:
-        rc = output.default_run_context().execute(lambda: args.func(args)).returncode
+        rc = context.execute(lambda: args.func(args)).returncode
     except KeyboardInterrupt:
         message("\n" + i18n.t("cli.cancelled"))
         rc = 130

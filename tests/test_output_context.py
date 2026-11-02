@@ -1,7 +1,7 @@
 """Laufbezogene Ausgabe und Statistik."""
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Thread
 from types import SimpleNamespace
 
 from sortiton import output, tasks
@@ -23,7 +23,7 @@ def test_run_context_isolates_overlapping_runs():
             barrier.wait()
             output.message(str(index))
             output.report_plan("tags", path=str(index), changes={})
-            assert output.last_stats("tags") == {"changed": index + 1}
+            assert context.last_stats("tags") == {"changed": index + 1}
             return index
 
         return context.execute(action)
@@ -70,24 +70,56 @@ def test_pool_submission_propagates_run_context():
     assert lines == ["worker"]
 
 
-def test_legacy_callbacks_are_forwarded_by_default_run_context():
-    plans = []
-    old_sink = output._plan_sink
-    try:
-        output.set_plan_sink(lambda kind, data: plans.append((kind, data)))
-        context = output.default_run_context()
+def test_legacy_sink_api_is_gone():
+    for name in ("set_logger", "set_progress", "set_plan_sink",
+                 "set_stats_sink", "last_stats", "default_run_context"):
+        assert not hasattr(output, name), name
 
-        def action():
-            output.report_plan("sort", source="a", target="b")
-            output.report_stats("sort", files=1)
-            return 0
 
-        report = context.execute(action)
-        assert report.stats["sort"] == {"files": 1}
-        assert output.last_stats("sort") == {"files": 1}
-        assert plans == [("sort", {"source": "a", "target": "b"})]
-    finally:
-        output.set_plan_sink(old_sink)
+def test_explicit_context_keeps_its_own_stats():
+    context = output.RunContext()
+
+    def action():
+        output.report_stats("tags", changed=1)
+        return 0
+
+    report = context.execute(action)
+    assert context.last_stats("tags") == {"changed": 1}
+    assert report.stats == {"tags": {"changed": 1}}
+    context.clear_stats("tags")
+    assert context.last_stats("tags") == {}
+
+
+def test_structured_output_requires_a_context():
+    errors = []
+
+    def call():
+        try:
+            output.report_stats("tags", changed=1)
+        except RuntimeError as error:
+            errors.append(str(error))
+
+    thread = Thread(target=call)
+    thread.start()
+    thread.join()
+    assert errors and "RunContext" in errors[0]
+
+
+def test_task_checks_for_a_context_before_touching_files(tmp_path):
+    errors = []
+
+    def call():
+        try:
+            tasks.cmd_tags(SimpleNamespace(folder=str(tmp_path), apply=True,
+                                           backup=False))
+        except RuntimeError as error:
+            errors.append(str(error))
+
+    thread = Thread(target=call)
+    thread.start()
+    thread.join()
+    assert errors and "RunContext" in errors[0]
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_non_logging_sink_failures_do_not_abort_run():

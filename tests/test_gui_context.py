@@ -64,7 +64,7 @@ def test_run_worker_emits_live_events_before_completion(monkeypatch):
         output.report_stats("sort", files=1, changed=1)
         return 0
 
-    saved_sink = output._sink
+    saved_context = output.current_run_context()
     assert RunMixin._start(app, "sort", "Sortieren", action,
                            SimpleNamespace(apply=False), ".")
     events = [app.queue.get_nowait() for _ in range(app.queue.qsize())]
@@ -72,7 +72,7 @@ def test_run_worker_emits_live_events_before_completion(monkeypatch):
     assert isinstance(events[2][1], output.FilePlanEvent)
     assert (events[2][1].source, events[2][1].target) == ("a", "b")
     assert events[-1] == ("done", 0)
-    assert output._sink is saved_sink
+    assert output.current_run_context() is saved_context
 
 
 def test_gui_worker_receives_explicit_paths(monkeypatch, tmp_path):

@@ -19,13 +19,6 @@ from .config import (JOURNAL_SUFFIX, LATEST_LOG_NAME, LOG_KEEP,
                      LOG_PREFIX, MUTAGEN_AVAILABLE, READ_WORKERS, WRITE_WORKERS)
 from .files import open_new
 
-_sink = None
-_progress_sink = None
-_plan_sink = None
-_stats_sink = None
-_last_stats: dict[str, dict] = {}
-_stats_lock = threading.Lock()
-
 _log_file = None
 _log_path: Path | None = None
 _log_lock = threading.Lock()
@@ -85,6 +78,17 @@ class RunContext:
             stats = {kind: dict(values) for kind, values in self.stats.items()}
         return RunReport(returncode, stats)
 
+    def last_stats(self, kind: str) -> dict:
+        """Die zuletzt gemeldeten Zähler dieser Art aus diesem Lauf."""
+        with self.lock:
+            return dict(self.stats.get(kind, {}))
+
+    def clear_stats(self, *kinds: str) -> None:
+        """Zähler dieses Laufs vor einer erneuten Auswertung vergessen."""
+        with self.lock:
+            for kind in kinds:
+                self.stats.pop(kind, None)
+
 
 _run_context: ContextVar[RunContext | None] = ContextVar("sortiton_run_context", default=None)
 
@@ -104,19 +108,18 @@ def use_run_context(context: RunContext) -> Iterator[None]:
 
 
 def current_run_context() -> RunContext | None:
-    """Aktiven Kontext zurückgeben; ohne Lauf gelten die bisherigen Senken."""
+    """Aktiven Kontext zurückgeben oder ``None`` außerhalb eines Laufs."""
     return _run_context.get()
 
 
-def default_run_context() -> RunContext:
-    """Die bisherigen Ausgabesenken für einen einzelnen Lauf übernehmen."""
-    plan_sink = _plan_sink
-    return RunContext(
-        logger=_sink,
-        progress_sink=_progress_sink,
-        plan_sink=(lambda event: plan_sink(event.kind, event.data)) if plan_sink else None,
-        stats_sink=_stats_sink,
-    )
+def require_run_context() -> RunContext:
+    """Den aktiven Laufkontext verlangen; ohne ihn gibt es keinen Ausgabeort."""
+    context = current_run_context()
+    if context is None:
+        raise RuntimeError(
+            "structured output requires an active RunContext; "
+            "wrap the call in RunContext(...).execute(...)")
+    return context
 
 
 def submit_with_context(pool, function, *args):
@@ -135,58 +138,40 @@ def _emit(sink, *args) -> None:
         pass
 
 
-def set_logger(sink) -> None:
-    """Redirect output into a callback (GUI). None = console."""
-    global _sink
-    _sink = sink
-
-
 def message(text: str = "") -> None:
     """Write a line to the console/GUI and always into the log file."""
     line = str(text)
     context = current_run_context()
     if context is None or context.log_to_file:
         _log_line(line)
-    sink = context.logger if context is not None else _sink
+    sink = context.logger if context is not None else None
     if sink is not None:
         sink(line)
     else:
         print(line, flush=True)
 
 
-def set_progress(sink) -> None:
-    """Report progress: sink(current, total, text). None = off."""
-    global _progress_sink
-    _progress_sink = sink
-
-
 def progress(current: int, total: int, text: str = "") -> None:
     """Report progress to the current sink: ``sink(current, total, text)``."""
     context = current_run_context()
-    sink = context.progress_sink if context is not None else _progress_sink
-    _emit(sink, current, total, str(text))
+    if context is None:
+        return
+    _emit(context.progress_sink, current, total, str(text))
 
 
-def set_plan_sink(sink) -> None:
-    """Report planned changes: sink(kind, data)."""
-    global _plan_sink
-    _plan_sink = sink
+def _plan_event(kind: str, data: dict) -> PlanEvent:
+    """Aus den übergebenen Feldern das passende typisierte Ereignis bauen."""
+    if kind == "tags" and "path" in data and "changes" in data:
+        return TagPlanEvent(kind, data, data["path"], data["changes"])
+    if "source" in data and "target" in data:
+        return FilePlanEvent(kind, data, data["source"], data["target"],
+                             data.get("keep"))
+    return PlanEvent(kind, data)
 
 
 def report_plan(kind: str, **data) -> None:
-    """Publish one planned change."""
-    context = current_run_context()
-    if context is None:
-        _emit(_plan_sink, kind, data)
-    else:
-        if kind == "tags" and "path" in data and "changes" in data:
-            event = TagPlanEvent(kind, data, data["path"], data["changes"])
-        elif "source" in data and "target" in data:
-            event = FilePlanEvent(kind, data, data["source"], data["target"],
-                                  data.get("keep"))
-        else:
-            event = PlanEvent(kind, data)
-        _emit(context.plan_sink, event)
+    """Publish one planned change; requires an active :class:`RunContext`."""
+    _emit(require_run_context().plan_sink, _plan_event(kind, data))
 
 
 _COLORS = {"red": "31", "green": "32", "yellow": "33", "dim": "2"}
@@ -196,7 +181,7 @@ _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
 def colorize(text: str, color: str) -> str:
     """Colour ``text`` on a real terminal, but never in the GUI or a pipe."""
     context = current_run_context()
-    sink = context.logger if context is not None else _sink
+    sink = context.logger if context is not None else None
     if sink is not None or sys.stdout is None or not sys.stdout.isatty():
         return text
     if "NO_COLOR" in os.environ:
@@ -205,46 +190,18 @@ def colorize(text: str, color: str) -> str:
     return f"\033[{code}m{text}\033[0m" if code else text
 
 
-def set_stats_sink(sink) -> None:
-    """Report the counters of a run: sink(kind, stats). None = off."""
-    global _stats_sink
-    _stats_sink = sink
-
-
 def report_stats(kind: str, **values) -> None:
-    """Publish the counters of a run; they are kept per kind for :func:`last_stats`."""
+    """Publish the counters of a run; requires an active :class:`RunContext`."""
+    context = require_run_context()
     snapshot = dict(values)
-    with _stats_lock:
-        _last_stats[kind] = snapshot
-    context = current_run_context()
-    if context is None:
-        _emit(_stats_sink, kind, dict(snapshot))
-    else:
-        with context.lock:
-            context.stats[kind] = snapshot
-        _emit(context.stats_sink, kind, dict(snapshot))
-
-
-def last_stats(kind: str) -> dict:
-    """Counters of the most recent ``kind`` run; empty if there was none."""
-    context = current_run_context()
-    if context is not None:
-        with context.lock:
-            return dict(context.stats.get(kind, {}))
-    with _stats_lock:
-        return dict(_last_stats.get(kind, {}))
+    with context.lock:
+        context.stats[kind] = snapshot
+    _emit(context.stats_sink, kind, dict(snapshot))
 
 
 def clear_stats(*kinds: str) -> None:
     """Forget old counters before a combined run reads them again."""
-    context = current_run_context()
-    if context is not None:
-        with context.lock:
-            for kind in kinds:
-                context.stats.pop(kind, None)
-    with _stats_lock:
-        for kind in kinds:
-            _last_stats.pop(kind, None)
+    require_run_context().clear_stats(*kinds)
 
 
 def latest_log_file() -> Path | None:

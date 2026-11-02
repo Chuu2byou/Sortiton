@@ -63,7 +63,7 @@ def test_console_progress() -> None:
     check("the last entry ends the line", final.endswith("3/3  c\n"), repr(final))
 
     def _run_main(quiet: bool):
-        """Call ``cli.main`` with a stub parser; return (rc, set_progress mock)."""
+        """Call ``cli.main`` with a stub parser; return (rc, RunContext mock)."""
         args = SimpleNamespace(command="export", feature=None, quiet=quiet,
                                func=lambda _args: 0)
         with mock.patch.object(cli, "_build_parser") as build, \
@@ -72,24 +72,26 @@ def test_console_progress() -> None:
                 mock.patch.object(cli, "open_log_file", return_value=None), \
                 mock.patch.object(cli, "load_custom_rules", return_value=[]), \
                 mock.patch.object(cli, "rules_summary", return_value=""), \
-                mock.patch.object(output, "set_progress") as installed:
+                mock.patch.object(output, "RunContext") as context_class:
             build.return_value.parse_args.return_value = args
+            context_class.return_value.execute.return_value = output.RunReport(0, {})
             rc = cli.main()
-        return rc, installed
+        return rc, context_class
 
     cli._progress_last = 0.0
     cli._progress_open = False
-    rc, installed = _run_main(False)
+    rc, context_class = _run_main(False)
     check("main runs on a TTY", rc == 0, str(rc))
-    check("a TTY installs the console sink", installed.call_count == 1)
+    check("a TTY installs the console sink", context_class.call_count == 1)
     check("the sink is cli.console_progress",
-          installed.call_args is not None
-          and installed.call_args.args[0] is cli.console_progress)
+          context_class.call_args is not None
+          and context_class.call_args.kwargs.get("progress_sink") is cli.console_progress)
 
     cli._progress_open = False
-    rc, installed = _run_main(True)
+    rc, context_class = _run_main(True)
     check("main runs with --quiet", rc == 0, str(rc))
-    check("--quiet installs no progress sink", not installed.called)
+    check("--quiet installs no progress sink",
+          context_class.call_args.kwargs.get("progress_sink") is None)
 
 
 def test_cli_tags_and_rename_target() -> None:

@@ -116,6 +116,7 @@ class _Output:
 
 def cmd_export(args: CmdArgs) -> int:
     """Read a music folder and write the LLM reports (nothing is changed)."""
+    output.require_run_context()
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
 

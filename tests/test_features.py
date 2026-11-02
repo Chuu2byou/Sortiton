@@ -15,10 +15,10 @@ from _support import (
     check,
     cmd_restore,
     config,
+    current_stats,
     i18n,
     journal,
     os,
-    output,
     shutil,
     skip,
     subprocess,
@@ -352,7 +352,7 @@ def test_fixes() -> None:
 
         # preview changes nothing
         rc = cmd_fixes(SimpleNamespace(file=str(csv_file), root=str(root)))
-        stats = output.last_stats("fixes")
+        stats = current_stats("fixes")
         check("preview returns 0", rc == 0, str(rc))
         check("preview reports one change", stats.get("changed") == 1, str(stats))
         check("preview is not applied", not stats.get("applied"))
@@ -385,8 +385,8 @@ def test_fixes() -> None:
         cmd_fixes(SimpleNamespace(file=str(dup), root=str(root), apply=True,
                                   backup=False))
         check("a duplicate pair is reported as two errors",
-              output.last_stats("fixes").get("errors") == 2,
-              str(output.last_stats("fixes")))
+              current_stats("fixes").get("errors") == 2,
+              str(current_stats("fixes")))
         check("the duplicate pair wrote nothing",
               read_info(song).joined("track", "; ") == "1",
               read_info(song).joined("track", "; "))
@@ -465,7 +465,7 @@ def test_fixes_counts_only_successful_writes() -> None:
                 mock.patch.object(fixes, "_write", side_effect=write):
             rc = fixes.cmd_fixes(args)
 
-    stats = output.last_stats("fixes")
+    stats = current_stats("fixes")
     check("the mixed run reports its failure", rc == 1, str(rc))
     check("only the successful correction is counted", stats.get("changed") == 1, str(stats))
     check("the failed write is counted as an error", stats.get("errors") == 1, str(stats))
@@ -536,8 +536,8 @@ def test_dedupe_content_preview_apply_and_restore() -> None:
         check("preview does not create .duplicates",
               not (root / ".duplicates").exists())
         check("preview plans one move",
-              output.last_stats("dedupe").get("changed") == 1,
-              str(output.last_stats("dedupe")))
+              current_stats("dedupe").get("changed") == 1,
+              str(current_stats("dedupe")))
 
         jrn = _open_journal(work, 31)
         applied = dedupe.cmd_dedupe(SimpleNamespace(folder=str(root), by="content",

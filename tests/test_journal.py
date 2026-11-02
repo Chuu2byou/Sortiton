@@ -19,6 +19,7 @@ from _support import (
     check,
     cmd_restore,
     config,
+    current_stats,
     journal,
     output,
     probe_tags,
@@ -151,15 +152,15 @@ def test_restore() -> None:
         check("preview changes nothing",
               moved_to.exists() and copied_to.exists() and not track.exists())
         check("preview counts both changes",
-              output.last_stats("restore").get("changed") == 2,
-              str(output.last_stats("restore")))
+              current_stats("restore").get("changed") == 2,
+              str(current_stats("restore")))
         check("preview does not write",
-              not output.last_stats("restore").get("applied"))
+              not current_stats("restore").get("applied"))
 
         check("apply runs", cmd_restore(_restore_args(jrn, apply=True)) == 0)
         check("moved file is back", track.exists() and not moved_to.exists())
         check("the copy is gone", not copied_to.exists())
-        stats = output.last_stats("restore")
+        stats = current_stats("restore")
         check("nothing was skipped", stats.get("skipped") == 0, str(stats))
         check("no errors", stats.get("errors") == 0, str(stats))
         check("apply is reported", bool(stats.get("applied")))
@@ -183,15 +184,15 @@ def test_restore() -> None:
 
         check("chain preview plans every step",
               cmd_restore(_restore_args(jrn_chain)) == 0
-              and output.last_stats("restore").get("changed") == 2,
-              str(output.last_stats("restore")))
+              and current_stats("restore").get("changed") == 2,
+              str(current_stats("restore")))
         check("chain preview changes nothing", third.exists())
         check("chain undo runs", cmd_restore(_restore_args(jrn_chain, apply=True)) == 0)
         check("chain undo restores the first name",
               first.read_bytes() == b"\x02" * 64
               and not second.exists() and not third.exists(),
               str([path.name for path in chain.rglob("*.mp3")]))
-        stats = output.last_stats("restore")
+        stats = current_stats("restore")
         check("chain undo counts both steps", stats.get("changed") == 2, str(stats))
         check("chain undo skips nothing", stats.get("skipped") == 0, str(stats))
 
@@ -211,7 +212,7 @@ def test_restore() -> None:
         journal.record_move("sort", b_second, b_third, mode="move")
         journal.close()
         cmd_restore(_restore_args(jrn_backup, apply=True, backup=True))
-        folder = Path(str(output.last_stats("restore").get("backup") or ""))
+        folder = Path(str(current_stats("restore").get("backup") or ""))
         copied = list(folder.rglob("*.mp3")) if folder.is_dir() else []
         check("--backup of a chain copies the file",
               len(copied) == 1 and copied[0].read_bytes() == b"\x03" * 64,
@@ -242,8 +243,8 @@ def test_restore() -> None:
 
             check("tag chain preview plans all three steps",
                   cmd_restore(_restore_args(jrn_chain_tags)) == 0
-                  and output.last_stats("restore").get("changed") == 3,
-                  str(output.last_stats("restore")))
+                  and current_stats("restore").get("changed") == 3,
+                  str(current_stats("restore")))
             check("tag chain undo runs",
                   cmd_restore(_restore_args(jrn_chain_tags, apply=True)) == 0)
             check("tag chain restores the original name",
@@ -254,8 +255,8 @@ def test_restore() -> None:
                   probe_tags(old_name)["artist"] == "Old Name",
                   probe_tags(old_name)["artist"])
             check("tag chain reports no errors",
-                  output.last_stats("restore").get("errors") == 0,
-                  str(output.last_stats("restore")))
+                  current_stats("restore").get("errors") == 0,
+                  str(current_stats("restore")))
 
         # A name taken again between preview and apply is skipped, never
         # overwritten - and the counters show what really happened.
@@ -271,7 +272,7 @@ def test_restore() -> None:
         cmd_restore(_restore_args(jrn_late))
         late_old.write_bytes(b"\x05" * 8)
         cmd_restore(_restore_args(jrn_late, apply=True))
-        stats = output.last_stats("restore")
+        stats = current_stats("restore")
         check("a name taken after the preview is skipped",
               late_old.read_bytes() == b"\x05" * 8 and late_new.exists()
               and stats.get("skipped") == 1 and stats.get("changed") == 0,
@@ -320,8 +321,8 @@ def test_restore() -> None:
         cmd_restore(_restore_args(jrn_only, apply=True))
         check("the only copy survives", last_copy.exists())
         check("that case is counted as skipped",
-              output.last_stats("restore").get("skipped") == 1,
-              str(output.last_stats("restore")))
+              current_stats("restore").get("skipped") == 1,
+              str(current_stats("restore")))
 
         # the old name is taken again: nothing may be overwritten
         clash = work / "clash"
@@ -365,8 +366,8 @@ def test_restore() -> None:
         journal.close()
         check("a failed event is skipped",
               cmd_restore(_restore_args(jrn_missing, apply=True)) == 0
-              and output.last_stats("restore").get("skipped") == 1,
-              str(output.last_stats("restore")))
+              and current_stats("restore").get("skipped") == 1,
+              str(current_stats("restore")))
 
         check("a missing journal is an error",
               cmd_restore(_restore_args(work / "nope.jsonl")) == 2)

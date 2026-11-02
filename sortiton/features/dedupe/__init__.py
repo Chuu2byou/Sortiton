@@ -169,6 +169,7 @@ def _reader_hint() -> None:
 
 def cmd_dedupe(args: CmdArgs) -> int:
     """Find duplicate files and move all but the best copy into ``.duplicates``."""
+    output.require_run_context()
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
 

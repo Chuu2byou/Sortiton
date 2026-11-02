@@ -160,12 +160,18 @@ The scripts in the main folder are entry points; the logic lives in the
   the lines aligned); `tests/test_public_api.py` enforces both catalogs and every
   `i18n.t("literal")`.
 - Ausgaben laufen über `output.message()`, Fortschritt über `progress()` und
-  strukturierte Ergebnisse über `report_plan()` und `report_stats()`. Die GUI
-  verwendet pro Lauf beziehungsweise Scan einen eigenen `RunContext`; dessen
-  Adapter senden Ereignisse live an die GUI-Queue. Poolaufträge übernehmen den
-  Kontext mit `submit_with_context()`. Die bisherigen `set_*`-Funktionen bleiben
-  für bestehende Aufrufer verfügbar. Logdatei und Journal sind weiterhin global
-  und erlauben keine beliebigen parallelen Schreibläufe.
+  strukturierte Ergebnisse über `report_plan()` und `report_stats()`. Jeder
+  Lauf braucht einen eigenen `RunContext`; dessen Adapter senden Ereignisse live
+  an die GUI-Queue, und `RunContext.execute()` liefert einen `RunReport` mit den
+  Zählern. Poolaufträge übernehmen den Kontext mit `submit_with_context()`.
+  `report_plan()`, `report_stats()` und `clear_stats()` ohne aktiven Kontext
+  lösen einen `RuntimeError` aus; die `cmd_*`-Funktionen prüfen ihn mit
+  `require_run_context()` am Anfang, bevor sie Dateien anfassen. `message()`
+  schreibt ohne Kontext auf die Konsole. Die früheren globalen
+  `set_*`-Funktionen und `last_stats()` gibt es nicht mehr - Zähler liest man
+  aus `RunReport.stats` oder `RunContext.last_stats()`.
+  Logdatei und Journal sind weiterhin global und erlauben keine beliebigen
+  parallelen Schreibläufe.
 - The `cmd_*` functions in `sortiton/tasks.py` take an `argparse.Namespace`
   (CLI) or a `SimpleNamespace` (GUI) with the same field names.
 - Every user path can be overridden with an environment variable

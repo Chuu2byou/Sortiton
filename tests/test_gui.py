@@ -14,7 +14,6 @@ from _support import (
     config,
     i18n,
     importlib,
-    output,
     settings,
     skip,
     tempfile,
@@ -22,16 +21,11 @@ from _support import (
 
 
 @pytest.fixture(autouse=True)
-def _restore_gui_globals():
-    """The window installs global output hooks; later tests get the old ones."""
-    saved = (output._sink, output._progress_sink, output._plan_sink,
-             output._stats_sink, i18n.get_language())
+def _restore_gui_language():
+    """Later tests get the language they started with."""
+    saved = i18n.get_language()
     yield
-    output.set_logger(saved[0])
-    output.set_progress(saved[1])
-    output.set_plan_sink(saved[2])
-    output.set_stats_sink(saved[3])
-    i18n.set_language(saved[4])
+    i18n.set_language(saved)
 
 
 @pytest.fixture
@@ -497,7 +491,7 @@ def test_gui(tk_root) -> None:
                         continue
                     gui._dispatch(kind, value)
                 root.update()
-                stats = output.last_stats("export")
+                stats = gui._last_result_values
                 check("tools export run finishes", not gui.running,
                       " | ".join(gui._log_history[-3:]))
                 check("tools export reports its folder",

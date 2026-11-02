@@ -51,6 +51,7 @@ def _normalised_new(field: str, value: str) -> str:
 
 def cmd_fixes(args: CmdArgs) -> int:
     """Apply (or preview) single tag corrections from a CSV file."""
+    output.require_run_context()
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
 

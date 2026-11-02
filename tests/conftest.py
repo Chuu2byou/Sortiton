@@ -43,6 +43,20 @@ def _suite_environment():
 
 
 @pytest.fixture(autouse=True)
+def _active_run_context():
+    """Jeder Test läuft in einem eigenen Laufkontext.
+
+    ``report_plan()``, ``report_stats()`` und ``clear_stats()`` verlangen einen
+    aktiven Kontext; die Tests rufen die ``cmd_*``-Funktionen aber direkt auf.
+    """
+    from sortiton import output  # noqa: WPS433
+
+    context = output.RunContext()
+    with output.use_run_context(context):
+        yield context
+
+
+@pytest.fixture(autouse=True)
 def _no_blocking_dialogs(monkeypatch):
     """Ein modaler Dialog ohne Nutzer hängt den Lauf bis zum Timeout.
 

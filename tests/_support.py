@@ -37,6 +37,13 @@ def check(name: str, ok: bool, detail: str = "") -> None:
         raise AssertionError(f"{name}: {detail}" if detail else name)
 
 
+def current_stats(kind: str) -> dict:
+    """Zähler aus dem vom conftest installierten Laufkontext."""
+    context = output.current_run_context()
+    assert context is not None, "conftest must install a RunContext"
+    return context.last_stats(kind)
+
+
 def skip(name: str, detail: str = "") -> None:
     """Melde eine optionale Prüfung, die in diesem Lauf nicht möglich ist.
 
