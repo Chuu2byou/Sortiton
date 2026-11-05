@@ -20,7 +20,7 @@ from ... import external, i18n, journal, output
 from ...cancel import NO_CANCEL, Cancelled
 from ...config import READ_WORKERS
 from ...fileops import move_no_clobber
-from ...files import content_digest, free_target, iter_audio, same_content
+from ...files import canonical_path, content_digest, free_target, iter_audio, same_content
 from ...tags import read_info
 from ..base import CmdArgs, Feature, Option, resolve_args
 
@@ -173,7 +173,7 @@ def cmd_dedupe(args: CmdArgs) -> int:
     args = resolve_args(FEATURE, args)
     cancel = getattr(args, "cancel", NO_CANCEL)
 
-    root = Path(str(args.folder or "")).expanduser().resolve()
+    root = canonical_path(str(args.folder or ""))
     if not root.is_dir():
         output.message(i18n.t("task.error.folder", path=root))
         return 2
@@ -296,7 +296,8 @@ FEATURE = Feature(
     help_key="cli.dedupe.help",
     run=cmd_dedupe,
     options=(
-        Option("folder", "folder", positional=True, help_key="cli.dedupe.folder"),
+        Option("folder", "folder", positional=True, help_key="cli.dedupe.folder",
+               path_role="source_folder"),
         Option("by", "choice", "content", "cli.dedupe.by",
                flags=("--by",), choices=("content", "tags")),
         Option("apply", "bool", False, "cli.dedupe.apply", flags=("--apply",)),

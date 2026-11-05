@@ -25,10 +25,16 @@ class CoreFeature:
     show_rules: bool = False
     show_pattern_hint: bool = False
 
+    @property
+    def target_required(self) -> bool:
+        """Ob das Ziel laut gemeinsamer Pfadrolle verpflichtend ist."""
+        return any(option.path_role == "target_folder" for option in self.options)
+
 
 def _folder(page: str, name: str, optional: bool = False) -> Option:
+    role = ("optional_target_folder" if optional else "target_folder") if name == "target" else "source_folder"
     return Option(name, "folder", help_key=f"cli.{page}.{name}",
-                  positional=True, optional_positional=optional)
+                  positional=True, optional_positional=optional, path_role=role)
 
 
 def _flag(page: str, name: str, kind: OptionKind = "bool", default=None,

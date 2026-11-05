@@ -35,7 +35,6 @@ _LLM_FEATURES = {"export"}
 FINE_TUNING_SECTIONS = ("report", "advanced")
 
 _SECTION_OF = {
-    "folder": "files", "output": "files", "file": "files", "root": "files",
     "chunk_chars": "report", "examples": "report", "jsonl": "report",
     "check_case": "report", "report_lang": "report",
     "fingerprint": "advanced", "fp_seconds": "advanced", "fp_threshold": "advanced",
@@ -78,7 +77,7 @@ def _sections(feature: Feature, wanted: tuple[str, ...]) -> list[tuple[str, list
     for option in feature.options:
         if option.kind == "bool" and option.name in _ACTION_FLAGS:
             continue
-        section = _SECTION_OF.get(option.name, _DEFAULT_SECTION)
+        section = "files" if option.path_role else _SECTION_OF.get(option.name, _DEFAULT_SECTION)
         if section not in wanted:
             continue
         table.setdefault(section, []).append(option)
@@ -284,7 +283,7 @@ class OptionForm:
                     feature: Feature, option: Option) -> None:
         """Label above the input; long fields span both columns."""
         variable = self.app.var_tool[feature.key][option.name]
-        if feature.key == "export" and option.name == "output":
+        if feature.key == "export" and option.path_role == "output_folder":
             label = i18n.t("gui.export.output",
                            path=config.display_path(config.EXPORT_DIR))
         else:
@@ -329,7 +328,7 @@ class OptionForm:
             return self._spinbox(parent, option, variable)
         if option.kind == "choice":
             return self._choice_input(parent, option, variable)
-        if option.kind == "folder" or option.name == "file":
+        if option.path_role is not None:
             return self._path_line(parent, option, variable)
         return self.app._path_entry(parent, variable)
 
@@ -384,7 +383,7 @@ class OptionForm:
         line.columnconfigure(0, weight=1)
         entry = self.app._path_entry(line, variable)
         entry.grid(row=0, column=0, sticky="ew", ipady=design.px(7))
-        if option.kind == "folder":
+        if option.path_role in ("source_folder", "output_folder"):
             RoundButton(line, i18n.t("gui.button.choose_folder"),
                         lambda: self.app._choose_folder(variable),
                         style="normal").grid(row=0, column=1, padx=(design.px(10), 0))

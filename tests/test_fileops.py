@@ -36,6 +36,30 @@ def test_file_names_cannot_escape_the_folder() -> None:
         check(f"not an absolute path in {pattern!r}", not Path(name).is_absolute(), name)
 
 
+def test_target_inside_source_is_rejected() -> None:
+    """Ein Ziel im Quellordner würde die sortierten Dateien erneut einlesen."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "music"
+        source.mkdir()
+        check("the source itself is inside",
+              files.target_inside_source(source, source))
+        check("a subfolder of the source is inside",
+              files.target_inside_source(source, source / "sorted"))
+        check("a folder below a missing subfolder is inside",
+              files.target_inside_source(source, source / "a" / ".." / "b"))
+        check("a sibling is outside",
+              not files.target_inside_source(source, root / "other"))
+        check("the parent is outside",
+              not files.target_inside_source(source, root))
+        alias = root / "alias"
+        alias.symlink_to(source, target_is_directory=True)
+        check("a symlink to the source is inside",
+              files.target_inside_source(source, alias))
+        check("the opposite relation is allowed",
+              not files.target_inside_source(root / "inbox", root))
+
+
 def test_free_target_never_blocks_its_own_name() -> None:
     """free_target on a case-insensitive file system (FAT32/exFAT/NTFS)."""
     with tempfile.TemporaryDirectory() as tmp:

@@ -80,6 +80,13 @@ Use `sortiton --help` or `sortiton <command> --help` for all options. For exampl
 `--track-format` controls track and disc number formatting, and `--diff` shows
 tag changes.
 
+### Ordner und Ziele
+
+- Bei Tags und Umbenennen bedeutet ein leeres Ziel, dass direkt in der Quelle gearbeitet wird. Sortieren und Alles benötigen ein Ziel.
+- Das Ziel darf weder die Quelle noch ein Unterordner davon sein; ein übergeordneter Ordner ist erlaubt. Auch Exportberichte müssen außerhalb der Quelle liegen. Deduplizierung (`.duplicates`) und CSV-Korrekturen bearbeiten bewusst die Quelle.
+- Die GUI speichert die zuletzt verwendeten Ordner der Kernseiten und Werkzeuge in `settings.ini`. `SORTITON_FOLDER` und `SORTITON_TARGET` haben beim nächsten Start Vorrang; ein ungültiges Ziel bleibt leer und muss neu gewählt werden. Ohne gespeichertes oder explizit konfiguriertes Ziel ist das Ziel für Sortieren und Alles leer.
+- Relative Pfade beziehen sich auf das Arbeitsverzeichnis des Prozesses. Vor Vorschau und Ausführung wird geprüft, ob ein Zielverzeichnis vorhanden oder erstellbar ist; Berechtigungen können sich danach noch ändern.
+
 ## Export for an LLM
 
 `sortiton export ~/Music` creates reports and track lists for a large language
@@ -161,7 +168,7 @@ sortiton restore --apply           # perform the undo
 | `SORTITON_CACHE_DIR` | Folder for the fingerprint cache |
 | `SORTITON_BACKUP` | `false` disables the backup |
 | `SORTITON_JOURNAL` | `false` disables the run journal (restore then has nothing to work with) |
-| `SORTITON_FOLDER` / `SORTITON_TARGET` | Start folders of the GUI |
+| `SORTITON_FOLDER` / `SORTITON_TARGET` | GUI-Startquelle / Bibliotheksziel für Sortieren und Alles; überschreiben gespeicherte Werte |
 | `SORTITON_UI_SCALE` | UI scale of the GUI, e.g. `1.25` (default: screen DPI) |
 
 ## Contributing

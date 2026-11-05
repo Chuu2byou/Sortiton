@@ -59,6 +59,7 @@ class RulesMixin(GuiBase):
         if warnings:
             Pill(pills, i18n.t("gui.pill.warnings", count=warnings), YELLOW)
         self._layout_rule_pills()
+        self.root.after_idle(self._refresh_content_layout)
 
     def _layout_rule_pills(self, _event=None) -> None:
         """Wrap rule badges to the available card width instead of clipping them."""

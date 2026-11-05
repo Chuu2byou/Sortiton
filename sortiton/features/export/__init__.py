@@ -9,8 +9,10 @@ from pathlib import Path
 from ... import config, external, i18n, output
 from ...cancel import NO_CANCEL, Cancelled
 from ...config import READ_WORKERS
-from ...files import free_path
-from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
+from ...files import canonical_path, free_path
+from ...paths import PathProblem
+from ..base import (CmdArgs, Feature, Option, Requirement, resolve_args,
+                    validate_feature_paths)
 from . import fingerprint, reader, report
 
 
@@ -144,20 +146,32 @@ def cmd_export(args: CmdArgs) -> int:
         output.message(external.format_missing(lacking))
         return 2
 
-    root = Path(args.folder).expanduser().resolve()
-    if not root.is_dir():
-        output.message(i18n.t("task.error.folder", path=root))
+    try:
+        root = canonical_path(args.folder)
+        if not root.is_dir():
+            output.message(i18n.t("task.error.folder", path=root))
+            return 2
+    except (OSError, RuntimeError, ValueError):
+        output.message(i18n.t("task.error.folder", path=args.folder))
         return 2
 
-    if args.output:
-        outdir = Path(args.output).expanduser()
-    else:
-        outdir = free_path(config.current_paths().export_dir /
-                           f"export_{datetime.now():%Y%m%d_%H%M%S}")
-    created_here = not outdir.exists()
+    outdir = args.output or config.current_paths().export_dir
     try:
+        if args.output:
+            outdir = Path(args.output).expanduser()
+        else:
+            outdir = free_path(config.current_paths().export_dir /
+                               f"export_{datetime.now():%Y%m%d_%H%M%S}")
+        problem = validate_feature_paths(FEATURE, args, output_path=outdir)
+        if problem is not None:
+            if problem == PathProblem.TARGET_IN_SOURCE:
+                output.message(i18n.t("task.error.target_in_source", target=outdir))
+            else:
+                output.message(i18n.t("task.error.target_invalid", path=outdir))
+            return 2
+        created_here = not outdir.exists()
         outdir.mkdir(parents=True, exist_ok=True)
-    except OSError as error:
+    except (OSError, RuntimeError, ValueError) as error:
         output.message(i18n.t("export.error.outdir", path=outdir, error=error))
         return 2
 
@@ -225,9 +239,10 @@ FEATURE = Feature(
     help_key="cli.export.help",
     run=cmd_export,
     options=(
-        Option("folder", "folder", positional=True, help_key="cli.export.folder"),
+        Option("folder", "folder", positional=True, help_key="cli.export.folder",
+               path_role="source_folder"),
         Option("output", "folder", None, "cli.export.output",
-               flags=("-o", "--output", "--ausgabe")),
+               flags=("-o", "--output", "--ausgabe"), path_role="output_folder"),
         Option("chunk_chars", "int", 60000, "cli.export.chunk",
                flags=("--chunk-chars", "--chunk-zeichen"), minimum=1000),
         Option("examples", "int", 40, "cli.export.examples",
@@ -246,6 +261,7 @@ FEATURE = Feature(
         Option("report_lang", "choice", "", "cli.export.report_lang",
                flags=("--report-language",), choices=("", "en", "de")),
     ),
+    output_outside_source=True,
     requires=(
         Requirement(any_of=(external.MUTAGEN, external.FFPROBE)),
         Requirement(any_of=(external.FPCALC,), when="fingerprint"),

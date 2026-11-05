@@ -36,11 +36,23 @@ def test_plan_aggregation_and_rows():
     assert len(plan["examples"]) == 3
     assert plan["examples"][0] == ("0.mp3", "album/0.mp3")
     assert plan["fields"]["title"]["examples"] == [("alt", "neu")]
+    assert plan["fields"]["title"]["details"] == [("a", "alt", "neu"),
+                                                  ("b", "alt", "neu")]
+    assert plan["fields"]["artist"]["details"] == [("b", "a", "b")]
+    assert plan["details"] == [("0.mp3", "album/0.mp3"),
+                               ("1.mp3", "album/1.mp3"),
+                               ("2.mp3", "album/2.mp3"),
+                               ("3.mp3", "album/3.mp3")]
     result = preview.view(plan, False, False, False,
                           lambda key, **_kwargs: key, str, str)
     assert result.state == "stale"
     assert [row[0] for row in result.rows] == ["gui.field.artist", "gui.field.title",
                                                  "gui.field.folder"]
+    assert result.rows[0][4] == (("b", "a", "b"),)
+    assert result.rows[0][5] == 1
+    assert result.rows[1][4] == (("a", "alt", "neu"), ("b", "alt", "neu"))
+    assert result.rows[1][5] == 2
+    assert result.rows[2][4] == ()
 
 
 @pytest.mark.parametrize("rc", [0, 1, 130, 99])

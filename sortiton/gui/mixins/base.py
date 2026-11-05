@@ -19,6 +19,7 @@ class GuiBase:
         root: tk.Tk
         queue: queue.Queue[Any]
         running: bool
+        _operation_pending: bool
         last_path: Path | None
         has_ffprobe: bool
         has_mutagen: bool
@@ -53,6 +54,10 @@ class GuiBase:
         progress: ProgressBar
         progress_label: tk.Label
         _preview_area: tk.Frame
+        _preview_blank: tk.Frame | None
+        _active_page: tk.Frame | None
+        _content: tk.Frame | None
+        _content_height: int
         _action_frames: dict[str, tk.Frame]
         _result_area: tk.Frame
         _footer: tk.Frame
@@ -82,6 +87,8 @@ class GuiBase:
                                    export_dir: str = "") -> None: ...
         def _refresh_folder_stats(self, page: str, manual: bool = True) -> None: ...
         def _refresh_recent(self) -> None: ...
+        def _refresh_content_layout(self) -> None: ...
+        def _size_actions_area(self) -> None: ...
         def _refresh_rules_card(self, warnings: int = 0) -> None: ...
         def _render_preview(self, page: str) -> None: ...
         def _render_stats(self, kind: str, values: dict) -> None: ...

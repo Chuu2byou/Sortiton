@@ -365,6 +365,10 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "task.error.folder": "  ERROR: Folder not found: {path}",
     "task.error.source": "  ERROR: Source folder not found: {path}",
     "task.error.target_required": "  ERROR: --move requires a target folder.",
+    "task.error.target_missing": "  ERROR: A target folder is required.",
+    "task.error.target_invalid": "  ERROR: Target is not a writable folder: {path}",
+    "task.error.target_in_source": ("  ERROR: The target folder must not be the source "
+                                    "folder or lie inside it: {target}"),
     "task.label.folder": "  Folder  : {value}",
     "task.label.source": "  Source  : {value}",
     "task.label.target": "  Target  : {value}",
@@ -548,7 +552,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.mode.move": "Move",
     "gui.label.log": "Log",
     "gui.hint.tags": ("Cleans artist, album artist, title, album and genre. Own rules go "
-                     "into “Custom Rules …”, top right."),
+                     "into “Custom Rules …”, top right. Leave the target empty to work "
+                     "in place."),
     "gui.hint.rename_placeholders": "Placeholders: %artist%  %albumartist%  %album%  %title%",
     "gui.hint.sort": ("Target: artist/album/file – without an album tag only artist/file. "
                       "A taken name gets “ (2)”, “ (3)” …"),
@@ -559,7 +564,8 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
                        "prompt asks for exactly this shape). Only rows whose "
                        "current value still matches are written."),
     "gui.hint.rename": ("Renames files from their tags. The preview shows the new "
-                        "names first - nothing is changed before “Rename”."),
+                        "names first - nothing is changed before “Rename”. Leave the "
+                        "target empty to rename in place."),
     "gui.hint.dedupe": ("Moves duplicate audio files into .duplicates. Nothing is "
                         "deleted; restore brings them back. Identical content is "
                         "the default; tag mode needs a tag reader."),
@@ -595,6 +601,12 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.dialog.pick_folder": "Choose folder",
     "gui.dialog.target_missing.title": "Target folder missing",
     "gui.dialog.target_missing.text": "Choose a target folder first.",
+    "gui.dialog.target_invalid.title": "Invalid target folder",
+    "gui.dialog.target_invalid.text": "The target folder cannot be created or written: {path}",
+    "gui.dialog.target_in_source.title": "Target inside source folder",
+    "gui.dialog.target_in_source.text": ("The target folder must not be the source folder "
+                                         "or lie inside it:\n\nSource: {source}\n"
+                                         "Target: {target}"),
     "gui.dialog.folder_missing.title": "Folder missing",
     "gui.dialog.folder_missing.text": "Choose a folder first.",
     "gui.dialog.folder_not_found.title": "Folder not found",
@@ -737,6 +749,12 @@ There are {n} file(s) in {parts} part(s). Start with the summary.
     "gui.preview.summary_tags": "{changes} changes in {files} files",
     "gui.preview.summary_files": "{files} files affected",
     "gui.preview.more": "+{count} more",
+    "gui.preview.collapse": "− Collapse",
+    "gui.preview.details.count": "{count} change",
+    "gui.preview.details.count_plural": "{count} changes",
+    "gui.preview.details.truncated": ("Only the first {shown} of {total} changes "
+                                      "are shown."),
+    "gui.preview.details.empty_value": "(empty)",
     "gui.field.artist": "Artist",
     "gui.field.album_artist": "Album artist",
     "gui.field.title": "Title",
@@ -1216,6 +1234,10 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "task.error.folder": "  FEHLER: Ordner nicht gefunden: {path}",
     "task.error.source": "  FEHLER: Quellordner nicht gefunden: {path}",
     "task.error.target_required": "  FEHLER: --move erfordert einen Zielordner.",
+    "task.error.target_missing": "  FEHLER: Ein Zielordner ist erforderlich.",
+    "task.error.target_invalid": "  FEHLER: Ziel ist kein beschreibbarer Ordner: {path}",
+    "task.error.target_in_source": ("  FEHLER: Der Zielordner darf nicht der Quellordner "
+                                    "sein oder darin liegen: {target}"),
     "task.label.folder": "  Ordner : {value}",
     "task.label.source": "  Quelle : {value}",
     "task.label.target": "  Ziel   : {value}",
@@ -1399,14 +1421,16 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.mode.move": "Verschieben",
     "gui.label.log": "Protokoll",
     "gui.hint.tags": ("Bereinigt Künstler, Album-Künstler, Titel, Album und Genre. Eigene "
-                      "Regeln: „Eigene Regeln …“ oben rechts."),
+                      "Regeln: „Eigene Regeln …“ oben rechts. Ziel leer lassen, um im "
+                      "Quellordner zu arbeiten."),
     "gui.hint.rename_placeholders": "Platzhalter: %artist%  %albumartist%  %album%  %title%",
     "gui.hint.sort": ("Ziel: Künstler/Album/Datei – ohne Album-Tag nur Künstler/Datei. "
                       "Belegte Namen bekommen „ (2)“, „ (3)“ …"),
     "gui.hint.all": ("Ein Durchlauf: Tags bereinigen → Dateien umbenennen → in die Bibliothek "
                      "sortieren."),
     "gui.hint.rename": ("Benennt Dateien nach ihren Tags um. Die Vorschau zeigt zuerst "
-                        "die neuen Namen – vor „Umbenennen“ ändert sich nichts."),
+                        "die neuen Namen – vor „Umbenennen“ ändert sich nichts. Ziel "
+                        "leer lassen, um im Quellordner umzubenennen."),
     "gui.hint.tools": ("Hilfswerkzeuge mit eigenem Ablauf: Berichte exportieren, "
                        "Korrekturen aus einer CSV anwenden oder Duplikate finden."),
     "gui.hint.export": ("Nur lesend: liest den Ordner und schreibt die Berichte. "
@@ -1447,6 +1471,12 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.dialog.pick_folder": "Ordner wählen",
     "gui.dialog.target_missing.title": "Zielordner fehlt",
     "gui.dialog.target_missing.text": "Erst einen Zielordner wählen.",
+    "gui.dialog.target_invalid.title": "Ungültiger Zielordner",
+    "gui.dialog.target_invalid.text": "Der Zielordner kann nicht erstellt oder beschrieben werden: {path}",
+    "gui.dialog.target_in_source.title": "Zielordner im Quellordner",
+    "gui.dialog.target_in_source.text": ("Der Zielordner darf nicht der Quellordner sein "
+                                         "oder darin liegen:\n\nQuelle: {source}\n"
+                                         "Ziel: {target}"),
     "gui.dialog.folder_missing.title": "Ordner fehlt",
     "gui.dialog.folder_missing.text": "Erst einen Ordner wählen.",
     "gui.dialog.folder_not_found.title": "Ordner nicht gefunden",
@@ -1589,6 +1619,12 @@ Es gibt {n} Datei(en) in {parts} Teil(en). Fang mit der Zusammenfassung an.
     "gui.preview.summary_tags": "{changes} Änderungen in {files} Dateien",
     "gui.preview.summary_files": "{files} Dateien betroffen",
     "gui.preview.more": "+{count} weitere",
+    "gui.preview.collapse": "− Einklappen",
+    "gui.preview.details.count": "{count} Änderung",
+    "gui.preview.details.count_plural": "{count} Änderungen",
+    "gui.preview.details.truncated": ("Es werden nur die ersten {shown} von {total} "
+                                      "Änderungen angezeigt."),
+    "gui.preview.details.empty_value": "(leer)",
     "gui.field.artist": "Künstler",
     "gui.field.album_artist": "Album-Künstler",
     "gui.field.title": "Titel",

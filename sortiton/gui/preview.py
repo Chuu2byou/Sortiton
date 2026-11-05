@@ -11,6 +11,23 @@ from ..output import FilePlanEvent, PlanEvent, TagPlanEvent
 PLAN_FIELDS = ("artist", "album_artist", "title", "album", "genre",
                "track", "disc", "year")
 
+# Enough entries for the details window without keeping a whole huge library
+# in memory.  The count in the window still shows the real total.
+MAX_DETAILS = 2000
+
+
+def _display_path(path: object, root: str = "") -> str:
+    """Path relative to ``root`` when possible, otherwise just the name."""
+    text = str(path or "")
+    if not text:
+        return ""
+    if root:
+        try:
+            return str(Path(text).relative_to(root))
+        except (ValueError, OSError):
+            pass
+    return Path(text).name
+
 
 def signature(page: str, values: tuple, rules_id: tuple = ()) -> tuple:
     """Erzeuge dieselbe Signatur aus konkreten Formwerten wie die GUI."""
@@ -41,14 +58,20 @@ def absorb_plan(plan: dict | None, event: PlanEvent) -> None:
         plan["kind"] = "tags"
         changes = (event.changes if isinstance(event, TagPlanEvent)
                    else event.data.get("changes")) or {}
+        path = (event.path if isinstance(event, TagPlanEvent)
+                else event.data.get("path"))
+        context = _display_path(path, plan.get("source") or "")
         plan["files"] += 1
         plan["changes_total"] += len(changes)
         for field, pair in changes.items():
-            entry = plan["fields"].setdefault(field, {"count": 0, "examples": []})
+            entry = plan["fields"].setdefault(
+                field, {"count": 0, "examples": [], "details": []})
             entry["count"] += 1
             example = (pair[0], pair[1])
             if example not in entry["examples"]:
                 entry["examples"].append(example)
+            if len(entry["details"]) < MAX_DETAILS:
+                entry["details"].append((context, str(pair[0]), str(pair[1])))
         return
     if isinstance(event, FilePlanEvent):
         source, target = event.source, event.target
@@ -57,15 +80,12 @@ def absorb_plan(plan: dict | None, event: PlanEvent) -> None:
     if source is None or target is None:
         return
     plan["files"] += 1
+    new = _display_path(target, plan.get("target") or "")
     if len(plan["examples"]) < 3:
-        new = Path(target).name
-        root = plan.get("target") or ""
-        if root:
-            try:
-                new = str(Path(target).relative_to(root))
-            except (ValueError, OSError):
-                pass
         plan["examples"].append((Path(source).name, new))
+    details = plan.setdefault("details", [])
+    if len(details) < MAX_DETAILS:
+        details.append((_display_path(source, plan.get("source") or ""), new))
 
 
 def ready(plan: dict | None, current_signature: tuple) -> bool:
@@ -85,6 +105,8 @@ def finish(plans: dict, page: str, job_signature: tuple | None,
 
 @dataclass(frozen=True)
 class PreviewView:
+    """Rows are ``(field, old, new, extra, details, total)`` tuples."""
+
     state: str
     enabled: bool
     summary: str = ""
@@ -113,15 +135,17 @@ def view(plan: dict | None, is_ready: bool, running: bool, active: bool,
             old, new = entry["examples"][0]
             extra = (translate("gui.preview.more", count=entry["count"] - 1)
                      if entry["count"] > 1 else "")
-            rows.append((translate("gui.field." + field), old, new, extra))
+            rows.append((translate("gui.field." + field), old, new, extra,
+                         tuple(entry.get("details") or ()), entry["count"]))
     else:
         examples = plan.get("examples") or []
         if examples:
             old, new = examples[0]
             extra = (translate("gui.preview.more", count=plan["files"] - 1)
                      if plan["files"] > 1 else "")
-            rows.append((translate("gui.field.file"), old, new, extra))
+            rows.append((translate("gui.field.file"), old, new, extra,
+                         tuple(plan.get("details") or ()), plan["files"]))
     if plan.get("target"):
         rows.append((translate("gui.field.folder"), pretty_path(plan.get("source", "")),
-                     pretty_path(plan.get("target", "")), ""))
+                     pretty_path(plan.get("target", "")), "", (), 0))
     return PreviewView("ready" if is_ready else "stale", enabled, summary, tuple(rows))

@@ -138,7 +138,7 @@ def test_non_logging_sink_failures_do_not_abort_run():
     assert report.stats == {"sort": {"changed": 1}}
 
 
-def test_all_uses_its_own_stage_counters(monkeypatch):
+def test_all_uses_its_own_stage_counters(monkeypatch, tmp_path):
     barrier = Barrier(2, timeout=5)
 
     def steps(args):
@@ -155,8 +155,8 @@ def test_all_uses_its_own_stage_counters(monkeypatch):
     monkeypatch.setattr(tasks, "_pipeline_steps", steps)
 
     def run(count):
-        args = SimpleNamespace(source="source", target="target", pattern="pattern",
-                               move=False, apply=False, count=count)
+        args = SimpleNamespace(source=str(tmp_path), target=str(tmp_path.parent / "target"),
+                               pattern="pattern", move=False, apply=False, count=count)
         return output.RunContext(logger=lambda _line: None).execute(
             lambda: tasks.cmd_all(args))
 

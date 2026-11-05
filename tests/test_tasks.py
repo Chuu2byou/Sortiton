@@ -14,7 +14,7 @@ import pytest
 from _support import Path, SimpleNamespace, check, config, current_stats, tempfile
 
 
-def test_all_pipeline() -> None:
+def test_all_pipeline(tmp_path: Path) -> None:
     """cmd_all runs tags -> rename -> sort, in this order."""
     from sortiton import tasks
 
@@ -27,7 +27,8 @@ def test_all_pipeline() -> None:
         return run
 
     def all_args(**extra):
-        data = dict(source="/src", target="/dst", pattern="%artist% - %title%",
+        data = dict(source=str(tmp_path), target=str(tmp_path.parent / "dst"),
+                    pattern="%artist% - %title%",
                     move=False, apply=True, backup=False)
         data.update(extra)
         return SimpleNamespace(**data)
@@ -43,6 +44,42 @@ def test_all_pipeline() -> None:
     keys = [step.title_key for step in tasks._pipeline_steps(all_args())]
     check("pipeline has the three stages",
           keys == ["task.step.tags", "task.step.rename", "task.step.sort"], str(keys))
+
+
+def test_target_inside_source_stops_all_operations() -> None:
+    """Alle Kernaufträge verweigern ein Ziel im Quellordner."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as source_dir:
+        source = Path(source_dir)
+        (source / "a.mp3").write_bytes(b"audio")
+        for target in (source, source / "sorted"):
+            sort_args = SimpleNamespace(source=str(source), target=str(target),
+                                        pattern="%title%", move=True, apply=True)
+            sort_rc = tasks.cmd_sort(sort_args)
+
+            all_args = SimpleNamespace(source=str(source), target=str(target),
+                                       pattern="%title%", move=True, apply=True,
+                                       backup=False)
+            with mock.patch.object(tasks, "cmd_tags") as tags, \
+                    mock.patch.object(tasks, "cmd_rename") as rename:
+                all_rc = tasks.cmd_all(all_args)
+
+            tags_rc = tasks.cmd_tags(SimpleNamespace(
+                folder=str(source), target=str(target), move=True, apply=True,
+                backup=False))
+            rename_rc = tasks.cmd_rename(SimpleNamespace(
+                folder=str(source), target=str(target), pattern="%title%",
+                move=True, apply=True))
+
+            check(f"sort refuses {target}", sort_rc == 2, str(sort_rc))
+            check(f"all refuses {target}", all_rc == 2, str(all_rc))
+            check(f"tags refuses {target}", tags_rc == 2, str(tags_rc))
+            check(f"rename refuses {target}", rename_rc == 2, str(rename_rc))
+            check(f"all starts no step for {target}",
+                  not tags.called and not rename.called)
+        check("the source file was not moved", (source / "a.mp3").exists())
+        check("no nested target was created", not (source / "sorted").exists())
 
 
 def test_all_preview_passes_cleaned_tags_and_renamed_paths_forward() -> None:

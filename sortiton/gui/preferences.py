@@ -164,6 +164,11 @@ class PreferencesWindow:
         y = max(min(0, parent_top),
                 min(y, max(screen_height, parent_top + parent_height) - height))
         self.window.geometry(f"+{x}+{y}")
+        self.window.update_idletasks()
+        actual_x = self.window.winfo_rootx()
+        actual_y = self.window.winfo_rooty()
+        if actual_x != x or actual_y != y:
+            self.window.geometry(f"+{x + x - actual_x}+{y + y - actual_y}")
 
     def _resize_canvas(self, event) -> None:
         """Let the cards take the full width and re-check the scrollbar."""

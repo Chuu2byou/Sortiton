@@ -5,15 +5,19 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Literal
 
 from .. import i18n
 from ..external import Requirement
+from ..paths import PathProblem, check_core_paths
 
 CmdArgs = argparse.Namespace | SimpleNamespace
 
 OptionKind = Literal["folder", "text", "bool", "int", "float", "choice"]
+PathRole = Literal["source_folder", "target_folder", "optional_target_folder",
+                   "output_folder", "input_file"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,7 @@ class Option:
     minimum: float | None = None
     maximum: float | None = None
     optional_positional: bool = False
+    path_role: PathRole | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,23 @@ class Feature:
     requires: tuple[Requirement, ...] = ()
     writes: bool = False
     uses_rules: bool = False
+    output_outside_source: bool = False
+
+
+def validate_feature_paths(feature: Feature, args: CmdArgs, *,
+                           output_path: Path | str | None = None) -> PathProblem | None:
+    """Prüfe die deklarierte Ausgaberegel mit dem tatsächlichen Ausgabeziel."""
+    if not feature.output_outside_source:
+        return None
+    values = resolve_args(feature, args)
+    sources = [getattr(values, option.name) for option in feature.options
+               if option.path_role == "source_folder"]
+    outputs = [getattr(values, option.name) for option in feature.options
+               if option.path_role == "output_folder"]
+    if len(sources) != 1 or len(outputs) != 1:
+        raise ValueError("Feature benötigt genau eine Quell- und eine Ausgabeoption")
+    target = output_path if output_path is not None else outputs[0]
+    return check_core_paths(sources[0], target, target_required=True).problem
 
 
 def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:

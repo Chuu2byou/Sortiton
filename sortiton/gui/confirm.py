@@ -75,6 +75,7 @@ def ask_confirm(parent: tk.Misc, *, title: str, heading: str, text: str,
     y = max(parent.winfo_rooty() + (parent.winfo_height() - window.winfo_height()) // 3, 0)
     window.geometry(f"+{x}+{y}")
     window.deiconify()
+    window.focus_force()
     window.grab_set()
     window.wait_window()
 
@@ -128,6 +129,7 @@ def ask_choice(parent: tk.Misc, *, title: str, heading: str, text: str,
     y = max(parent.winfo_rooty() + (parent.winfo_height() - window.winfo_height()) // 3, 0)
     window.geometry(f"+{x}+{y}")
     window.deiconify()
+    window.focus_force()
     window.grab_set()
     window.wait_window()
     return result["choice"]

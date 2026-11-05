@@ -30,6 +30,7 @@ class SortitonGUI(LayoutMixin, LogMixin, RunMixin, RulesMixin, SettingsMixin):
         self.root = root
         self.queue = queue.Queue()
         self.running = False
+        self._operation_pending = False
         self.last_path: Path | None = None
         self.action_buttons: list[RoundButton] = []
         self._tools_buttons: list[RoundButton] = []

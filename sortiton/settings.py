@@ -5,8 +5,10 @@ from __future__ import annotations
 import configparser
 import os
 import re
+from pathlib import Path
 
 from . import config, i18n
+from .paths import PathProblem, check_core_paths
 from .config import DEFAULT_LANGUAGE, OFF_VALUES
 from .fileops import atomic_write_text
 
@@ -26,6 +28,10 @@ TRACK_FORMATS = ("keep", "number", "padded")
 THEME_MODES = ("auto", "light", "dark")
 
 SECTION_TOOLS = "tools"
+SECTION_FOLDERS = "folders"
+FOLDER_PAGES = ("tags", "rename", "sort", "all")
+FOLDER_KEYS = frozenset(f"{page}_{kind}" for page in FOLDER_PAGES
+                        for kind in ("source", "target"))
 
 #: ``key<sep>value`` einer Zeile; ``sep`` bleibt beim Ersetzen erhalten.
 _KEY_LINE = re.compile(r"^(?P<key>[^=:#\s][^=:]*?)(?P<sep>\s*[=:]\s*)(?P<value>.*)$")
@@ -130,6 +136,62 @@ def write_value(key: str, value: str) -> bool:
         parser.add_section(SECTION)
     parser.set(SECTION, key, value)
     return _write(parser)
+
+
+def read_folder_values() -> dict[str, str]:
+    """Gespeicherte Ordner je Kernseite lesen."""
+    parser = _parser()
+    if not parser.has_section(SECTION_FOLDERS):
+        return {}
+    return {key: value for key, value in parser.items(SECTION_FOLDERS)
+            if key in FOLDER_KEYS or re.fullmatch(r"tool_[a-z0-9_]+", key)}
+
+
+def save_folder_values(values: dict[str, str]) -> bool:
+    """Ordner speichern, ohne andere Einstellungen oder Kommentare zu entfernen."""
+    parser = _parser()
+    if not parser.has_section(SECTION_FOLDERS):
+        parser.add_section(SECTION_FOLDERS)
+    for key, value in values.items():
+        if ((key in FOLDER_KEYS or re.fullmatch(r"tool_[a-z0-9_]+", key))
+                and "\n" not in value and "\r" not in value):
+            parser.set(SECTION_FOLDERS, key, value)
+    return _write(parser)
+
+
+def restore_folder_values(paths: config.AppPaths) -> dict[str, str]:
+    """Gespeicherte Pfade laden; Umgebungsvariablen haben Vorrang.
+
+    Ein fehlender oder unzulässiger Zielordner bleibt leer. Noch nicht
+    existierende, erstellbare Ziele sind zulässig.
+    """
+    stored = read_folder_values()
+    env_source = bool(os.environ.get("SORTITON_FOLDER", "").strip())
+    env_target = bool(os.environ.get("SORTITON_TARGET", "").strip())
+    result: dict[str, str] = {}
+    for page in FOLDER_PAGES:
+        source_key, target_key = f"{page}_source", f"{page}_target"
+        source = str(paths.music_source_dir)
+        if not env_source and stored.get(source_key):
+            candidate = stored[source_key].strip()
+            try:
+                if Path(candidate).expanduser().is_dir():
+                    source = candidate
+            except (OSError, RuntimeError, ValueError):
+                pass
+        target = ""
+        if page in ("sort", "all") and env_target:
+            target = str(paths.music_target_dir)
+        elif target_key in stored:
+            target = stored[target_key].strip()
+        if target:
+            problem = check_core_paths(source, target).problem
+            if problem in (PathProblem.SOURCE_MISSING, PathProblem.SOURCE_INVALID,
+                           PathProblem.TARGET_IN_SOURCE, PathProblem.TARGET_INVALID,
+                           PathProblem.TARGET_UNWRITABLE):
+                target = ""
+        result[source_key], result[target_key] = source, target
+    return result
 
 
 def read_tool_values() -> dict[str, str]:

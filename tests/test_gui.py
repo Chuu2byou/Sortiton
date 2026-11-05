@@ -42,6 +42,100 @@ def tk_root():
         pass
 
 
+def test_gui_saves_folder_changes_on_close(tk_root, tmp_path, monkeypatch) -> None:
+    """Auch unmittelbar vor dem Schließen geänderte Ordner bleiben erhalten."""
+    from dataclasses import replace
+    import tkinter as tk
+    from sortiton.gui.app import SortitonGUI
+
+    monkeypatch.delenv("SORTITON_FOLDER", raising=False)
+    monkeypatch.delenv("SORTITON_TARGET", raising=False)
+    source = tmp_path / "source"
+    source.mkdir()
+    target = tmp_path / "library"
+    paths = replace(config.current_paths(), settings_file=tmp_path / "settings.ini",
+                    music_source_dir=source, music_target_dir=source)
+    with config.use_paths(paths):
+        app = SortitonGUI(tk_root)
+        assert app.var_target.get() == ""
+        app.var_source.set(str(source))
+        app.var_target.set(str(target))
+        app.var_tool["export"]["folder"].set(str(source))
+        app.var_tool["export"]["output"].set(str(target))
+        app.var_tool["fixes"]["root"].set(str(source))
+        app._on_window_close()
+        restored = settings.restore_folder_values(paths)
+        assert restored["sort_source"] == str(source)
+        assert restored["sort_target"] == str(target)
+        second = tk.Tk()
+        try:
+            reopened = SortitonGUI(second)
+            assert reopened.var_tool["export"]["folder"].get() == str(source)
+            assert reopened.var_tool["export"]["output"].get() == str(target)
+            assert reopened.var_tool["fixes"]["root"].get() == str(source)
+        finally:
+            second.destroy()
+
+
+def test_target_picker_starts_outside_source_and_rejects_source(tk_root, tmp_path, monkeypatch) -> None:
+    """Der Ziel-Picker startet beim Elternordner und verwirft die Quelle."""
+    import tkinter as tk
+    from types import SimpleNamespace
+    from sortiton.gui.mixins import pages
+
+    source = tmp_path / "source"
+    source.mkdir()
+    target = tk.StringVar(master=tk_root, value="")
+    app = SimpleNamespace(var_source=tk.StringVar(master=tk_root, value=str(source)),
+                          var_target=target,
+                          _target_outside_source=lambda src, dst: src != dst)
+    starts = []
+    monkeypatch.setattr(pages, "_pick_folder", lambda start: starts.append(start) or str(source))
+    pages.PageMixin._choose_folder(app, target)
+    assert starts == [tmp_path]
+    assert target.get() == ""
+    monkeypatch.setattr(pages, "_pick_folder", lambda _start: str(tmp_path / "library"))
+    pages.PageMixin._choose_folder(app, target)
+    assert target.get() == str(tmp_path / "library")
+
+
+def test_preview_more_label_expands_inline(tk_root) -> None:
+    """Das „+N weitere“-Label klappt die Änderungen in der Karte auf und zu."""
+    import tkinter as tk
+
+    from sortiton.gui.panels import PreviewCard
+
+    card = PreviewCard(tk_root, "Preview")
+    card.pack()
+    details = (("a.mp3", "alt", "neu"), ("b.mp3", "alt", "neu"))
+    rows = [("Artist", "alt", "neu", "+1 more", details, 2)]
+    card.show("2 changes", rows, "nothing")
+    tk_root.update()
+
+    def walk(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from walk(child)
+
+    links = [widget for widget in walk(card)
+             if isinstance(widget, tk.Label) and "+1 more" in str(widget.cget("text"))]
+    texts = [widget for widget in walk(card) if isinstance(widget, tk.Text)]
+    check("the +N more label exists", len(links) == 1)
+    check("the +N more label is clickable", links[0].cget("cursor") == "hand2")
+    check("the details start collapsed",
+          len(texts) == 1 and not texts[0].winfo_ismapped())
+
+    links[0].event_generate("<Button-1>")
+    tk_root.update()
+    check("clicking expands the details in the card", texts[0].winfo_ismapped())
+    check("the link offers collapsing", "+1 more" not in str(links[0].cget("text")))
+
+    links[0].event_generate("<Button-1>")
+    tk_root.update()
+    check("clicking again collapses the details", not texts[0].winfo_ismapped())
+    check("the link shows the count again", "+1 more" in str(links[0].cget("text")))
+
+
 @pytest.mark.parametrize("rc", [0, 1, 130, 99])
 @pytest.mark.parametrize("applied", [False, True])
 def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applied: bool) -> None:
@@ -69,6 +163,121 @@ def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applie
           == ("current preview" if rc == 0 and not applied else None))
     check("the run finishes", not app.running and app._cancel is None)
     app._refresh_preview_states.assert_called_once_with()
+
+
+def test_gui_refuses_target_inside_source() -> None:
+    """Ein Ziel im Quellordner wird vor Vorschau und Lauf abgewiesen."""
+    import unittest.mock as mock
+    from types import SimpleNamespace
+
+    from sortiton.gui.mixins import run as gui_run
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "music"
+        source.mkdir()
+        app = SimpleNamespace()
+        with mock.patch.object(gui_run, "_show_warning") as warning:
+            check("the source itself is refused",
+                  not gui_run.RunMixin._target_outside_source(
+                      app, str(source), str(source)))
+            check("a subfolder is refused",
+                  not gui_run.RunMixin._target_outside_source(
+                      app, str(source), str(source / "sorted")))
+            check("each refusal is explained", warning.call_count == 2, str(warning.call_count))
+            check("a sibling is accepted",
+                  gui_run.RunMixin._target_outside_source(
+                      app, str(source), str(source.parent / "library")))
+        check("an accepted target shows no warning", warning.call_count == 2,
+              str(warning.call_count))
+
+
+def test_only_one_operation_runs_at_a_time() -> None:
+    """Eine laufende Aktion bzw. ein offener Bestätigungsdialog blockiert Wiederholung."""
+    from types import SimpleNamespace
+
+    from sortiton.gui.mixins.run import _single_operation
+
+    calls: list[str] = []
+
+    class Dummy(SimpleNamespace):
+        running = False
+        _operation_pending = False
+
+        @_single_operation
+        def run(self) -> None:
+            calls.append("run")
+            self.run()          # simulates a repeated key while the dialog is open
+
+    app = Dummy()
+    app.run()
+    check("a nested trigger is ignored", calls == ["run"], str(calls))
+
+    app = Dummy()
+    app.running = True
+    app.run()
+    check("a running task blocks another trigger", not calls[1:], str(calls))
+
+
+def test_round_button_ignores_key_repeat(tk_root) -> None:
+    """Tastenwiederholung löst einen Knopf nur einmal aus."""
+    import time
+
+    from sortiton.gui.widgets import RoundButton
+
+    calls: list[str] = []
+    button = RoundButton(tk_root, "Run", lambda: calls.append("run"))
+    button.pack()
+    tk_root.update()
+    button.focus_force()
+    tk_root.update()
+    button.event_generate("<Return>")
+    tk_root.update()
+    button.event_generate("<Return>")
+    tk_root.update()
+    check("key repeat fires once", calls == ["run"], str(calls))
+
+    button._last_key = time.monotonic() - button._KEY_GUARD - 0.01
+    button.event_generate("<Return>")
+    tk_root.update()
+    check("a later key press works again", calls == ["run", "run"], str(calls))
+
+
+def test_every_gui_operation_refuses_target_inside_source(tk_root) -> None:
+    """Auch Tags und Umbenennen nehmen den Quellordner nicht als Ziel."""
+    import unittest.mock as mock
+
+    from sortiton.gui.app import SortitonGUI
+    from sortiton.gui.mixins import run as gui_run
+
+    gui = SortitonGUI(tk_root)
+    with tempfile.TemporaryDirectory() as tmp:
+        for folder in (gui.var_tags_folder, gui.var_ren_folder,
+                       gui.var_source, gui.var_all_source):
+            folder.set(tmp)
+        for target in (gui.var_tags_target, gui.var_ren_target,
+                       gui.var_target, gui.var_all_target):
+            target.set(tmp)
+
+        with mock.patch.object(gui_run, "_show_warning") as warning, \
+                mock.patch.object(gui, "_start") as start:
+            gui._run_tags(False)
+            gui._run_rename(False)
+            gui._run_sort(False)
+            gui._run_all(False)
+
+        check("no operation starts with the source as target", not start.called)
+        check("every page explains the refusal", warning.call_count == 4,
+              str(warning.call_count))
+
+        gui.var_tags_target.set("")
+        gui.var_ren_target.set("")
+        with mock.patch.object(gui_run, "_show_warning") as warning, \
+                mock.patch.object(gui, "_start") as start:
+            gui._run_tags(False)
+            gui._run_rename(False)
+        check("an empty target keeps in-place runs possible", start.call_count == 2,
+              str(start.call_count))
+        check("in-place runs show no warning", not warning.called)
 
 
 def test_screenshot_guard() -> None:
@@ -131,13 +340,12 @@ def test_gui(tk_root) -> None:
                          root.winfo_screenwidth() - 40)
         root.geometry(f"{base_width}x{base_height}+20+20")
         root.update()
-        check("clean tags starts with matching source and target",
-              gui.var_tags_target.get() == gui.var_tags_folder.get())
-        check("rename starts with matching source and target",
-              gui.var_ren_target.get() == gui.var_ren_folder.get())
-        region = gui._content_canvas.bbox("all")
-        content_overflows = (region is not None
-                             and region[3] - region[1]
+        check("clean tags starts without a target",
+              gui.var_tags_target.get() == "")
+        check("rename starts without a target",
+              gui.var_ren_target.get() == "")
+        active_page = gui.pages[gui.var_page.get()]
+        content_overflows = (active_page.winfo_reqheight()
                              > gui._content_canvas.winfo_height() + 1)
         check("scrollbar visibility matches content overflow",
               gui._content_scrollbar.winfo_ismapped() == content_overflows)
@@ -155,8 +363,8 @@ def test_gui(tk_root) -> None:
         previous_geometry = root.geometry()
         root.geometry("900x460")
         root.update()
-        region = gui._content_canvas.bbox("all")
-        if (region is not None and region[3] - region[1]
+        active_page = gui.pages[gui.var_page.get()]
+        if (active_page.winfo_reqheight()
                 > gui._content_canvas.winfo_height() + 1):
             gui._content_canvas.yview_moveto(1)
             root.update_idletasks()
@@ -175,6 +383,17 @@ def test_gui(tk_root) -> None:
             root.update()
             check(f"{page} action bar is visible",
                   gui._action_frames[page].winfo_ismapped())
+            for name, frame in gui._action_frames.items():
+                check(f"{name} action bar stays mapped", frame.winfo_ismapped())
+            top_actions = gui._actions_area.winfo_children()[-1]
+            check(f"{page} action bar is in front",
+                  top_actions is gui._action_frames[page])
+            top_page = gui.pages[page].master.winfo_children()[-1]
+            check(f"{page} page is in front", top_page is gui.pages[page])
+            expected_card = (gui._preview_blank if page == "tools"
+                             else gui._previews[page])
+            top_card = gui._preview_area.winfo_children()[-1]
+            check(f"{page} preview card is in front", top_card is expected_card)
         check("all pages exist",
               set(gui.pages) == {"tags", "rename", "sort", "all", "tools"},
               ", ".join(sorted(gui.pages)))

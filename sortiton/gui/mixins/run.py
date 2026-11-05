@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import functools
 import queue
 import threading
 import time
@@ -13,8 +14,10 @@ from types import SimpleNamespace
 from ... import config, journal, output, rules, settings
 from .. import translations as i18n
 from ...cancel import CancelToken, Cancelled
-from ...core_features import PATTERN_DEFAULT
+from ...core_features import CORE_FEATURES, PATTERN_DEFAULT, core_feature
+from ...paths import PathProblem, check_core_paths
 from ...features import get as feature_by_key
+from ...files import target_inside_source
 from ...tasks import cmd_all, cmd_rename, cmd_restore, cmd_scan, cmd_sort, cmd_tags
 from .. import preview
 from ..common import _fmt_number, _pretty_path
@@ -25,11 +28,32 @@ from ..tools import tool_value
 from .base import GuiBase
 
 
+def _single_operation(method):
+    """Run one action at a time, also while its confirmation window is open.
+
+    A focused button keeps its keyboard binding while a modal confirmation is
+    shown. Without this guard, repeated Enter/Return presses could stack
+    confirmations and start the same write several times.
+    """
+    @functools.wraps(method)
+    def guarded(self, *args, **kwargs):
+        if self.running or self._operation_pending:
+            return None
+        self._operation_pending = True
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            self._operation_pending = False
+
+    return guarded
+
+
 class RunMixin(GuiBase):
     """Running tasks: plans, previews, workers, progress and closing."""
 
     _FORCE_CLOSE_AFTER = 10.0
 
+    @_single_operation
     def _run_restore(self, path: Path, keep_copies: bool) -> bool:
         """Undo the given journal - the dialog has confirmed everything."""
         settings.save_backup(self.var_backup.get())
@@ -40,76 +64,55 @@ class RunMixin(GuiBase):
                                            keep_copies=keep_copies),
                            Path(path).parent, source=str(path))
 
+    def _run_core(self, page: str, execute: bool) -> None:
+        """Starte einen Kernauftrag anhand seiner gemeinsamen Beschreibung."""
+        feature = core_feature(page)
+        source = getattr(self, feature.source_var).get().strip()
+        target = getattr(self, feature.target_var).get().strip()
+        move = getattr(self, feature.mode_var).get() == "move"
+        if not self._core_paths_ok(page, source, target, move):
+            return
+        pattern = (getattr(self, feature.pattern_var).get().strip() or PATTERN_DEFAULT
+                   if feature.pattern_var else "")
+        if execute and not self._preview_allowed(page):
+            return
+        confirmation = {"folder": source, "target": target}
+        if page == "rename":
+            confirmation["pattern"] = pattern
+        if page in ("rename", "sort"):
+            confirmation["allow_backup"] = False
+        if execute and not self._confirm_write(page, **confirmation):
+            return
+        source_option = next(option.name for option in feature.options
+                             if option.path_role == "source_folder")
+        values = {source_option: source, "target": target or None,
+                  "move": move, "apply": execute}
+        if feature.pattern_var:
+            values["pattern"] = pattern
+        if page in ("tags", "all"):
+            values.update(backup=self._backup_for_run,
+                          track_format=self.var_track_format.get())
+        command = {"tags": cmd_tags, "rename": cmd_rename,
+                   "sort": cmd_sort, "all": cmd_all}[page]
+        location = target if page == "sort" else source
+        self._start(page, self._job_name(f"gui.job.{page}", execute), command,
+                    SimpleNamespace(**values), location, source=source, target_root=target)
+
+    @_single_operation
     def _run_tags(self, write: bool) -> None:
-        folder = self.var_tags_folder.get().strip()
-        if not self._path_ok(folder):
-            return
-        target = self.var_tags_target.get().strip()
-        move = self.var_tags_mode.get() == "move"
-        if write and not self._preview_allowed("tags"):
-            return
-        if write and not self._confirm_write("tags", folder=folder, target=target):
-            return
-        self._start("tags", self._job_name("gui.job.tags", write), cmd_tags,
-                    SimpleNamespace(folder=folder, target=target or None,
-                                    move=move, apply=write,
-                                    backup=self._backup_for_run,
-                                    track_format=self.var_track_format.get()),
-                    folder, source=folder, target_root=target)
+        self._run_core("tags", write)
 
+    @_single_operation
     def _run_rename(self, execute: bool) -> None:
-        folder = self.var_ren_folder.get().strip()
-        if not self._path_ok(folder):
-            return
-        target = self.var_ren_target.get().strip()
-        move = self.var_ren_mode.get() == "move"
-        pattern = self.var_ren_pattern.get().strip() or PATTERN_DEFAULT
-        if execute and not self._preview_allowed("rename"):
-            return
-        if execute and not self._confirm_write("rename", folder=folder,
-                                               target=target,
-                                               pattern=pattern,
-                                               allow_backup=False):
-            return
-        self._start("rename", self._job_name("gui.job.rename", execute), cmd_rename,
-                    SimpleNamespace(folder=folder, target=target or None,
-                                    pattern=pattern, move=move, apply=execute),
-                    folder, source=folder, target_root=target)
+        self._run_core("rename", execute)
 
+    @_single_operation
     def _run_sort(self, execute: bool) -> None:
-        source = self.var_source.get().strip()
-        target = self.var_target.get().strip()
-        if not self._path_ok(source) or not self._target_ok(target):
-            return
-        pattern = self.var_sort_pattern.get().strip() or PATTERN_DEFAULT
-        move = self.var_sort_mode.get() == "move"
-        if execute and not self._preview_allowed("sort"):
-            return
-        if execute and not self._confirm_write("sort", folder=source, target=target,
-                                               allow_backup=False):
-            return
-        self._start("sort", self._job_name("gui.job.sort", execute), cmd_sort,
-                    SimpleNamespace(source=source, target=target, pattern=pattern,
-                                    move=move, apply=execute), target,
-                    source=source, target_root=target)
+        self._run_core("sort", execute)
 
+    @_single_operation
     def _run_all(self, execute: bool) -> None:
-        source = self.var_all_source.get().strip()
-        target = self.var_all_target.get().strip()
-        if not self._path_ok(source) or not self._target_ok(target):
-            return
-        pattern = self.var_all_pattern.get().strip() or PATTERN_DEFAULT
-        move = self.var_all_mode.get() == "move"
-        if execute and not self._preview_allowed("all"):
-            return
-        if execute and not self._confirm_write("all", folder=source, target=target):
-            return
-        self._start("all", self._job_name("gui.job.all", execute), cmd_all,
-                    SimpleNamespace(source=source, target=target, pattern=pattern,
-                                    move=move, apply=execute,
-                                    backup=self._backup_for_run,
-                                    track_format=self.var_track_format.get()), source,
-                    source=source, target_root=target)
+        self._run_core("all", execute)
 
     def _preview_allowed(self, page: str) -> bool:
         """A write needs a preview of exactly the inputs the form has now."""
@@ -131,6 +134,7 @@ class RunMixin(GuiBase):
             values["confirm"] = execute
         return SimpleNamespace(**values)
 
+    @_single_operation
     def _run_tools(self, execute: bool = False) -> None:
         """Start the selected tool: read-only runs directly, writing runs ask."""
         feature = feature_by_key(self.var_tool_choice.get())
@@ -138,30 +142,32 @@ class RunMixin(GuiBase):
             return
         args = self._tool_args(feature, execute)
 
-        folder = str(getattr(args, "folder", "") or "").strip()
-        root = str(getattr(args, "root", "") or "").strip()
-        csv_path = str(getattr(args, "file", "") or "").strip()
-        target = str(getattr(args, "target", "") or "").strip()
-        if folder:
-            if not self._path_ok(folder):
+        location = ""
+        source = ""
+        target = ""
+        for option in feature.options:
+            if not option.path_role:
+                continue
+            value = str(getattr(args, option.name, "") or "").strip()
+            if option.path_role == "source_folder":
+                if (value or option.positional) and not self._path_ok(value):
+                    return
+                if value:
+                    source = location = value
+            elif option.path_role == "input_file":
+                if not value or not Path(value).expanduser().is_file():
+                    _show_error(i18n.t("gui.dialog.file_not_found.title"),
+                                i18n.t("gui.dialog.file_not_found.text", path=value))
+                    return
+                if not location:
+                    location = str(Path(value).expanduser().parent)
+            elif option.path_role == "output_folder":
+                target = value
+        if feature.output_outside_source and target:
+            result = check_core_paths(source, target, target_required=True)
+            if not self._show_core_path_problem(result, source, target):
                 return
-            location = folder
-        elif root:
-            if not self._path_ok(root):
-                return
-            location = root
-        elif csv_path:
-            csv_file = Path(csv_path).expanduser()
-            if not csv_file.is_file():
-                _show_error(i18n.t("gui.dialog.file_not_found.title"),
-                            i18n.t("gui.dialog.file_not_found.text", path=csv_file))
-                return
-            location = str(csv_file.parent)
-        elif target:
-            if not self._path_ok(target):
-                return
-            location = target
-        else:
+        if not location:
             _show_warning(i18n.t("gui.dialog.folder_missing.title"),
                           i18n.t("gui.dialog.folder_missing.text"))
             return
@@ -182,13 +188,8 @@ class RunMixin(GuiBase):
                                                                        name=name)
 
     def _mode_text(self, page: str) -> str:
-        mapping = {
-            "all": self.var_all_mode,
-            "sort": self.var_sort_mode,
-            "tags": getattr(self, "var_tags_mode", self.var_sort_mode),
-            "rename": getattr(self, "var_ren_mode", self.var_sort_mode),
-        }
-        variable = mapping.get(page, self.var_sort_mode)
+        feature = next((item for item in CORE_FEATURES if item.key == page), None)
+        variable = getattr(self, feature.mode_var) if feature else self.var_sort_mode
         return (i18n.t("gui.mode.move") if variable.get() == "move"
                 else i18n.t("gui.mode.copy"))
 
@@ -268,14 +269,15 @@ class RunMixin(GuiBase):
 
     def _watch_inputs(self) -> None:
         """Invalidate a preview as soon as one of its inputs changes."""
-        for variable in (self.var_tags_folder, self.var_tags_target, self.var_tags_mode,
-                         self.var_ren_folder, self.var_ren_target, self.var_ren_mode,
-                         self.var_ren_pattern,
-                         self.var_source, self.var_target, self.var_sort_pattern,
-                         self.var_sort_mode, self.var_all_source, self.var_all_target,
-                         self.var_all_pattern, self.var_all_mode):
-            self._traces.append((variable,
-                                 variable.trace_add("write", self._inputs_changed)))
+        for feature in CORE_FEATURES:
+            names = (feature.source_var, feature.target_var, feature.mode_var,
+                     feature.pattern_var)
+            for name in filter(None, names):
+                variable = getattr(self, name)
+                self._traces.append((variable,
+                                     variable.trace_add("write", self._inputs_changed)))
+        self._traces.append((self.var_track_format,
+                             self.var_track_format.trace_add("write", self._inputs_changed)))
         for option_vars in self.var_tool.values():
             for variable in option_vars.values():
                 self._traces.append((variable,
@@ -291,15 +293,13 @@ class RunMixin(GuiBase):
 
     def _signature(self, page: str) -> tuple:
         rules_id = (self._rules_fingerprint(), rules.rules_status()["custom_total"])
-        if page == "tags":
-            values = (self.var_tags_folder.get(), self.var_tags_target.get(),
-                      self.var_tags_mode.get(), self.var_track_format.get())
-        elif page == "rename":
-            values = (self.var_ren_folder.get(), self.var_ren_target.get(),
-                      self.var_ren_mode.get(), self.var_ren_pattern.get())
-        elif page == "sort":
-            values = (self.var_source.get(), self.var_target.get(),
-                      self.var_sort_pattern.get(), self.var_sort_mode.get())
+        if page in {feature.key for feature in CORE_FEATURES}:
+            feature = core_feature(page)
+            names = (feature.source_var, feature.target_var, feature.mode_var,
+                     feature.pattern_var)
+            values = tuple(getattr(self, name).get() for name in names if name)
+            if any(option.name == "track_format" for option in feature.options):
+                values += (self.var_track_format.get(),)
         elif page == "tools":
             feature = feature_by_key(self.var_tool_choice.get())
             if feature is None:
@@ -311,9 +311,7 @@ class RunMixin(GuiBase):
         elif page == "restore":
             values = ((self._plans.get("restore") or {}).get("source", ""),)
         else:
-            values = (self.var_all_source.get(), self.var_all_target.get(),
-                      self.var_all_pattern.get(), self.var_all_mode.get(),
-                      self.var_track_format.get())
+            values = ()
         return preview.signature(page, values, rules_id)
 
     def _preview_ready(self, page: str) -> bool:
@@ -347,6 +345,7 @@ class RunMixin(GuiBase):
             card.hint(i18n.t("gui.preview.none"))
             if note is not None:
                 note.configure(text=i18n.t("gui.preview.run_first"), fg=TEXT_FAINT)
+                self.root.after_idle(self._fit_top_bar)
             return
         if state.state == "running":
             card.hint(i18n.t("gui.preview.running"))
@@ -357,11 +356,11 @@ class RunMixin(GuiBase):
                 note.configure(text="", fg=TEXT_MUTED)
             else:
                 note.configure(text=i18n.t("gui.preview.stale"), fg=YELLOW)
+            self.root.after_idle(self._fit_top_bar)
 
     def _folder_var(self, page: str) -> tk.StringVar:
-        return {"tags": self.var_tags_folder, "rename": self.var_ren_folder,
-                "sort": self.var_source, "all": self.var_all_source}.get(
-                    page, self.var_tags_folder)
+        feature = next((item for item in CORE_FEATURES if item.key == page), None)
+        return getattr(self, feature.source_var) if feature else self.var_tags_folder
 
     def _refresh_folder_stats(self, page: str, manual: bool = True) -> None:
         """Count files/albums/artists in the background and show the result."""
@@ -573,11 +572,15 @@ class RunMixin(GuiBase):
             return
         if not self.running:
             self._cancel_scan()
+            if getattr(self, "_folder_save_job", None) is not None:
+                self._save_folders()
             self.root.destroy()
             return
         if not _ask_yes_no(i18n.t("gui.dialog.close.title"),
                            i18n.t("gui.dialog.close.text")):
             return
+        if getattr(self, "_folder_save_job", None) is not None:
+            self._save_folders()
         self._closing = True
         self._closing_since = time.monotonic()
         self._cancel_run()
@@ -666,6 +669,34 @@ class RunMixin(GuiBase):
         if text:
             self.status_var.set(text)
 
+    def _core_paths_ok(self, page: str, source: str, target: str,
+                       move: bool = False) -> bool:
+        """Zeige das Ergebnis derselben Pfadprüfung wie bei CLI-Aufträgen."""
+        required = core_feature(page).target_required or move
+        result = check_core_paths(source, target, target_required=required)
+        return self._show_core_path_problem(result, source, target)
+
+    def _show_core_path_problem(self, result, source: str, target: str) -> bool:
+        """Übersetze strukturierte Pfadfehler in passende Dialoge."""
+        if result.problem is None:
+            return True
+        if result.problem == PathProblem.SOURCE_MISSING:
+            return self._path_ok("")
+        if result.problem == PathProblem.SOURCE_INVALID:
+            _show_error(i18n.t("gui.dialog.folder_not_found.title"),
+                        i18n.t("gui.dialog.folder_not_found.text", path=result.source or source))
+            return False
+        if result.problem == PathProblem.TARGET_MISSING:
+            return self._target_ok("")
+        if result.problem == PathProblem.TARGET_IN_SOURCE:
+            _show_warning(i18n.t("gui.dialog.target_in_source.title"),
+                          i18n.t("gui.dialog.target_in_source.text",
+                                 source=_pretty_path(source), target=_pretty_path(target)))
+            return False
+        _show_error(i18n.t("gui.dialog.target_invalid.title"),
+                    i18n.t("gui.dialog.target_invalid.text", path=result.target or target))
+        return False
+
     def _path_ok(self, path: str) -> bool:
         if not path:
             _show_warning(i18n.t("gui.dialog.folder_missing.title"),
@@ -684,6 +715,22 @@ class RunMixin(GuiBase):
             return True
         _show_warning(i18n.t("gui.dialog.target_missing.title"),
                       i18n.t("gui.dialog.target_missing.text"))
+        return False
+
+    def _target_outside_source(self, source: str, target: str) -> bool:
+        """Refuse a target that is the source folder or lies below it."""
+        try:
+            inside = target_inside_source(source, target)
+        except (OSError, RuntimeError, ValueError):
+            _show_error(i18n.t("gui.dialog.target_invalid.title"),
+                        i18n.t("gui.dialog.target_invalid.text", path=target))
+            return False
+        if not inside:
+            return True
+        _show_warning(
+            i18n.t("gui.dialog.target_in_source.title"),
+            i18n.t("gui.dialog.target_in_source.text",
+                   source=_pretty_path(source), target=_pretty_path(target)))
         return False
 
     def _set_buttons(self, enabled: bool) -> None:

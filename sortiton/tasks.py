@@ -20,6 +20,8 @@ from .cancel import NO_CANCEL, Cancelled
 from .config import BACKUP_KEEP, COPY_WORKERS, FALLBACK_ARTIST, WRITE_WORKERS
 from .fileops import atomic_write_text, copy_new, move_no_clobber
 from .files import build_name, free_target, iter_audio, safe_name, same_content
+from .core_features import core_feature
+from .paths import PathProblem, check_core_paths
 from .output import (banner, clear_stats, colorize, current_run_context,
                      message, progress, report_plan, report_stats,
                      require_run_context, submit_with_context)
@@ -33,6 +35,24 @@ CmdArgs = argparse.Namespace | SimpleNamespace
 
 _SUMMARY_LINE = "=" * 62
 _STEP_LINE = "#" * 62
+
+
+def _check_task_paths(page: str, source, target, move: bool = False) -> bool:
+    """Prüfe Pfadregeln vor Vorschau und Ausführung gleichermaßen."""
+    required = core_feature(page).target_required or move
+    result = check_core_paths(source, target, target_required=required)
+    if result.problem is None:
+        return True
+    if result.problem in (PathProblem.SOURCE_MISSING, PathProblem.SOURCE_INVALID):
+        key = "task.error.folder" if page in ("tags", "rename") else "task.error.source"
+        message(i18n.t(key, path=result.source or source or ""))
+    elif result.problem == PathProblem.TARGET_MISSING:
+        message(i18n.t("task.error.target_missing"))
+    elif result.problem == PathProblem.TARGET_IN_SOURCE:
+        message(i18n.t("task.error.target_in_source", target=result.target))
+    else:
+        message(i18n.t("task.error.target_invalid", path=result.target or target or ""))
+    return False
 
 #: ``1``, ``01`` or ``3/12`` - only these forms are normalised.
 _NUMBER_RE = re.compile(r"^(\d+)(?:/\d+)?$")
@@ -236,15 +256,11 @@ def cmd_tags(args: CmdArgs) -> int:
     """Clean the tags of every audio file below ``args.folder``."""
     require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
-    root = Path(args.folder).expanduser()
-    if not root.is_dir():
-        message(i18n.t("task.error.folder", path=root))
-        return 2
-    target = Path(args.target).expanduser() if getattr(args, "target", None) else None
     move = bool(getattr(args, "move", False))
-    if move and target is None:
-        message(i18n.t("task.error.target_required"))
+    if not _check_task_paths("tags", args.folder, getattr(args, "target", None), move):
         return 2
+    root = Path(args.folder).expanduser()
+    target = Path(args.target).expanduser() if getattr(args, "target", None) else None
 
     banner(i18n.t("task.title.tags"), not args.apply)
     files = list(iter_audio(root))
@@ -422,15 +438,11 @@ def cmd_rename(args: CmdArgs) -> int:
     """Rename the files below ``args.folder`` from their tags."""
     require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
-    root = Path(args.folder).expanduser()
-    if not root.is_dir():
-        message(i18n.t("task.error.folder", path=root))
-        return 2
-    target = Path(args.target).expanduser() if getattr(args, "target", None) else None
     move = bool(getattr(args, "move", False))
-    if move and target is None:
-        message(i18n.t("task.error.target_required"))
+    if not _check_task_paths("rename", args.folder, getattr(args, "target", None), move):
         return 2
+    root = Path(args.folder).expanduser()
+    target = Path(args.target).expanduser() if getattr(args, "target", None) else None
 
     banner(i18n.t("task.title.rename"), not args.apply)
     message(i18n.t("task.label.folder", value=root))
@@ -550,11 +562,10 @@ def cmd_sort(args: CmdArgs) -> int:
     """Sort the files below ``args.source`` into ``args.target``."""
     require_run_context()
     cancel = getattr(args, "cancel", NO_CANCEL)
+    if not _check_task_paths("sort", args.source, args.target):
+        return 2
     source = Path(args.source).expanduser()
     target = Path(args.target).expanduser()
-    if not source.is_dir():
-        message(i18n.t("task.error.source", path=source))
-        return 2
 
     action = i18n.t("task.action.move") if args.move else i18n.t("task.action.copy")
     banner(i18n.t("task.title.sort", action=action), not args.apply)
@@ -711,6 +722,8 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
 def cmd_all(args: CmdArgs) -> int:
     """All-in-one: clean tags -> rename -> sort."""
     require_run_context()
+    if not _check_task_paths("all", args.source, args.target):
+        return 2
     banner(i18n.t("task.title.all"), not args.apply)
     message(i18n.t("task.label.source", value=args.source))
     message(i18n.t("task.label.target", value=args.target))

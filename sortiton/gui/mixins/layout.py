@@ -29,6 +29,7 @@ CONFIG_MAX = 560       # größte sinnvolle Formularbreite
 # Startbreite: die Konfigurationsleiste beginnt immer in Maximalbreite.
 CONFIG_DEFAULT = CONFIG_MAX
 CONTENT_CAP = 720      # Maximalbreite für Lesetexte/Eingaben im Stapelmodus
+SCROLLBAR_WIDTH = 13   # Platz der vertikalen Scrollbar, auch ohne Überlauf
 
 
 class LayoutMixin(PageMixin):
@@ -197,11 +198,20 @@ class LayoutMixin(PageMixin):
         # Kopfzeile: Tabs links, Freigabe rechts (der Hinweis weicht zuerst).
         actions_area = getattr(self, "_actions_area", None)
         if actions_area is not None:
-            actions_needed = actions_area.winfo_reqwidth()
-            note = self._preview_notes.get(self.var_page.get())
-            if note is not None and note.winfo_manager() == "pack":
-                actions_needed -= (note.winfo_reqwidth()
-                                   + design.px(14))
+            # Für die Mindestbreite zählt die breiteste Knopfreihe ohne den
+            # erklärenden Hinweis; der darf bei Platzmangel weichen. Dadurch
+            # bleibt die Mindestbreite beim Tabwechsel stabil.
+            widths = []
+            for key, frame in getattr(self, "_action_frames", {}).items():
+                try:
+                    width = frame.winfo_reqwidth()
+                except tk.TclError:
+                    continue
+                note = self._preview_notes.get(key)
+                if note is not None and note.winfo_manager() == "pack":
+                    width -= note.winfo_reqwidth() + design.px(14)
+                widths.append(width)
+            actions_needed = max(widths, default=actions_area.winfo_reqwidth())
             needs += max(actions_needed, 1) + design.px(12)
         needed = needs
         # Fußzeile: Einstellungen, Status und Schnellzugriffe müssen zusammenpassen.
@@ -238,11 +248,16 @@ class LayoutMixin(PageMixin):
         bar = getattr(self, "_tabs_bar", None)
         actions = getattr(self, "_actions_area", None)
         tabs = getattr(self, "_tabs", None)
-        note = self._preview_notes.get(self.var_page.get())
-        if bar is None or actions is None or tabs is None or note is None:
+        if bar is None or actions is None or tabs is None:
             return
         width = bar.winfo_width()
         if width <= 1:
+            return
+        note = self._preview_notes.get(self.var_page.get())
+        if note is None:
+            # Nur-Lese-Werkzeuge haben keinen Hinweis; die Fläche muss trotzdem
+            # auf die aktive Knopfreihe zugeschnitten werden.
+            self._size_actions_area()
             return
         note_width = note.winfo_reqwidth() + design.px(14)
         packed = note.winfo_manager() == "pack"
@@ -252,13 +267,50 @@ class LayoutMixin(PageMixin):
             note.pack_forget()
         elif not packed and needed + note_width <= width:
             note.pack(side="left", padx=(design.px(14), 0))
+        self._size_actions_area()
+
+    def _size_actions_area(self) -> None:
+        """Aktionsfläche auf die Knopfreihe der sichtbaren Seite zuschneiden.
+
+        Alle Knopfreihen bleiben dauerhaft gemappt und liegen übereinander.
+        Die Fläche bekommt trotzdem nur die Größe der aktiven Reihe, damit die
+        Kopfzeile nicht dauerhaft den Platz der breitesten Reihe reserviert.
+        """
+        area = getattr(self, "_actions_area", None)
+        if area is None:
+            return
+        frame = self._action_frames.get(self.var_page.get())
+        if frame is None:
+            return
+        try:
+            width = max(frame.winfo_reqwidth(), 1)
+            height = max(frame.winfo_reqheight(), 1)
+        except tk.TclError:
+            return
+        if width <= 1 or height <= 1:
+            # Eine gerade erst erzeugte Reihe hat ihre angeforderte Größe noch
+            # nicht; Tk berechnet sie erst im nächsten Idle-Lauf.
+            if not getattr(self, "_actions_size_retry", False):
+                self._actions_size_retry = True
+                self.root.after_idle(self._retry_actions_size)
+            return
+        self._actions_size_retry = False
+        if (area.winfo_reqwidth(), area.winfo_reqheight()) == (width, height):
+            return
+        area.configure(width=width, height=height)
+        self._apply_minsize()
+
+    def _retry_actions_size(self) -> None:
+        """Zweiter Versuch, sobald Tk die Größe einer neuen Knopfreihe kennt."""
+        self._actions_size_retry = False
+        self._fit_top_bar()
 
     def _set_style(self) -> None:
         style = ttk.Style(self.root)
         style.theme_use("clam")
         for orientation in ("Vertical", "Horizontal"):
             name = f"Dark.{orientation}.TScrollbar"
-            style.configure(name, gripcount=0, width=design.px(13),
+            style.configure(name, gripcount=0, width=design.px(SCROLLBAR_WIDTH),
                             background=SCROLLBAR, darkcolor=SCROLLBAR,
                             lightcolor=SCROLLBAR, troughcolor=LOG_BG, bordercolor=LOG_BG,
                             arrowcolor=TEXT_MUTED, arrowsize=design.px(15))
@@ -326,6 +378,7 @@ class LayoutMixin(PageMixin):
         # hängt am Root, in_= setzt sie in die Leiste der Tabs.
         self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
         self._actions_area.columnconfigure(0, weight=1)
+        self._actions_area.grid_propagate(False)
         self._actions_area.grid(row=0, column=3, sticky="e", in_=bar)
         self._actions_area.lift()
         bar.bind("<Configure>", self._fit_top_bar, add="+")
@@ -348,6 +401,10 @@ class LayoutMixin(PageMixin):
         """Scrollable configuration column; returns the frame that holds the pages."""
         config_area = tk.Frame(workspace, bg=CARD)
         config_area.columnconfigure(0, weight=1)
+        # Die Scrollbar-Spalte bleibt auch ohne Überlauf reserviert. Sonst
+        # ändert sich beim Seitenwechsel die Breite der Konfiguration und der
+        # Vorschau, sobald der Balken erscheint oder verschwindet.
+        config_area.columnconfigure(1, minsize=design.px(SCROLLBAR_WIDTH))
         config_area.rowconfigure(0, weight=1)
         self._config_area = config_area
         canvas = tk.Canvas(config_area, bg=CARD, highlightthickness=0, bd=0,
@@ -365,6 +422,7 @@ class LayoutMixin(PageMixin):
         self._content_canvas = canvas
         self._content_window = content_window
         self._content_scrollbar = scrollbar
+        self._content = content
         content.bind("<Configure>", lambda _event: self._update_content_scrollbar())
         canvas.bind("<Configure>", lambda event: self._sync_content_width())
         self.root.bind_all("<MouseWheel>", self._scroll_content)
@@ -387,6 +445,11 @@ class LayoutMixin(PageMixin):
         preview_area = tk.Frame(workspace, bg=BACKGROUND)
         preview_area.columnconfigure(0, weight=1)
         preview_area.rowconfigure(0, weight=1)
+        # Leere Fläche für nur lesende Werkzeuge. Sie bleibt wie alle Karten
+        # dauerhaft gemappt; sichtbar ist immer die oberste Karte.
+        blank = tk.Frame(preview_area, bg=BACKGROUND)
+        blank.grid(row=0, column=0, sticky="nsew")
+        self._preview_blank = blank
         self._preview_area = preview_area
 
     def _build_pages(self, content: tk.Frame) -> None:
@@ -399,7 +462,11 @@ class LayoutMixin(PageMixin):
             "tools":  self._page_tools(content),
         }
         for page in self.pages.values():
-            page.grid(row=0, column=0, sticky="nsew")
+            # Alle Seiten bleiben gemappt und liegen übereinander. Nur die
+            # aktive Seite wird nach vorne geholt; das vermeidet das schwarze
+            # Aufblitzen beim Unmap/Map-Wechsel.
+            page.place(x=0, y=0, relwidth=1, relheight=1)
+            page.bind("<Configure>", self._page_configured, add="+")
         self._show_page(self.var_page.get())
 
     def _window_logical_width(self) -> int:
@@ -511,7 +578,7 @@ class LayoutMixin(PageMixin):
             width = min(width, design.px(CONTENT_CAP))
         canvas.itemconfigure(window, width=max(width, 1))
         canvas.coords(window, 0, 0)
-        self.root.after_idle(self._update_content_scrollbar)
+        self.root.after_idle(self._refresh_content_layout)
 
     def _bind_shortcuts(self) -> None:
         """Ctrl+1 … Ctrl+5 pick a page, right where the tabs are."""
@@ -520,44 +587,95 @@ class LayoutMixin(PageMixin):
                            lambda _event, name=page: self._show_page(name))
 
     def _update_content_scrollbar(self) -> None:
-        """Show a scrollbar only when the active page exceeds the viewport."""
+        """Scrollbereich und Balken an der aktiven Seite ausrichten.
+
+        Die Seiten liegen übereinander und füllen gemeinsam die höchste
+        angeforderte Höhe. Gescrollt wird trotzdem nur bis zum Ende der
+        sichtbaren Seite, damit darunter keine verdeckten Seiten erscheinen.
+        """
         canvas = self._content_canvas
         region = canvas.bbox("all")
         if region is None:
             return
-        canvas.configure(scrollregion=region)
-        content_height = region[3] - region[1]
+        page = getattr(self, "_active_page", None)
+        try:
+            content_height = max(page.winfo_reqheight(), 1) if page is not None else 1
+        except tk.TclError:
+            content_height = region[3] - region[1]
+        canvas.configure(scrollregion=(0, 0, region[2] - region[0], content_height))
         if content_height > canvas.winfo_height() + 1:
             self._content_scrollbar.grid(row=0, column=1, sticky="ns")
         else:
             self._content_scrollbar.grid_remove()
 
+    def _fit_content_height(self) -> None:
+        """Platz für die höchste Seite reservieren, ohne bei jedem Wechsel zu resizen."""
+        content = getattr(self, "_content", None)
+        if content is None:
+            return
+        heights = []
+        for page in self.pages.values():
+            try:
+                heights.append(page.winfo_reqheight())
+            except tk.TclError:
+                continue
+        height = max(heights, default=1)
+        if height == getattr(self, "_content_height", 0):
+            return
+        self._content_height = height
+        content.configure(height=height)
+
+    def _refresh_content_layout(self) -> None:
+        """Reservierte Höhe und Scrollbalken nach Layoutänderungen nachziehen."""
+        self._fit_content_height()
+        self._update_content_scrollbar()
+
+    def _page_configured(self, event) -> None:
+        """Nach einer Größenänderung den reservierten Platz nachziehen."""
+        self._fit_content_height()
+        if event.widget is getattr(self, "_active_page", None):
+            self._update_content_scrollbar()
+
     def _show_page(self, value: str) -> None:
-        self.var_page.set(value)
-        for name, page in self.pages.items():
-            if name == value:
-                page.grid()
-            else:
-                page.grid_remove()
-        for name, frame in self._action_frames.items():
-            if name == value:
-                frame.grid()
-            else:
-                frame.grid_remove()
+        """Wechselt die Seite, ohne Fenster zu unmapen oder neu zu mappen.
+
+        Alle Seiten und Vorschaukarten bleiben dauerhaft gemappt und liegen
+        übereinander. Sichtbar ist immer die nach vorne geholte Seite. Ein
+        Aus- und wieder Einhängen würde dagegen für einen Zeichenzyklus eine
+        leere (im dunklen Thema schwarze) Fläche hinterlassen.
+        """
+        if self.var_page.get() != value:
+            self.var_page.set(value)
+
+        page = self.pages.get(value)
+        if page is not None:
+            self._active_page = page
+            self._fit_content_height()
+            page.tkraise()
+
+        frame = self._action_frames.get(value)
+        if frame is not None:
+            frame.tkraise()
+        self._size_actions_area()
+
         # In der rechten Spalte ist nur die Karte der aktiven Funktion sichtbar;
-        # ein nur lesendes Werkzeug zeigt keine Karte (kein Schreiben, keine Vorschau).
+        # ein nur lesendes Werkzeug zeigt die leere Fläche (kein Schreiben,
+        # keine Vorschau). Auch hier wird nichts ausgehängt, nur nach vorne
+        # geholt.
         tool_feature = (feature_by_key(self.var_tool_choice.get())
                         if value == "tools" else None)
-        for name, card in getattr(self, "_previews", {}).items():
-            if name == value and not (name == "tools" and tool_feature is not None
-                                      and not tool_feature.writes):
-                card.grid(row=0, column=0, sticky="nsew")
-            else:
-                card.grid_remove()
+        previews = getattr(self, "_previews", {})
+        card = previews.get(value)
+        if value == "tools" and tool_feature is not None and not tool_feature.writes:
+            card = None
+        shown = card if card is not None else getattr(self, "_preview_blank", None)
+        if shown is not None:
+            shown.tkraise()
+
         canvas = getattr(self, "_content_canvas", None)
         if canvas is not None:
             canvas.yview_moveto(0)
-            self.root.after_idle(self._update_content_scrollbar)
+            self.root.after_idle(self._refresh_content_layout)
         self.root.after_idle(self._fit_top_bar)
         if getattr(self, "_footer", None) is not None:
             self.root.after_idle(self._fit_footer)

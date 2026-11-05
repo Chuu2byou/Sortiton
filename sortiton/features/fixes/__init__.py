@@ -10,6 +10,7 @@ from ... import external, i18n, journal, output
 from ...backup import backup_files
 from ...cancel import NO_CANCEL, Cancelled
 from ...config import AUDIO_EXTENSIONS
+from ...files import canonical_path
 from ...tags import MULTI_VALUE_FIELDS, read_info, write_tags
 from ..base import CmdArgs, Feature, Option, Requirement, resolve_args
 from . import parse
@@ -73,7 +74,7 @@ def cmd_fixes(args: CmdArgs) -> int:
     root: Path | None = None
     root_text = str(getattr(args, "root", "") or "").strip()
     if root_text:
-        root = Path(root_text).expanduser().resolve()
+        root = canonical_path(root_text)
         if not root.is_dir():
             output.message(i18n.t("task.error.folder", path=root))
             return 2
@@ -255,9 +256,10 @@ FEATURE = Feature(
     help_key="cli.fixes.help",
     run=cmd_fixes,
     options=(
-        Option("file", "text", positional=True, help_key="cli.fixes.file"),
+        Option("file", "text", positional=True, help_key="cli.fixes.file",
+               path_role="input_file"),
         Option("root", "folder", None, "cli.fixes.root",
-               flags=("-r", "--root")),
+               flags=("-r", "--root"), path_role="source_folder"),
         Option("apply", "bool", False, "cli.fixes.apply", flags=("--apply",)),
         Option("backup", "bool", False, "cli.fixes.backup", flags=("--backup",)),
     ),

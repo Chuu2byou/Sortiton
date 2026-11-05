@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable, TypedDict
@@ -86,6 +87,7 @@ class RoundButton(tk.Canvas):
 
     _PAD_X = 15          # seitlicher Innenabstand (logische Pixel)
     _PAD_Y = 7           # Abstand über und unter der Beschriftung
+    _KEY_GUARD = 0.35    # Tastenwiederholung nicht als zweiter Klick zählen
 
     def __init__(self, parent: tk.Misc, text: str, command: Callable[[], None] | None = None,
                  style: str = "normal", height: int = 34, radius: int = 10) -> None:
@@ -98,6 +100,7 @@ class RoundButton(tk.Canvas):
         self._enabled = True
         self._hover = False
         self._pressed = False
+        self._last_key = 0.0
         width = self._font.measure(text) + 2 * design.px(self._PAD_X)
         height_px = max(design.px(height),
                         self._font.metrics("linespace") + 2 * design.px(self._PAD_Y))
@@ -128,6 +131,10 @@ class RoundButton(tk.Canvas):
         self._apply_text(text)
 
     def _on_key(self, _event) -> str:
+        now = time.monotonic()
+        if now - self._last_key < self._KEY_GUARD:
+            return "break"
+        self._last_key = now
         if self._enabled and self._command is not None:
             self._command()
         return "break"

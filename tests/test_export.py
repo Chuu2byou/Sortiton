@@ -594,11 +594,7 @@ def test_export_never_overwrites_a_foreign_report() -> None:
 @pytest.mark.external
 @pytest.mark.slow
 def test_export_keeps_foreign_files_when_source_is_output() -> None:
-    """Quelle = Ausgabe darf keine fremde TSV/Berichte löschen.
-
-    Vor dem Fix löschte ``_clear_reports`` feste Namen und alles, was auf
-    ``tracks_part*.tsv`` passt - ohne zu prüfen, wer die Datei geschrieben hat.
-    """
+    """Quelle = Ausgabe wird abgewiesen, ohne fremde Dateien zu verändern."""
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -615,10 +611,9 @@ def test_export_keeps_foreign_files_when_source_is_output() -> None:
         with mock.patch("sortiton.output.message"):
             rc = cmd_export(SimpleNamespace(folder=str(music), output=str(music),
                                             chunk_chars=1500, examples=5))
-        check("export with source == output works", rc == 0, str(rc))
-        check("foreign files survive the export", _unchanged(music, personal))
-        check("the run wrote its own reports", (music / "00_prompt.md").is_file())
-        check("the run wrote a provenance manifest", (music / MANIFEST).is_file())
+        check("export with source == output is refused", rc == 2, str(rc))
+        check("foreign files survive the rejected export", _unchanged(music, personal))
+        check("no provenance manifest is created", not (music / MANIFEST).exists())
 
 
 @pytest.mark.external

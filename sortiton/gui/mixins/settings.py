@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import os
 import tkinter as tk
 
 from ... import config, settings
 from .. import translations as i18n
-from ...core_features import PATTERN_DEFAULT
+from ...core_features import CORE_FEATURES, PATTERN_DEFAULT
 from ...features import FEATURES
+from ...paths import check_core_paths
 from .. import design
 from ..dialogs import _show_warning
 from ..preferences import PreferencesWindow
@@ -20,20 +23,20 @@ class SettingsMixin(GuiBase):
 
     def _make_vars(self) -> None:
         """Create every StringVar once - they survive a language switch."""
-        paths = config.current_paths()
-        self.var_tags_folder = tk.StringVar(value=str(paths.music_source_dir))
-        self.var_tags_target = tk.StringVar(value=str(paths.music_source_dir))
+        folders = settings.restore_folder_values(config.current_paths())
+        self.var_tags_folder = tk.StringVar(value=folders["tags_source"])
+        self.var_tags_target = tk.StringVar(value=folders["tags_target"])
         self.var_tags_mode = tk.StringVar(value="copy")
-        self.var_ren_folder = tk.StringVar(value=str(paths.music_source_dir))
-        self.var_ren_target = tk.StringVar(value=str(paths.music_source_dir))
+        self.var_ren_folder = tk.StringVar(value=folders["rename_source"])
+        self.var_ren_target = tk.StringVar(value=folders["rename_target"])
         self.var_ren_pattern = tk.StringVar(value=PATTERN_DEFAULT)
         self.var_ren_mode = tk.StringVar(value="copy")
-        self.var_source = tk.StringVar(value=str(paths.music_source_dir))
-        self.var_target = tk.StringVar(value=str(paths.music_target_dir))
+        self.var_source = tk.StringVar(value=folders["sort_source"])
+        self.var_target = tk.StringVar(value=folders["sort_target"])
         self.var_sort_pattern = tk.StringVar(value=PATTERN_DEFAULT)
         self.var_sort_mode = tk.StringVar(value="copy")
-        self.var_all_source = tk.StringVar(value=str(paths.music_source_dir))
-        self.var_all_target = tk.StringVar(value=str(paths.music_target_dir))
+        self.var_all_source = tk.StringVar(value=folders["all_source"])
+        self.var_all_target = tk.StringVar(value=folders["all_target"])
         self.var_all_pattern = tk.StringVar(value=PATTERN_DEFAULT)
         self.var_all_mode = tk.StringVar(value="copy")
         self.var_page = tk.StringVar(value="tags")
@@ -44,14 +47,81 @@ class SettingsMixin(GuiBase):
         self.var_tool_choice = tk.StringVar(value=FEATURES[0].key if FEATURES else "")
         self.status_var = i18n.StringVar(master=self.root, value="")
         self._seed_tool_folders()
+        self._restore_tool_folders()
         apply_stored(self.var_tool)
         self._watch_fine_tuning()
+        self._folder_save_job = None
+        for feature in CORE_FEATURES:
+            for name in (feature.source_var, feature.target_var):
+                getattr(self, name).trace_add("write", self._folders_changed)
+        for feature in FEATURES:
+            for option in feature.options:
+                if option.kind == "folder":
+                    self.var_tool[feature.key][option.name].trace_add("write", self._folders_changed)
+
+    def _folders_changed(self, *_args) -> None:
+        """Texteingaben gebündelt speichern statt bei jedem Tastendruck."""
+        if self._folder_save_job is not None:
+            self.root.after_cancel(self._folder_save_job)
+        self._folder_save_job = self.root.after(400, self._save_folders)
+
+    def _save_folders(self) -> None:
+        """Alle Seitenpfade dauerhaft sichern."""
+        if self._folder_save_job is not None:
+            self.root.after_cancel(self._folder_save_job)
+            self._folder_save_job = None
+        values = {}
+        for feature in CORE_FEATURES:
+            for kind, name in (("source", feature.source_var), ("target", feature.target_var)):
+                values[f"{feature.key}_{kind}"] = getattr(self, name).get().strip()
+        for feature in FEATURES:
+            for option in feature.options:
+                if option.kind == "folder":
+                    values[f"tool_{feature.key}_{option.name}"] = str(
+                        self.var_tool[feature.key][option.name].get()).strip()
+        for key, value in values.items():
+            try:
+                values[key] = str(Path(value).expanduser().absolute()) if value else ""
+            except (OSError, RuntimeError, ValueError):
+                pass
+        settings.save_folder_values(values)
+
+    def _restore_tool_folders(self) -> None:
+        """Werkzeugordner aus den Einstellungen anhand ihrer Rollen laden."""
+        stored = settings.read_folder_values()
+        for feature in FEATURES:
+            for option in feature.options:
+                if option.path_role != "source_folder":
+                    continue
+                key = f"tool_{feature.key}_{option.name}"
+                if key not in stored or (option.positional and os.environ.get("SORTITON_FOLDER", "").strip()):
+                    continue
+                value = stored[key].strip()
+                try:
+                    valid = not value or Path(value).expanduser().is_dir()
+                except (OSError, RuntimeError, ValueError):
+                    valid = False
+                if valid:
+                    self.var_tool[feature.key][option.name].set(value)
+            sources = [self.var_tool[feature.key][option.name].get()
+                       for option in feature.options if option.path_role == "source_folder"]
+            for option in feature.options:
+                if option.path_role != "output_folder":
+                    continue
+                key = f"tool_{feature.key}_{option.name}"
+                if key not in stored:
+                    continue
+                value = stored[key].strip()
+                if value and feature.output_outside_source:
+                    if not sources or check_core_paths(sources[0], value).problem is not None:
+                        value = ""
+                self.var_tool[feature.key][option.name].set(value)
 
     def _seed_tool_folders(self) -> None:
         """Prefill empty tool folders with the music folder - that is the usual case."""
         for feature in FEATURES:
             for option in feature.options:
-                if option.kind != "folder" or option.name not in ("folder", "target"):
+                if option.path_role != "source_folder" or not option.positional:
                     continue
                 variable = self.var_tool[feature.key][option.name]
                 if not str(variable.get()).strip():

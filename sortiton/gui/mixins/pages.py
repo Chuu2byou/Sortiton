@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 import tkinter as tk
 
-from ...core_features import core_feature
+from ...core_features import CORE_FEATURES, core_feature
 from ...features import get as feature_by_key
 from .. import design
 from .. import translations as i18n
@@ -58,6 +58,11 @@ class PageMixin(GuiBase):
         self._previews = {}
         self._stats_labels = {}
         self._tool_widgets = {}
+        self._active_page = None
+        self._preview_blank = None
+        self._content = None
+        self._content_height = 0
+        self._actions_size_retry = False
 
     def _new_page(self, parent: tk.Frame) -> tk.Frame:
         page = tk.Frame(parent, bg=CARD)
@@ -144,14 +149,20 @@ class PageMixin(GuiBase):
         self._tools_buttons = self.action_buttons[before:]
 
         card = self._previews.get("tools")
-        if card is not None:
-            if feature is not None and feature.writes:
-                card.grid()
-            else:
-                card.grid_remove()
         if self.var_page.get() == "tools":
-            self._action_frames["tools"].grid()
+            shown = card if feature is not None and feature.writes else self._preview_blank
+            if shown is not None:
+                shown.tkraise()
+        # Die neu erzeugte Reihe liegt durch das Grid oben; die aktive Seite
+        # muss sie deshalb wieder überdecken, auch wenn die Werkzeuge nicht
+        # sichtbar sind.
+        active = self._action_frames.get(self.var_page.get())
+        if active is not None:
+            active.tkraise()
+        self._size_actions_area()
         self._render_preview("tools")
+        self.root.after_idle(self._fit_top_bar)
+        self.root.after_idle(self._refresh_content_layout)
 
     def _card(self, parent: tk.Frame, row: int, title: str = "") -> tk.Frame:
         """Ungefasster Formularabschnitt auf der gemeinsamen Arbeitsfläche."""
@@ -260,12 +271,16 @@ class PageMixin(GuiBase):
                   add="+")
 
     def _choose_folder(self, variable: tk.StringVar) -> None:
+        feature = next((item for item in CORE_FEATURES
+                        if getattr(self, item.target_var, None) is variable), None)
+        source = (getattr(self, feature.source_var).get().strip() if feature else "")
         start = variable.get().strip()
-        start_dir = Path(start).expanduser() if start else Path.home()
+        fallback = Path(source).expanduser().parent if source else Path.home()
+        start_dir = Path(start).expanduser() if start else fallback
         if not start_dir.is_dir():
-            start_dir = Path.home()
+            start_dir = fallback if fallback.is_dir() else Path.home()
         chosen = _pick_folder(start_dir)
-        if chosen:
+        if chosen and (not source or self._target_outside_source(source, chosen)):
             variable.set(chosen)
 
     def _choose_file(self, variable: tk.StringVar) -> None:

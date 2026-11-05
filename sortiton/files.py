@@ -139,6 +139,28 @@ def same_content(a: Path, b: Path) -> bool:
         return False
 
 
+def canonical_path(path: Path | str) -> Path:
+    """Pfade für Vergleiche physisch auflösen; relative Pfade nutzen das CWD."""
+    return Path(path).expanduser().resolve()
+
+
+def target_inside_source(source: Path | str, target: Path | str) -> bool:
+    """True when ``target`` is the source folder or lies below it.
+
+    A run that writes into the folder being scanned would feed its own result
+    into the next run, so the GUI and the CLI refuse such a target for every
+    operation that has one.
+    """
+    source_path = canonical_path(source)
+    target_path = canonical_path(target)
+    if target_path == source_path or source_path in target_path.parents:
+        return True
+    try:
+        return target_path.exists() and source_path.samefile(target_path)
+    except OSError:
+        return False
+
+
 def iter_audio(root: Path, extensions: set[str] = AUDIO_EXTENSIONS):
     """Yield every audio file below ``root`` (hidden entries are ignored)."""
     for folder, subfolders, files in os.walk(root):
