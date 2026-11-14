@@ -1,5 +1,7 @@
 [MAIN]
-# CI check for real errors (E) and fatal problems (F) only. Style (C),
-# refactoring (R) and warnings (W) stay off: they depend on the pylint version
-# and would fail on taste.
+# CI check for real errors (E) and fatal problems (F) plus the three findings
+# that a review always wants: unused imports, unused variables and bare
+# `except:`. Style (C), refactoring (R) and the rest of the warnings (W) stay
+# off: they depend on the pylint version and would fail on taste.
 disable=W,C,R
+enable=unused-import,unused-variable,bare-except

@@ -1,19 +1,15 @@
-"""Undo window: pick a run journal, see what undoing it would do, then undo it.
-
-Reading a journal is instant, so the preview is drawn straight from the file -
-no worker thread and no second task run. Writing goes through the normal task
-path (:func:`sortiton.tasks.cmd_restore`), so log window, progress bar and the
-result card behave exactly like on the other pages.
-"""
+"""Undo window: pick a run journal, see what undoing it would do, then undo it."""
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 from typing import Callable, cast
 
-from .. import i18n, journal
+from .. import journal
+from . import translations as i18n
 from . import design
 from .confirm import ask_confirm
 from .design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD, TEXT,
@@ -21,11 +17,9 @@ from .design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD, TEXT,
 from .panels import PreviewCard, section_label
 from .widgets import RoundButton
 
-# How many concrete undo steps the preview lists before it only counts them.
 MAX_ROWS = 4
 
-# A callback of the window: (journal, keep_copies) -> start the undo run.
-RunHook = Callable[[Path, bool], None]
+RunHook = Callable[[Path, bool], bool]
 
 
 def _basename(value: object) -> str:
@@ -50,7 +44,7 @@ def undo_rows(events: list[dict]) -> list[tuple[str, str, str, str]]:
         elif op == "copy":
             rows.append((i18n.t("gui.restore.op.copy"),
                          _basename(event.get("target")), "", ""))
-        elif op in ("rename", "sort"):
+        elif op in ("rename", "sort", "dedupe"):
             rows.append((i18n.t("gui.restore.op.move"),
                          _basename(event.get("target")),
                          _basename(event.get("source")), ""))
@@ -64,10 +58,21 @@ def undo_rows(events: list[dict]) -> list[tuple[str, str, str, str]]:
     return rows
 
 
+def _op_label(op: str) -> str:
+    """Translated name of a journal operation for the summary line."""
+    if op == "tags":
+        return i18n.t("gui.restore.op.tags")
+    if op in ("rename", "sort", "dedupe"):
+        return i18n.t("gui.restore.op.move")
+    if op == "copy":
+        return i18n.t("gui.restore.op.copy")
+    return i18n.t("gui.restore.op.other")
+
+
 def undo_summary(events: list[dict]) -> str:
     """One line: how many events of which kind this journal holds."""
     counts = journal.summarize(events)
-    parts = ", ".join(f"{op} {count}" for op, count in counts.items())
+    parts = ", ".join(f"{_op_label(op)} {count}" for op, count in counts.items())
     return i18n.t("gui.restore.summary", total=len(events), parts=parts or "-")
 
 
@@ -75,44 +80,51 @@ class RestoreWindow(tk.Toplevel):
     """Pick a journal, look at the plan, undo the run."""
 
     def __init__(self, parent: tk.Misc, on_run: RunHook,
-                 backup: tk.BooleanVar) -> None:
+                 backup: tk.BooleanVar, preselect: Path | None = None) -> None:
         super().__init__(parent)
         self._on_run = on_run
         self._backup = backup
         self._journals = journal.find_journals()
+        self._preselect = Path(preselect) if preselect is not None else None
         self._chosen: Path | None = None
+        self._events: dict[Path, list[dict]] = {}
+        self._entries: list[tuple[Path, int, str]] = []
+        self._loaded = threading.Event()
 
-        self.title(i18n.t("gui.restore.title"))
+        i18n.bind_title(self, i18n.t("gui.restore.title"))
         self.configure(bg=BACKGROUND)
         self.transient(cast(tk.Wm, parent.winfo_toplevel()))
-        width, height = 900, 560
+        width, height = design.px(900), design.px(580)
         x = max(parent.winfo_rootx() + (parent.winfo_width() - width) // 2, 0)
         y = max(parent.winfo_rooty() + (parent.winfo_height() - height) // 2, 0)
         self.geometry(f"{width}x{height}+{x}+{y}")
-        self.minsize(720, 460)
+        self.minsize(design.px(720), design.px(460))
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
         header = tk.Frame(self, bg=BACKGROUND)
-        header.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
-        tk.Label(header, text=i18n.t("gui.restore.heading"), bg=BACKGROUND, fg=TEXT,
+        header.grid(row=0, column=0, sticky="ew", padx=design.px(20),
+                    pady=(design.px(16), design.px(8)))
+        i18n.Label(header, text=i18n.t("gui.restore.heading"), bg=BACKGROUND, fg=TEXT,
                  font=design.FONT_SECTION).grid(row=0, column=0, sticky="w")
-        tk.Label(header, text=i18n.t("gui.restore.note"), bg=BACKGROUND, fg=TEXT_MUTED,
-                 font=design.FONT_SMALL, justify="left", wraplength=840).grid(
-                     row=1, column=0, sticky="w", pady=(2, 0))
+        i18n.Label(header, text=i18n.t("gui.restore.note"), bg=BACKGROUND, fg=TEXT_MUTED,
+                 font=design.FONT_SMALL, justify="left",
+                 wraplength=design.px(840)).grid(
+                     row=1, column=0, sticky="w", pady=(design.px(2), 0))
 
         body = tk.Frame(self, bg=BACKGROUND)
-        body.grid(row=1, column=0, sticky="nsew", padx=20)
+        body.grid(row=1, column=0, sticky="nsew", padx=design.px(20))
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
 
         left = tk.Frame(body, bg=CARD, highlightthickness=1,
                         highlightbackground=BORDER, bd=0)
         left.grid(row=0, column=0, sticky="ns")
-        section_label(left, i18n.t("gui.restore.journals")).pack(anchor="w", padx=14,
-                                                                 pady=(12, 6))
+        section_label(left, i18n.t("gui.restore.journals")).pack(
+            anchor="w", padx=design.px(14), pady=(design.px(12), design.px(6)))
         listing = tk.Frame(left, bg=CARD)
-        listing.pack(fill="both", expand=True, padx=14, pady=(0, 12))
+        listing.pack(fill="both", expand=True, padx=design.px(14),
+                     pady=(0, design.px(12)))
         self._list = tk.Listbox(listing, bg=FIELD, fg=TEXT, selectbackground=ACCENT,
                                 selectforeground=ACCENT_TEXT, activestyle="none",
                                 highlightthickness=0, bd=0, width=38, height=14,
@@ -125,42 +137,93 @@ class RestoreWindow(tk.Toplevel):
         self._list.bind("<<ListboxSelect>>", self._pick)
 
         self._card = PreviewCard(body, i18n.t("gui.section.preview"))
-        self._card.grid(row=0, column=1, sticky="nsew", padx=(14, 0))
+        self._card.grid(row=0, column=1, sticky="nsew", padx=(design.px(14), 0))
 
         footer = tk.Frame(self, bg=BACKGROUND)
-        footer.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 16))
+        footer.grid(row=2, column=0, sticky="ew", padx=design.px(20),
+                    pady=(design.px(10), design.px(16)))
         footer.columnconfigure(0, weight=1)
         self._status = tk.StringVar(value="")
-        tk.Label(footer, textvariable=self._status, bg=BACKGROUND, fg=TEXT_FAINT,
+        i18n.Label(footer, textvariable=self._status, bg=BACKGROUND, fg=TEXT_FAINT,
                  font=design.FONT_SMALL).grid(row=0, column=0, sticky="w")
 
         buttons = tk.Frame(footer, bg=BACKGROUND)
-        buttons.grid(row=1, column=0, sticky="e", pady=(10, 0))
+        buttons.grid(row=1, column=0, sticky="e", pady=(design.px(10), 0))
         RoundButton(buttons, i18n.t("gui.button.close"), self.destroy,
-                    style="normal", height=32).pack(side="left")
+                    style="normal", height=34).pack(side="left")
         self._undo_button = RoundButton(buttons, i18n.t("gui.restore.run"), self._undo,
-                                        style="apply", height=32)
-        self._undo_button.pack(side="left", padx=(8, 0))
+                                        style="apply", height=34)
+        self._undo_button.pack(side="left", padx=(design.px(8), 0))
 
         self.bind("<Escape>", lambda _e: self.destroy())
+        i18n.subscribe(self, "preview", self._translate_preview)
         self._fill()
 
+    def _translate_preview(self) -> None:
+        """Show a preview of the current selection in the new language."""
+        if self._selected() is not None:
+            self._pick()
+        elif not self._journals:
+            self._status.set(i18n.t("gui.restore.none"))
+
     def _fill(self) -> None:
-        """List the journals and preselect the newest one."""
+        """Start reading the journals in the background, then fill the list."""
         if not self._journals:
             self._card.hint(i18n.t("gui.restore.none"))
             self._undo_button.set_enabled(False)
             self._status.set(i18n.t("gui.restore.none"))
             return
 
+        self._undo_button.set_enabled(False)
+        self._status.set("")
+        threading.Thread(target=self._read_journals, daemon=True,
+                         name="sortiton-restore-journals").start()
+        self._wait_for_journals()
+
+    def _read_journals(self) -> None:
+        """Worker: parse every journal and cache the plan (no Tk access)."""
+        events: dict[Path, list[dict]] = {}
+        entries: list[tuple[Path, int, str]] = []
         for path in self._journals:
-            events = journal.plan_restore(path)
+            planned = journal.plan_restore(path)
+            events[path] = planned
             counts = ", ".join(f"{op} {count}"
-                               for op, count in journal.summarize(events).items())
-            entry = f"{path.stem}  ·  {len(events)}"
+                               for op, count in journal.summarize(planned).items())
+            entries.append((path, len(planned), counts))
+        self._events = events
+        self._entries = entries
+        self._loaded.set()
+
+    def _wait_for_journals(self) -> None:
+        """Main thread: poll the worker, then build the listbox."""
+        try:
+            if not self.winfo_exists():
+                return
+        except tk.TclError:
+            return
+        if not self._loaded.is_set():
+            self.after(50, self._wait_for_journals)
+            return
+
+        if not self._entries:
+            self._card.hint(i18n.t("gui.restore.none"))
+            self._undo_button.set_enabled(False)
+            self._status.set(i18n.t("gui.restore.none"))
+            return
+
+        for path, count, counts in self._entries:
+            entry = f"{path.stem}  ·  {count}"
             self._list.insert("end", entry + (f"  ({counts})" if counts else ""))
 
         self._list.selection_set(0)
+        if self._preselect is not None:
+            try:
+                selected = self._journals.index(self._preselect)
+            except ValueError:
+                selected = 0
+            self._list.selection_clear(0, "end")
+            self._list.selection_set(selected)
+            self._list.see(selected)
         self._pick()
 
     def _selected(self) -> Path | None:
@@ -176,7 +239,9 @@ class RestoreWindow(tk.Toplevel):
         if path is None:
             return
         self._chosen = path
-        events = journal.plan_restore(path)
+        events = self._events.get(path)
+        if events is None:
+            events = journal.plan_restore(path)
 
         if not events:
             self._card.hint(i18n.t("gui.restore.empty"))
@@ -214,5 +279,7 @@ class RestoreWindow(tk.Toplevel):
         self._backup.set(bool(options.get("backup", True)))
         keep_copies = bool(options.get("keep_copies", False))
         journal_path = path
-        self.destroy()
-        self._on_run(journal_path, keep_copies)
+        if self._on_run(journal_path, keep_copies):
+            self.destroy()
+        else:
+            self._status.set(i18n.t("gui.restore.busy"))

@@ -30,10 +30,11 @@ tools/build_app.sh             # freeze the program (tar.gz, --appimage)
 ```bash
 python3 -m compileall -q $(git ls-files '*.py')   # syntax
 python3 -c "import sortiton, sortiton.cli, sortiton.gui.app"
-python3 tests/smoke.py
-xvfb-run -a python3 tests/smoke.py                # with a display: GUI too
+python3 -m pytest                                 # GUI test skips without display
+xvfb-run -a python3 -m pytest                     # with a display: GUI too
 python3 sortiton.py --help
 python3 sortiton.py rules --builtin
+python3 sortiton.py export --help
 pylint sortiton sortiton_gui.py tests tools
 pylint sortiton.py
 bandit -r sortiton sortiton.py sortiton_gui.py tests tools -ll
@@ -42,8 +43,7 @@ detect-secrets scan  # exit is always 0; checks.sh inspects the report instead
 npx markdownlint-cli2 README.md CONTRIBUTING.md
 ```
 
-Without a display the GUI part of the smoke test is skipped, and the closing
-line says so.
+Without a display the GUI test is skipped and pytest reports it.
 
 Notes:
 
@@ -54,13 +54,39 @@ Notes:
 - `.pylintrc` disables warnings, conventions and refactorings (errors only), so
   naming and dead code are not checked.
 - Markdown prose stays at 80 columns; tables and code blocks are exempt.
-- CI: `.github/workflows/pylint.yml` runs Pylint on Python 3.14 and smoke tests
-  on Python 3.12 / 3.13 / 3.14.
+- CI: `.github/workflows/pylint.yml` runs Pylint on Python 3.14 and the pytest
+  suite on Python 3.12 / 3.13 / 3.14.
 - Security: `.github/workflows/security.yml` runs bandit at medium severity and
   above, pip-audit over both requirement files and detect-secrets. No CodeQL -
   code scanning is not available for private repositories, so the tools report
   into the job log. Both workflows ask for `contents: read`; only the release
   job writes.
+
+## Golden files
+
+The export feature is pinned to a reference output of the old standalone
+script. The fixture library lives in `tests/fixtures/export_library/`, the
+reference in `tests/golden/export/`; `tests/test_export.py::test_export_golden`
+runs the feature on the fixture and compares every file byte for byte after
+normalising the two machine-dependent lines (source folder, timestamp).
+
+The old `musik_export.py` no longer exists in the working tree (step 1.11).
+To rebuild the reference, recover it from the commit that added it and pass
+it explicitly:
+
+```bash
+git show "$(git log --format=%H --diff-filter=A -1 -- musik_export.py)":musik_export.py \
+    > /tmp/musik_export.py
+python3 tools/make_export_golden.py --reference /tmp/musik_export.py
+```
+
+Variant A (plain) lands in `tests/golden/export/base/`, variant B
+(`--gross-klein`) in `tests/golden/export/case/`. Build them with `mutagen`
+installed - otherwise the old script takes the slower ffprobe path.
+
+A golden update is a commit of its own with the reason in the message
+(`test: update export golden (reason)`). Never fold it into a feature commit,
+otherwise the diff hides the real change.
 
 ## Layout
 
@@ -73,32 +99,42 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton_gui.py` | **GUI entry point** (checks Tkinter, starts the interface) |
 | `sortiton/config.py` | Constants and paths (project folder, `logs/`, `my_rules.ini`, `settings.ini`) |
 | `sortiton/i18n.py` | Translations - every visible text lives here |
-| `sortiton/settings.py` | User settings (`settings.ini`) |
-| `sortiton/output.py` | Console/GUI output, progress, log file |
+| `sortiton/settings.py` | User settings (`settings.ini`: language, backup, fine-tuning) |
+| `sortiton/output.py` | Run context, live output, progress and log file |
 | `sortiton/journal.py` | Run journal: what a run changed, the basis for `restore` |
 | `sortiton/rules.py` | Rule tables, `my_rules.ini`, text cleanup |
 | `sortiton/files.py` | File names, target paths, content comparison |
 | `sortiton/tags.py` | Read/write tags (mutagen or ffprobe/ffmpeg) |
 | `sortiton/tasks.py` | The tasks (`cmd_*`) |
+| `sortiton/core_features.py` | Shared descriptions of the four core operations for the CLI and GUI |
+| `sortiton/features/base.py` | Feature interface (`Feature`, `Option`, argparse builder) |
+| `sortiton/features/export/` | Read-only export for an LLM (`cmd_export`) |
 | `sortiton/cli.py` | Command line arguments |
 | `sortiton/__init__.py` | Public interface (the stable names) |
 | `sortiton/gui/design.py` | Colours and fonts |
 | `sortiton/gui/widgets.py` | Hand-drawn widgets (buttons, chips, segments, progress bar) |
 | `sortiton/gui/panels.py` | Preview card and result panel |
-| `sortiton/gui/preferences.py` | Settings window (tag backends, language) |
+| `sortiton/gui/preferences.py` | Settings window (tag backends, fine-tuning of the tools, language) |
 | `sortiton/gui/confirm.py` | Confirmation with counts and backup switch |
 | `sortiton/gui/restore.py` | Undo window (pick a journal, check the plan, undo) |
 | `sortiton/gui/dialogs.py` | System dialogs (`kdialog` → `zenity` → Tkinter) |
-| `sortiton/gui/app.py` | Window, cards, tasks, language switch |
-| `tools/checks.sh` | Runs every check (syntax, imports, smoke test, pylint, security, CLI) |
+| `sortiton/gui/app.py` | Composition root: `SortitonGUI`, `__init__`, window startup |
+| `sortiton/gui/common.py` | GUI constants and formatting helpers |
+| `sortiton/gui/preview.py` | Tk-free preview aggregation and signatures |
+| `sortiton/gui/translations.py` | Translatable GUI texts that follow a language switch |
+| `sortiton/gui/log_history.py` | Log history and line colours without widget dependencies |
+| `sortiton/gui/mixins/` | Mixins for the window frame, pages, log view, runs, rules and settings |
+| `sortiton/gui/mixins/layout.py` | Window frame: header, shared workspace, page switching |
+| `sortiton/gui/mixins/pages.py` | The five pages with cards, fields and action bars |
+| `tools/checks.sh` | Runs every check (syntax, imports, pytest, pylint, security, CLI) |
 | `tools/build_app.sh` | Freezes the program for the release (tar.gz, `--appimage`) |
 | `packaging/` | AppImage glue: `AppRun` and the `.desktop` entry |
 | `tools/screenshot.sh` | Takes the README screenshot on a synthetic demo library |
-| `tests/smoke.py` | Smoke test (imports, translations, rules, CLI, GUI) |
+| `tests/test_*.py` | Pytest modules, one per topic (public API, config, rules, CLI, i18n, file ops, tags, tasks, features, export, journal, redaction, GUI) |
 | `my_rules.ini` | Your own rules (read automatically) |
 | `assets/` | Icons in three colours: `icon*.svg` (source) and `icon*.png`; copy one over `assets/icon.png` to switch, plus the screenshot |
 | `requirements.txt` | Optional Python dependency (`mutagen`) |
-| `requirements-dev.txt` | Development tools (`pylint`, `pyinstaller`, `bandit`, `pip-audit`, `detect-secrets`) - not needed to run Sortiton |
+| `requirements-dev.txt` | Development tools (`pytest`, `pylint`, `pyinstaller`, `bandit`, `pip-audit`, `detect-secrets`) - not needed to run Sortiton |
 | `.pylintrc` | Pylint configuration for the CI (errors only) |
 | `.markdownlint.jsonc` | markdownlint configuration (allows the `<img>` app icon) |
 | `CONTRIBUTING.md` | This file |
@@ -112,7 +148,8 @@ The scripts in the main folder are entry points; the logic lives in the
 | Change command behaviour | `sortiton/tasks.py` |
 | Change a visible text / add a language | `sortiton/i18n.py` |
 | Appearance (colours/fonts) | `sortiton/gui/design.py` |
-| New command line option | `sortiton/cli.py` |
+| New option for a core operation | `sortiton/core_features.py` |
+| New field or new page in the GUI | `sortiton/gui/mixins/pages.py` |
 | New control | `sortiton/gui/widgets.py` |
 
 ## Conventions
@@ -120,19 +157,33 @@ The scripts in the main folder are entry points; the logic lives in the
 - Target Python 3.12 or newer; the minimum supported version is declared in
   `pyproject.toml`.
 - Every visible text lives in `sortiton/i18n.py`, in `_EN` **and** `_DE` (keep
-  the lines aligned); `tests/smoke.py` enforces both catalogs and every
+  the lines aligned); `tests/test_public_api.py` enforces both catalogs and every
   `i18n.t("literal")`.
-- Never print directly: all output goes through `output.message()`, progress via
-  `report_plan()`, `report_stats()` and `_progress()`. The GUI attaches itself
-  with `set_logger` / `set_progress` / `set_plan_sink` / `set_stats_sink`.
+- Output goes through `output.message()`, progress through `progress()`, and
+  structured results through `report_plan()` and `report_stats()`. Each run
+  needs its own `RunContext`; its adapters send events live to the GUI queue,
+  and `RunContext.execute()` returns a `RunReport` with the counters. Pool tasks
+  inherit the context through `submit_with_context()`.
+  Calling `report_plan()`, `report_stats()` or `clear_stats()` without an
+  active context raises `RuntimeError`; each `cmd_*` function checks this with
+  `require_run_context()` before accessing files. Without a context,
+  `message()` writes to the console. The former global `set_*` functions and
+  `last_stats()` no longer exist; read counters from `RunReport.stats` or
+  `RunContext.last_stats()`. The log file and journal remain global and do not
+  support arbitrary concurrent write runs.
 - The `cmd_*` functions in `sortiton/tasks.py` take an `argparse.Namespace`
   (CLI) or a `SimpleNamespace` (GUI) with the same field names.
 - Every user path can be overridden with an environment variable
   (`SORTITON_RULES`, `SORTITON_LOG_DIR`, `SORTITON_SETTINGS`, …).
+  For isolated calls, `config.production_paths()` creates an immutable
+  `AppPaths` value; `config.use_paths(paths)` or `RunContext(paths=paths)`
+  binds it to the current context. Pool tasks require `submit_with_context()`.
+- Count labels use `i18n.t_count()` and numbers use `i18n.format_number()`;
+  plural forms use the catalog key with the `_plural` suffix.
 - A preview is the default and `--apply` writes; existing files stay untouched
   (`sortiton/files.py::free_path()` appends `(2)`, `(3)`, …).
 - `sortiton/__init__.py::__all__` is the stable interface; new public names
-  belong there (`tests/smoke.py::test_import` checks every name).
+  belong there (`tests/test_public_api.py::test_import` checks every name).
 
 ## Releasing
 
@@ -147,7 +198,9 @@ git push origin v1.0.0
 ```
 
 `tools/build_app.sh --appimage` builds the same files on this machine - the way
-to see a broken build before pushing the tag. The workflow runs on
+to see a broken build before pushing the tag. `dist/sortiton export --help`
+after a build proves that the frozen CLI carries the export feature (imported
+statically, so no plugin loader is needed). The workflow runs on
 ubuntu-22.04: a binary linked against a newer glibc refuses to start on an
 older distribution. A manual run (`workflow_dispatch`) only stores the files as
 workflow artifacts, without a release.

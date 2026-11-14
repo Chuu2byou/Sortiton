@@ -1,19 +1,4 @@
-"""The run journal: machine-readable record of what a run changed.
-
-The log file (see :mod:`sortiton.output`) is for humans - file names without
-their folder, wording in the interface language. Undo cannot be built on that,
-so every change is appended here as one JSON object per line.
-
-Created and pruned together with the log file of the same run::
-
-    logs/sortiton_2026-09-24_19-03-19.log       # for humans
-    logs/sortiton_2026-09-24_19-03-19.jsonl     # for restore
-    logs/latest_journal.jsonl -> sortiton_…_19-03-19.jsonl
-
-Unknown operations and unknown fields are ignored while reading, so a restore
-from an older version keeps working. Written only while changes are applied; a
-preview leaves no file behind.
-"""
+"""The run journal: machine-readable record of what a run changed."""
 
 from __future__ import annotations
 
@@ -24,18 +9,19 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME, LOG_DIR,
+from . import config, i18n, output, redact
+from .config import (JOURNAL_KEEP, JOURNAL_SUFFIX, LATEST_JOURNAL_NAME,
                      LOG_PREFIX, OFF_VALUES)
-from .files import free_path
+from .files import open_new
 
 SCHEMA = 1
 
-# Operations a restore can undo.
-UNDOABLE = ("tags", "rename", "sort", "copy")
+UNDOABLE = ("tags", "rename", "sort", "copy", "dedupe")
 
-_file = None                 # open file handle while a run is in progress
-_path: Path | None = None    # its path
-_lock = threading.Lock()     # writes come from several worker threads
+_file = None
+_path: Path | None = None
+_lock = threading.Lock()
+_write_error_reported = False
 
 
 def enabled() -> bool:
@@ -53,55 +39,57 @@ def journal_path_for(log_path: Path) -> Path:
 
 def is_open() -> bool:
     """True while a journal is being written."""
-    return _file is not None
+    with _lock:
+        return _file is not None
 
 
 def latest_path() -> Path | None:
     """The journal that is open right now, or None."""
-    return _path
+    with _lock:
+        return _path
 
 
 def open_for(log_path: Path) -> Path | None:
-    """Start the journal for a run. Returns the path, or None if impossible.
+    """Start the journal for a run."""
+    global _file, _path, _write_error_reported
 
-    Does nothing when a journal is already open: one run, one journal. A
-    combined run (tags -> rename -> sort) therefore writes a single file, which
-    is exactly what undo needs.
-    """
-    global _file, _path
-
-    if _file is not None:
-        return _path
+    with _lock:
+        if _file is not None:
+            return _path
     if not enabled():
         return None
 
-    path = free_path(journal_path_for(log_path))
+    path = journal_path_for(log_path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        handle = path.open("w", encoding="utf-8")
-    except OSError:
+        path, handle = open_new(path)
+    except (OSError, RuntimeError):
         return None
 
     with _lock:
+        if _file is not None:
+            handle.close()
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return _path
         _file = handle
         _path = path
+        _write_error_reported = False
 
     _link_latest(path)
     _prune_journals()
     try:
         cwd = os.getcwd()
     except OSError:
-        cwd = "?"      # the working directory was removed while we ran
-    record("run", status="start", argv=list(sys.argv), cwd=cwd)
+        cwd = "?"
+    record("run", status="start", argv=redact.command(sys.argv), cwd=cwd)
     return path
 
 
 def close() -> None:
-    """Close the journal of this run.
-
-    Clearing the path as well matters: as long as it is set, :func:`latest_journal`
-    treats that file as "the run that is going on" and skips it.
-    """
+    """Close the journal of this run."""
     global _file, _path
 
     with _lock:
@@ -114,11 +102,22 @@ def close() -> None:
         pass
 
 
+def _report_write_error(error: object) -> None:
+    """Warn once when the journal can no longer be written."""
+    global _write_error_reported
+    with _lock:
+        if _write_error_reported:
+            return
+        _write_error_reported = True
+    output.message(i18n.t("journal.error.write", error=error))
+
+
 def record(op: str, **data: object) -> None:
     """Append one event. Never raises, never interrupts the run."""
-    if _file is None:
-        return
-
+    for key in ("path", "source", "target"):
+        value = data.get(key)
+        if isinstance(value, (str, Path)) and value:
+            data[key] = str(Path(value).absolute())
     event = {"v": SCHEMA, "ts": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "op": op}
     event.update(data)
     try:
@@ -128,10 +127,13 @@ def record(op: str, **data: object) -> None:
 
     try:
         with _lock:
-            _file.write(line + "\n")
-            _file.flush()      # a crash keeps everything written so far
-    except (OSError, ValueError):
-        pass
+            handle = _file
+            if handle is None:
+                return
+            handle.write(line + "\n")
+            handle.flush()
+    except (OSError, ValueError) as error:
+        _report_write_error(error)
 
 
 def record_tags(path: Path, before: dict, after: dict) -> None:
@@ -140,7 +142,7 @@ def record_tags(path: Path, before: dict, after: dict) -> None:
 
 
 def record_move(op: str, source: Path, target: Path, mode: str = "") -> None:
-    """Remember a rename or a sort step (``op`` is "rename"/"sort"/"copy")."""
+    """Remember a move (``op`` is "rename"/"sort"/"copy"/"dedupe")."""
     data: dict[str, object] = {"source": str(source), "target": str(target)}
     if mode:
         data["mode"] = mode
@@ -188,14 +190,21 @@ def schema_version(path: Path) -> int:
 
 
 def plan_restore(path: Path) -> list[dict]:
-    """Events of ``path`` in the order they have to be undone.
-
-    Newest first: a combined run writes tags -> rename -> sort, so undoing it
-    has to happen the other way round. Failed and unknown events stay in the
-    list - the caller reports them instead of hiding them.
-    """
-    return list(reversed([event for event in read_journal(path)
-                          if event.get("op") != "run"]))
+    """Events of ``path`` in the order they have to be undone."""
+    events = list(read_journal(path))
+    cwd = read_header(path).get("cwd")
+    base = Path(str(cwd)) if cwd else Path.cwd()
+    planned = []
+    for event in events:
+        if event.get("op") == "run":
+            continue
+        event = dict(event)
+        for key in ("path", "source", "target"):
+            value = event.get(key)
+            if isinstance(value, str) and value and not Path(value).is_absolute():
+                event[key] = str(base / value)
+        planned.append(event)
+    return list(reversed(planned))
 
 
 def summarize(events) -> dict[str, int]:
@@ -213,23 +222,23 @@ def _op_order(op: str) -> tuple[int, str]:
 
 def find_journals(limit: int | None = JOURNAL_KEEP) -> list[Path]:
     """Available journals, newest first."""
+    def key(path: Path) -> tuple[int, str]:
+        try:
+            return path.stat().st_mtime_ns, path.name
+        except OSError:
+            return 0, path.name
+
     try:
-        files = sorted(LOG_DIR.glob(f"{LOG_PREFIX}_*{JOURNAL_SUFFIX}"),
-                       key=lambda path: path.name, reverse=True)
+        files = sorted(config.current_paths().log_dir.glob(f"{LOG_PREFIX}_*{JOURNAL_SUFFIX}"),
+                       key=key, reverse=True)
     except OSError:
         return []
     return files if limit is None else files[:limit]
 
 
 def latest_journal() -> Path | None:
-    """The newest journal of an **earlier** run.
-
-    The journal that is currently open is skipped: while a run is going on, the
-    ``latest_journal.jsonl`` link already points at that run's own, still empty
-    file. Without skipping it, ``restore --apply`` would read its own journal,
-    find nothing and do nothing.
-    """
-    current = _path
+    """The newest journal of an **earlier** run."""
+    current = latest_path()
     for path in find_journals(limit=None):
         if current is None or path != current:
             return path
@@ -245,7 +254,7 @@ def resolve_journal(path: Path | str | None = None) -> Path | None:
 
 def _link_latest(path: Path) -> None:
     """Point ``latest_journal.jsonl`` at the newest journal (like latest.log)."""
-    link = LOG_DIR / LATEST_JOURNAL_NAME
+    link = config.current_paths().log_dir / LATEST_JOURNAL_NAME
     try:
         link.unlink(missing_ok=True)
         link.symlink_to(path.name)

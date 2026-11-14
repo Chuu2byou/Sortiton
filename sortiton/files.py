@@ -1,10 +1,8 @@
-"""File names, target paths, content comparison and collecting audio files.
-
-Pure path/name layer - knows neither tags nor rules.
-"""
+"""File names, target paths, content comparison and collecting audio files."""
 
 from __future__ import annotations
 
+import filecmp
 import hashlib
 import os
 import re
@@ -25,7 +23,7 @@ def safe_name(name: str) -> str:
     if not name:
         return "_"
     if len(name) > MAX_NAME_LENGTH:
-        name = name[:MAX_NAME_LENGTH].rstrip()
+        name = name[:MAX_NAME_LENGTH].rstrip(" .")
     return name
 
 
@@ -35,33 +33,32 @@ def build_name(tags: dict, file_base: str, pattern: str) -> str:
     album_artist = tags.get("album_artist") or artist
     album = tags.get("album") or ""
     title = tags.get("title") or file_base
+    track = tags.get("track") or ""
+    disc = tags.get("disc") or ""
+    year = tags.get("year") or ""
 
-    name = pattern
-    name = name.replace("%artist%", safe_name(artist))
-    name = name.replace("%albumartist%", safe_name(album_artist))
-    name = name.replace("%album%", safe_name(album))
-    name = name.replace("%title%", safe_name(title))
+    values = {
+        "%artist%": artist,
+        "%albumartist%": album_artist,
+        "%album%": album,
+        "%title%": title,
+        "%track%": track,
+        "%disc%": disc,
+        "%year%": year,
+    }
+    name = re.sub(r"%(artist|albumartist|album|title|track|disc|year)%",
+                  lambda match: safe_name(values[match.group(0)]), pattern)
 
-    # Collapse repeated separators ("A -  - B" -> "A - B").
     name = re.sub(r"(\s*-\s*){2,}", " - ", name)
     name = name.strip(" -")
 
     if not name:
-        name = safe_name(file_base)
-    if len(name) > MAX_NAME_LENGTH:
-        name = name[:MAX_NAME_LENGTH].rstrip()
-
-    return name
+        name = file_base
+    return safe_name(name)
 
 
 def free_path(path: Path) -> Path:
-    """Return a free path, never overwriting it (" (2)", " (3)", ...).
-
-    Log file and journal are named after the second a run starts in. Two runs
-    in the same second would therefore build the same name, and opening the
-    second one would cut the first one short - here as everywhere else in
-    Sortiton an existing file stays untouched.
-    """
+    """Return a free path, never overwriting it (" (2)", " (3)", ...)."""
     path = Path(path)
     if not path.exists():
         return path
@@ -72,16 +69,39 @@ def free_path(path: Path) -> Path:
     raise RuntimeError(i18n.t("file.error.no_free_name", path=path))
 
 
+def open_new(path: Path):
+    """Create a new text file and return ``(path, handle)``."""
+    path = Path(path)
+    for _ in range(1000):
+        candidate = free_path(path)
+        try:
+            return candidate, candidate.open("x", encoding="utf-8")
+        except FileExistsError:
+            continue
+    raise RuntimeError(i18n.t("file.error.no_free_name", path=path))
+
+
+def _key(path: Path) -> str:
+    """Comparison key for path names."""
+    return str(path).casefold()
+
+
+def _same_file(first: Path, second: Path | None) -> bool:
+    """True when both names point at the same file (case-only names included)."""
+    if second is None:
+        return False
+    try:
+        return first.samefile(second)
+    except OSError:
+        return (_key(first) == _key(second)
+                and first.exists() and second.exists())
+
+
 def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
-    """Return a free target path, never overwriting it (" (2)", " (3)", ...).
+    """Return a free target path, never overwriting it (" (2)", " (3)", ...)."""
+    key = _key(dst)
 
-    ``ignore`` counts as free, so a file never blocks its own target name.
-    """
-    key = str(dst).lower()
-
-    # TODO: the ignore comparison is case sensitive while `used` is lowercased,
-    # so on a case insensitive filesystem a file still blocks its own name.
-    if ignore is not None and str(dst) == str(ignore):
+    if _same_file(dst, ignore):
         used.add(key)
         return dst
 
@@ -93,8 +113,8 @@ def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     number = 2
     while number <= 9999:
         candidate = dst.with_name(f"{base} ({number}){dst.suffix}")
-        k = str(candidate).lower()
-        taken = k in used or (candidate.exists() and str(candidate) != str(ignore))
+        k = _key(candidate)
+        taken = k in used or (candidate.exists() and not _same_file(candidate, ignore))
         if not taken:
             used.add(k)
             return candidate
@@ -103,37 +123,53 @@ def free_target(dst: Path, used: set[str], ignore: Path | None = None) -> Path:
     raise RuntimeError(i18n.t("file.error.no_free_name", path=dst))
 
 
-def _file_hash(path: Path) -> str:
-    """SHA256 of a file, read in 1 MiB blocks.
-
-    Only a fingerprint for comparing two files, not a security hash - but SHA1
-    is what security scanners report (bandit B324), and SHA256 costs nothing
-    measurable here. ``usedforsecurity=False`` would not help: it needs 3.9.
-    """
-    h = hashlib.sha256()
+def content_digest(path: Path) -> str:
+    """SHA-256 des Dateiinhalts."""
     with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
+        return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
 def same_content(a: Path, b: Path) -> bool:
-    """True if both files are identical (same size + same SHA256)."""
+    """True if both files are identical (same size + byte-for-byte compare)."""
     try:
         if a.stat().st_size != b.stat().st_size:
             return False
-        return _file_hash(a) == _file_hash(b)
+        return filecmp.cmp(a, b, shallow=False)
     except OSError:
         return False
 
 
-def iter_audio(root: Path):
+def canonical_path(path: Path | str) -> Path:
+    """Resolve paths physically for comparison; relative paths use the CWD."""
+    return Path(path).expanduser().resolve()
+
+
+def target_inside_source(source: Path | str, target: Path | str) -> bool:
+    """True when ``target`` is the source folder or lies below it.
+
+    A run that writes into the folder being scanned would feed its own result
+    into the next run, so the GUI and the CLI refuse such a target for every
+    operation that has one.
+    """
+    source_path = canonical_path(source)
+    target_path = canonical_path(target)
+    if target_path == source_path or source_path in target_path.parents:
+        return True
+    try:
+        return target_path.exists() and source_path.samefile(target_path)
+    except OSError:
+        return False
+
+
+def iter_audio(root: Path, extensions: set[str] = AUDIO_EXTENSIONS):
     """Yield every audio file below ``root`` (hidden entries are ignored)."""
     for folder, subfolders, files in os.walk(root):
-        subfolders[:] = [d for d in subfolders if not d.startswith(".")]
+        # Sort traversal for reproducible collision suffixes.
+        subfolders[:] = sorted((d for d in subfolders if not d.startswith(".")),
+                               key=str.casefold)
         for name in sorted(files):
             if name.startswith("."):
                 continue
             path = Path(folder) / name
-            if path.suffix.lower() in AUDIO_EXTENSIONS:
+            if path.suffix.lower() in extensions:
                 yield path

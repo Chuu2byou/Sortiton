@@ -3,7 +3,7 @@
 #
 #   tools/checks.sh
 #
-# Syntax, imports, the smoke test, pylint, a short CLI run and the security
+# Syntax, imports, the pytest suite, pylint, a short CLI run and the security
 # tools. The optional steps (xvfb-run for the GUI, npx for the Markdown) run
 # when their tool is installed; when one is missing the script names the
 # package that brings it instead of failing.
@@ -39,6 +39,12 @@ have() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Python tools are checked as modules, not as scripts: a virtualenv that was
+# moved after creation has stale script shebangs, but `python -m` still works.
+have_module() {
+    python3 -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$1') else 1)"
+}
+
 # Every Python file of the project. --others also picks up files that are not
 # committed yet (a new module gets checked right away), --exclude-standard keeps
 # .venv out. In a clean checkout this equals `git ls-files`.
@@ -69,7 +75,7 @@ skip() {
 
 # detect-secrets itself never fails - hence this wrapper.
 secrets_scan() {
-    detect-secrets scan > "$WORK/secrets.json" || return 1
+    python3 -m detect_secrets scan > "$WORK/secrets.json" || return 1
     python3 - "$WORK/secrets.json" <<'PY'
 import json
 import sys
@@ -84,44 +90,52 @@ PY
 
 run "syntax (compileall)" python3 -m compileall -q $(py_files)
 run "imports" python3 -c "import sortiton, sortiton.cli, sortiton.gui.app"
-run "smoke test (tests/smoke.py)" python3 tests/smoke.py
+if have_module pytest; then
+    # No display: the GUI test skips itself, everything else runs.
+    run "pytest (no display)" python3 -m pytest -q
+else
+    skip "pytest" "not installed - run: pip install -r requirements-dev.txt"
+fi
 run "cli: --help" python3 sortiton.py --help
 run "cli: rules --builtin" python3 sortiton.py rules --builtin
+run "cli: export --help" python3 sortiton.py export --help
+run "cli: fixes --help" python3 sortiton.py fixes --help
+run "cli: dedupe --help" python3 sortiton.py dedupe --help
 
-if have pylint; then
+if have_module pylint; then
     # Two runs: astroid mixes sortiton.py and sortiton/ up when both are in one
     # invocation (E0611). The long version is in CONTRIBUTING.md.
-    run "pylint (package, gui, tests, tools)" pylint sortiton sortiton_gui.py tests tools
-    run "pylint (entry script)" pylint sortiton.py
+    run "pylint (package, gui, tests, tools)" python3 -m pylint sortiton sortiton_gui.py tests tools
+    run "pylint (entry script)" python3 -m pylint sortiton.py
 else
     skip "pylint" "not installed - run: pip install -r requirements-dev.txt"
 fi
 
-if have bandit; then
+if have_module bandit; then
     # -ll = medium and above. The low findings are the subprocess calls and
     # try/except-pass blocks the program is built from, so they stay unreported.
-    run "bandit (source)" bandit -r sortiton sortiton.py sortiton_gui.py tests tools -ll
+    run "bandit (source)" python3 -m bandit -r sortiton sortiton.py sortiton_gui.py tests tools -ll
 else
     skip "bandit" "not installed - run: pip install -r requirements-dev.txt"
 fi
 
-if have pip-audit; then
+if have_module pip_audit; then
     # Talks to the PyPI advisory database, so it needs the network.
-    run "pip-audit (dependencies)" pip-audit -r requirements.txt -r requirements-dev.txt --strict
+    run "pip-audit (dependencies)" python3 -m pip_audit -r requirements.txt -r requirements-dev.txt --strict
 else
     skip "pip-audit" "not installed - run: pip install -r requirements-dev.txt"
 fi
 
-if have detect-secrets; then
+if have_module detect_secrets; then
     run "detect-secrets (credentials)" secrets_scan
 else
     skip "detect-secrets" "not installed - run: pip install -r requirements-dev.txt"
 fi
 
-if have xvfb-run; then
-    run "gui checks (xvfb-run)" xvfb-run -a python3 tests/smoke.py
+if have xvfb-run && have_module pytest; then
+    run "pytest gui (xvfb-run)" xvfb-run -a python3 -m pytest -q
 else
-    skip "gui checks (xvfb-run)" "xvfb-run not installed - Arch: sudo pacman -S xorg-server-xvfb"
+    skip "pytest gui (xvfb-run)" "xvfb-run or pytest missing - Arch: sudo pacman -S xorg-server-xvfb"
 fi
 
 if have npx; then

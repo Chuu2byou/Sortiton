@@ -1,15 +1,14 @@
-"""Hand-drawn widgets - no extra packages.
-
-RoundButton, Pill (status chip), Segments (tab/switcher) and ProgressBar.
-"""
+"""Hand-drawn widgets - no extra packages."""
 
 from __future__ import annotations
 
+import math
+import time
 import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable, TypedDict
 
-from . import design
+from . import design, translations
 from .design import (ACCENT, ACCENT_LIGHT, ACCENT_TEXT, APPLY, APPLY_LIGHT, BORDER, CARD,
                      DANGER, DANGER_LIGHT, FIELD, FIELD_ACTIVE, BACKGROUND, TEXT,
                      TEXT_DISABLED, TEXT_MUTED)
@@ -31,17 +30,41 @@ def _bg_of(widget: tk.Misc) -> str:
         return BACKGROUND
 
 
+def fit_wraplength(label: tk.Label, width: float, minimum: float = 120) -> None:
+    """Set a label's wraplength for meaningful width changes only.
+
+    Wrapping changes a label's requested size, which can nudge the surrounding
+    grid by a pixel and trigger another ``<Configure>``. Ignoring tiny deltas
+    breaks that feedback loop while still following real window resizes.
+    """
+    wrap = max(design.px(minimum), int(width))
+    try:
+        current = int(label.cget("wraplength"))
+    except (tk.TclError, ValueError):
+        current = 0
+    if abs(wrap - current) >= design.px(4):
+        label.configure(wraplength=wrap)
+
+
 def _rounded_shape(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float,
                    radius: float, **options) -> int:
-    """Draw a rounded rectangle (smooth polygon, no extra packages)."""
-    r = min(radius, (x2 - x1) / 2, (y2 - y1) / 2)
-    points = [
-        x1 + r, y1, x2 - r, y1, x2, y1,
-        x2, y1 + r, x2, y2 - r, x2, y2,
-        x2 - r, y2, x1 + r, y2, x1, y2,
-        x1, y2 - r, x1, y1 + r, x1, y1,
-    ]
-    return canvas.create_polygon(points, smooth=True, splinesteps=24, **options)
+    """Draw a rounded rectangle as an exact arc outline.
+
+    A ``smooth`` polygon (spline) leaves short line fragments along the bottom
+    edge. An outline made from quarter circles stays clean and even at every
+    radius and scale.
+    """
+    r = max(0.0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
+    if r < 0.5:
+        return canvas.create_polygon(x1, y1, x2, y1, x2, y2, x1, y2, **options)
+    steps = max(6, min(16, int(r) * 2))
+    points: list[float] = []
+    for cx, cy, start in ((x2 - r, y1 + r, -90.0), (x2 - r, y2 - r, 0.0),
+                          (x1 + r, y2 - r, 90.0), (x1 + r, y1 + r, 180.0)):
+        for index in range(steps + 1):
+            angle = math.radians(start + 90.0 * index / steps)
+            points.extend((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+    return canvas.create_polygon(points, **options)
 
 
 class _ButtonStyle(TypedDict):
@@ -54,20 +77,16 @@ class _ButtonStyle(TypedDict):
 
 
 class RoundButton(tk.Canvas):
-    """Rounded button with hover, press and disabled states."""
+    """Rounded button with hover, press and disabled states.
 
-    STYLES: dict[str, _ButtonStyle] = {
-        "primary": {"bg": ACCENT, "hover": ACCENT_LIGHT, "text": ACCENT_TEXT,
-                    "hover_text": None, "border": ""},
-        "apply":   {"bg": APPLY, "hover": APPLY_LIGHT, "text": ACCENT_TEXT,
-                    "hover_text": None, "border": ""},
-        "danger":  {"bg": DANGER, "hover": DANGER_LIGHT, "text": ACCENT_TEXT,
-                    "hover_text": None, "border": ""},
-        "normal":  {"bg": FIELD, "hover": FIELD_ACTIVE, "text": TEXT,
-                    "hover_text": None, "border": BORDER},
-        "quiet":   {"bg": None, "hover": FIELD, "text": TEXT_MUTED,
-                    "hover_text": TEXT, "border": ""},
-    }
+    Width and height use the actual font metrics plus fixed padding. This
+    preserves the same spacing around the label across fonts and scaling,
+    instead of relying on a fixed pixel height.
+    """
+
+    _PAD_X = 15          # Horizontal padding (logical pixels)
+    _PAD_Y = 7           # Vertical padding around the label
+    _KEY_GUARD = 0.35    # Do not treat key repeat as a second click
 
     def __init__(self, parent: tk.Misc, text: str, command: Callable[[], None] | None = None,
                  style: str = "normal", height: int = 34, radius: int = 10) -> None:
@@ -75,18 +94,49 @@ class RoundButton(tk.Canvas):
         self._command: Callable[[], None] | None = command
         self._parent_bg = _bg_of(parent)
         self._text = text
-        self._radius = radius
+        self._font = tkfont.Font(font=design.FONT_BUTTON)
+        self._radius = design.px(radius)
         self._enabled = True
         self._hover = False
         self._pressed = False
-        width = tkfont.Font(font=design.FONT_BUTTON).measure(text) + 30
-        super().__init__(parent, width=width, height=height, bg=self._parent_bg,
-                         highlightthickness=0, bd=0, cursor="hand2")
+        self._last_key = 0.0
+        width = self._font.measure(text) + 2 * design.px(self._PAD_X)
+        height_px = max(design.px(height),
+                        self._font.metrics("linespace") + 2 * design.px(self._PAD_Y))
+        super().__init__(parent, width=width, height=height_px, bg=self._parent_bg,
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=1)
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
         self.bind("<ButtonPress-1>", self._on_press)
         self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Return>", self._on_key)
+        self.bind("<space>", self._on_key)
         self._draw()
+        self._bind_text(text)
+
+    def _bind_text(self, text: str) -> None:
+        callback = (lambda: self._apply_text(translations.resolve(text))) \
+            if isinstance(text, translations.Text) else None
+        translations.subscribe(self, "text", callback)
+
+    def _apply_text(self, text: str) -> None:
+        self._text = text
+        self.configure(width=self._font.measure(text) + 2 * design.px(self._PAD_X))
+        self._draw()
+
+    def set_text(self, text: str) -> None:
+        """Update the label and width without replacing the button."""
+        self._bind_text(text)
+        self._apply_text(text)
+
+    def _on_key(self, _event) -> str:
+        now = time.monotonic()
+        if now - self._last_key < self._KEY_GUARD:
+            return "break"
+        self._last_key = now
+        if self._enabled and self._command is not None:
+            self._command()
+        return "break"
 
     def _on_enter(self, _event) -> None:
         if self._enabled:
@@ -125,7 +175,18 @@ class RoundButton(tk.Canvas):
             self._draw()
 
     def _colours(self) -> tuple[str, str, str]:
-        style = self.STYLES[self._style]
+        style: _ButtonStyle = {
+            "primary": {"bg": ACCENT, "hover": ACCENT_LIGHT, "text": ACCENT_TEXT,
+                        "hover_text": None, "border": ""},
+            "apply":   {"bg": APPLY, "hover": APPLY_LIGHT, "text": ACCENT_TEXT,
+                        "hover_text": None, "border": ""},
+            "danger":  {"bg": DANGER, "hover": DANGER_LIGHT, "text": ACCENT_TEXT,
+                        "hover_text": None, "border": ""},
+            "normal":  {"bg": FIELD, "hover": FIELD_ACTIVE, "text": TEXT,
+                        "hover_text": None, "border": BORDER},
+            "quiet":   {"bg": None, "hover": FIELD, "text": TEXT_MUTED,
+                        "hover_text": TEXT, "border": ""},
+        }[self._style]
         base = style["bg"] or self._parent_bg
         if not self._enabled:
             bg = _blend(self._parent_bg, base, 0.22) if style["bg"] else self._parent_bg
@@ -144,65 +205,114 @@ class RoundButton(tk.Canvas):
         _rounded_shape(self, 1, 1, width - 1, height - 1, self._radius,
                        fill=bg, outline=border or bg)
         self.create_text(width / 2, height / 2, text=self._text,
-                         fill=fg, font=design.FONT_BUTTON, anchor="center")
+                         fill=fg, font=self._font, anchor="center")
 
 
 class Pill(tk.Canvas):
-    """Small status pill (chip) with a coloured dot."""
+    """Modern status chip: tinted background, coloured dot and restrained text.
 
-    def __init__(self, parent: tk.Misc, text: str, colour: str = TEXT_MUTED,
+    Instead of a plain border, the chip uses a hint of its signal colour.
+    Keep the dot and text coloured so green/yellow/grey remain distinguishable
+    without making the chip look like a form field.
+
+    Height and width use the actual font metrics plus fixed padding. This
+    preserves vertical spacing across system fonts and scaling instead of
+    relying on a fixed pixel height.
+    """
+
+    _PAD_X = 12          # Horizontal padding (logical pixels)
+    _PAD_Y = 6           # Vertical padding around the text
+    _DOT = "●"           # Draw a filled circle as text for smooth edges
+
+    def __init__(self, parent: tk.Misc, text: str, colour: str | None = None,
                  dot: bool = True) -> None:
-        self._colour = colour
+        self._colour = TEXT_MUTED if colour is None else colour
         self._dot = dot
         self._parent_bg = _bg_of(parent)
-        width = tkfont.Font(font=design.FONT_SMALL).measure(text) + (34 if dot else 20)
-        super().__init__(parent, width=width, height=24, bg=self._parent_bg,
+        self._font = tkfont.Font(font=design.FONT_SMALL)
+        self._radius = design.px(8)
+        self._pad = design.px(self._PAD_X)
+        self._gap = design.px(10)
+        self._height = max(design.px(26),
+                           self._font.metrics("linespace") + 2 * design.px(self._PAD_Y))
+        width = self._width_for(text)
+        super().__init__(parent, width=width, height=self._height, bg=self._parent_bg,
                          highlightthickness=0, bd=0)
         self._text = text
+        self._draw()
+        self._bind_text(text)
+
+    def _bind_text(self, text: str) -> None:
+        callback = (lambda: self._apply_text(translations.resolve(text))) \
+            if isinstance(text, translations.Text) else None
+        translations.subscribe(self, "text", callback)
+
+    def _dot_width(self) -> int:
+        """Width of the dot and its preceding gap (zero when hidden)."""
+        if not self._dot:
+            return 0
+        return self._font.measure(self._DOT) + self._gap
+
+    def _width_for(self, text: str) -> int:
+        return self._font.measure(text) + 2 * self._pad + self._dot_width()
+
+    def set_text(self, text: str, colour: str | None = None) -> None:
+        """Change the label (and optionally the dot colour) in place."""
+        self._bind_text(text)
+        if colour is not None:
+            self._colour = colour
+        self._apply_text(text)
+
+    def _apply_text(self, text: str) -> None:
+        self._text = text
+        self.configure(width=self._width_for(text))
         self._draw()
 
     def _draw(self) -> None:
         self.delete("all")
         width = self.winfo_reqwidth()
         height = self.winfo_reqheight()
-        _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, height / 2,
-                       fill=CARD, outline=BORDER)
-        x = 11
+        _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, self._radius,
+                       fill=_blend(self._parent_bg, self._colour, 0.16),
+                       outline=_blend(self._parent_bg, self._colour, 0.34))
+        x = self._pad
         if self._dot:
-            self.create_oval(x - 3, height / 2 - 3, x + 3, height / 2 + 3,
-                             fill=self._colour, outline="")
-            x += 13
-        self.create_text(x, height / 2, text=self._text, fill=TEXT,
+            self.create_text(x, height / 2, text=self._DOT, fill=self._colour,
+                             font=design.FONT_SMALL, anchor="w")
+            x += self._dot_width()
+        self.create_text(x, height / 2, text=self._text,
+                         fill=_blend(self._colour, TEXT, 0.4),
                          font=design.FONT_SMALL, anchor="w")
 
 
 class Segments(tk.Canvas):
-    """Segmented choice (like modern tab/switch controls).
-
-    With ``stretch=True`` the segments share the full width of their cell.
-    """
+    """Segmented choice (like modern tab/switch controls)."""
 
     def __init__(self, parent: tk.Misc, items: list[tuple[str, str]], variable: tk.StringVar,
                  command: Callable[[str], None] | None = None, height: int = 36,
-                 radius: int = 10, surface: str = CARD, font=None,
-                 stretch: bool = False) -> None:
+                 radius: int = 10, surface: str | None = None, font=None,
+                 stretch: bool = False, navigation: bool = False) -> None:
         self._variable = variable
         self._command: Callable[[str], None] | None = command
+        self._navigation = navigation
         self._font = font or design.FONT_BUTTON
-        self._radius = radius
-        self._surface = surface
-        self._inner = 2
+        self._radius = design.px(radius)
+        self._surface = CARD if surface is None else surface
+        self._inner = design.px(2)
         self._hover_index: int | None = None
         self._items: list[tuple[str, str]] = []
         self._widths: list[int] = []
+        self._wanted_height = design.px(height)
         self._trace = ""
         super().__init__(parent, bg=_bg_of(parent), highlightthickness=0, bd=0, cursor="hand2")
         self.set_items(items, height=height)
+        if any(isinstance(text, translations.Text) for _, text in items):
+            translations.subscribe(self, "items", self._translate_items)
         self._trace = self._variable.trace_add("write", self._on_change)
         self.bind("<Button-1>", self._on_click)
         self.bind("<Motion>", self._on_motion)
         self.bind("<Leave>", lambda _e: self._set_hover(None))
-        self.bind("<Destroy>", self._on_destroy)
+        self.bind("<Destroy>", self._on_destroy, add="+")
         if stretch:
             self.bind("<Configure>", self._on_configure)
 
@@ -233,12 +343,23 @@ class Segments(tk.Canvas):
         """Replace the segments (used for the language switch)."""
         self._items = list(items)
         measurer = tkfont.Font(font=self._font)
-        self._widths = [measurer.measure(text) + 36 for _, text in self._items]
-        self.configure(width=sum(self._widths) + 2 * self._inner)
+        self._widths = [measurer.measure(text) + design.px(36) for _, text in self._items]
         if height is not None:
-            self.configure(height=height)
+            self._wanted_height = design.px(height)
+        # Derive height from the font to preserve vertical spacing at every scale.
+        self.configure(width=sum(self._widths) + 2 * self._inner,
+                       height=max(self._wanted_height,
+                                  measurer.metrics("linespace") + 2 * design.px(7)))
         self._hover_index = None
         self._draw()
+
+    def _translate_items(self) -> None:
+        items = [(value, translations.Text(text.render) if isinstance(text, translations.Text)
+                  else text) for value, text in self._items]
+        self.set_items(items)
+        if self.winfo_width() > 1:
+            self.event_generate("<Configure>", width=self.winfo_width(),
+                                height=self.winfo_height())
 
     def _segment_at(self, x: float) -> int | None:
         pos = self._inner
@@ -271,19 +392,26 @@ class Segments(tk.Canvas):
 
     def _container_width(self) -> int:
         """Cover the whole cell: ``stretch`` spreads the segments over it."""
-        return max(self.winfo_reqwidth(), self.winfo_width())
+        width = self.winfo_width()
+        return width if width > 1 else self.winfo_reqwidth()
 
     def _draw(self) -> None:
         self.delete("all")
         width = self._container_width()
         height = self.winfo_reqheight()
-        _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, self._radius,
-                       fill=self._surface, outline=BORDER)
+        if not self._navigation:
+            _rounded_shape(self, 0.5, 0.5, width - 0.5, height - 0.5, self._radius,
+                           fill=self._surface, outline=BORDER)
         x = self._inner
         for index, (value, text) in enumerate(self._items):
             segment_width = self._widths[index]
             active = self._variable.get() == value
-            if active:
+            if active and self._navigation:
+                self.create_line(x + design.px(10), height - design.px(2),
+                                 x + segment_width - design.px(10), height - design.px(2),
+                                 fill=ACCENT, width=design.px(3), tags="active-tab")
+                colour = ACCENT
+            elif active:
                 _rounded_shape(self, x + 1, self._inner + 1, x + segment_width - 1,
                                height - self._inner - 1, self._radius - 3,
                                fill=ACCENT, outline="")
@@ -305,11 +433,11 @@ class ProgressBar(tk.Canvas):
 
     def __init__(self, parent: tk.Misc, width: int = 230, height: int = 8,
                  radius: int = 4) -> None:
-        super().__init__(parent, width=width, height=height, bg=_bg_of(parent),
+        self._width = design.px(width)
+        self._height = design.px(height)
+        self._radius = design.px(radius)
+        super().__init__(parent, width=self._width, height=self._height, bg=_bg_of(parent),
                          highlightthickness=0, bd=0)
-        self._width = width
-        self._height = height
-        self._radius = radius
         self._value = 0.0
         self._max = 1.0
         self._indeterminate = False
@@ -318,7 +446,13 @@ class ProgressBar(tk.Canvas):
         self._job: str | None = None
         self._alive = True
         self.bind("<Destroy>", self._on_destroy)
+        self.bind("<Configure>", lambda _event: self._draw())
         self._draw()
+
+    def _current_width(self) -> int:
+        """Use the real width, so the bar can shrink in a narrow footer."""
+        width = self.winfo_width()
+        return width if width > 1 else self._width
 
     def _on_destroy(self, event) -> None:
         """Stop the animation when the widget goes away (language rebuild)."""
@@ -361,27 +495,94 @@ class ProgressBar(tk.Canvas):
         if not self._alive:
             self._job = None
             return
-        pill_width = self._width * 0.32
-        self._pos += 11 * self._direction
+        width = self._current_width()
+        pill_width = width * 0.32
+        self._pos += design.px(11) * self._direction
         if self._pos <= 0:
             self._pos = 0.0
             self._direction = 1.0
-        elif self._pos >= self._width - pill_width:
-            self._pos = self._width - pill_width
+        elif self._pos >= width - pill_width:
+            self._pos = width - pill_width
             self._direction = -1.0
         self._draw()
-        self._job = self.after(16, self._tick)
+        self._job = self.after(33, self._tick)
 
     def _draw(self) -> None:
         self.delete("all")
-        _rounded_shape(self, 0, 0, self._width, self._height, self._radius,
+        width = self._current_width()
+        _rounded_shape(self, 0, 0, width, self._height, self._radius,
                        fill=FIELD, outline="")
         if self._indeterminate:
-            pill_width = self._width * 0.32
+            pill_width = width * 0.32
             _rounded_shape(self, self._pos, 0, self._pos + pill_width, self._height,
                            self._radius, fill=ACCENT, outline="")
         elif self._value > 0:
             ratio = min(self._value / self._max, 1.0)
-            filled = max(self._width * ratio, self._height)
+            filled = max(width * ratio, self._height)
             _rounded_shape(self, 0, 0, filled, self._height, self._radius,
                            fill=ACCENT, outline="")
+
+
+class Switch(tk.Canvas):
+    """On/off switch bound to a ``BooleanVar`` - clearer than a tiny checkbox."""
+
+    def __init__(self, parent: tk.Misc, variable: tk.BooleanVar, width: int = 46,
+                 height: int = 26, command: Callable[[bool], None] | None = None) -> None:
+        self._variable = variable
+        self._command = command
+        self._switch_width = design.px(width)
+        self._switch_height = design.px(height)
+        self._trace = variable.trace_add("write", self._on_change)
+        super().__init__(parent, width=self._switch_width, height=self._switch_height,
+                         bg=_bg_of(parent), highlightthickness=0, bd=0, cursor="hand2",
+                         takefocus=1)
+        self.bind("<Button-1>", self.toggle)
+        self.bind("<space>", self.toggle)
+        self.bind("<Return>", self.toggle)
+        self.bind("<Destroy>", self._on_destroy)
+        self._draw()
+
+    def toggle(self, _event=None) -> str:
+        """Flip the variable (click, Space or Return)."""
+        self._variable.set(not bool(self._variable.get()))
+        if self._command is not None:
+            self._command(bool(self._variable.get()))
+        return "break"
+
+    def _on_change(self, *_args) -> None:
+        try:
+            self._draw()
+        except tk.TclError:
+            pass
+
+    def _on_destroy(self, event) -> None:
+        """Drop the variable trace so a rebuild does not draw on a dead canvas."""
+        if event.widget is not self:
+            return
+        if self._trace:
+            try:
+                self._variable.trace_remove("write", self._trace)
+            except (tk.TclError, ValueError):
+                pass
+            self._trace = ""
+
+    def _draw(self) -> None:
+        self.delete("all")
+        width = self._switch_width
+        height = self._switch_height
+        on = bool(self._variable.get())
+        track = ACCENT if on else FIELD_ACTIVE
+        line_start = height / 2
+        line_end = width - height / 2
+        line_width = max(1, height - 1)
+        if not on:
+            self.create_line(line_start, height / 2, line_end, height / 2,
+                             fill=BORDER, width=line_width, capstyle=tk.ROUND)
+            line_width = max(1, line_width - design.px(2))
+        self.create_line(line_start, height / 2, line_end, height / 2,
+                         fill=track, width=line_width, capstyle=tk.ROUND)
+        radius = height / 2 - design.px(3)
+        centre = (width - height / 2) if on else (height / 2)
+        self.create_oval(centre - radius, height / 2 - radius,
+                         centre + radius, height / 2 + radius,
+                         fill="#ffffff", outline="")

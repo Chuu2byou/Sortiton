@@ -6,30 +6,134 @@ import importlib.util
 import os
 import re
 import sys
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, fields
 from pathlib import Path
 
-# Folder of the package and of the entry scripts next to it.
-PACKAGE_DIR = Path(__file__).resolve().parent
-SOURCE_DIR = PACKAGE_DIR.parent
 
-# Running from the checkout (sortiton.py next to the package) keeps logs, rules,
-# settings and backups in the project folder. A frozen build (PyInstaller) and an
-# installed package must not write there - that folder belongs to the system -
-# so both use the user's data folder instead. SORTITON_DATA_DIR moves it.
-FROZEN = bool(getattr(sys, "frozen", False))
-IN_SOURCE_TREE = not FROZEN and (SOURCE_DIR / "sortiton.py").is_file()
-DATA_HOME = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-PROJECT_DIR = (SOURCE_DIR if IN_SOURCE_TREE
-               else Path(os.environ.get("SORTITON_DATA_DIR") or DATA_HOME / "sortiton"))
+@dataclass(frozen=True)
+class AppPaths:
+    """Immutable paths for an application startup."""
 
-# The icons travel with the program: a frozen build unpacks them next to the
-# executable (sys._MEIPASS).
-ASSETS_DIR = Path(getattr(sys, "_MEIPASS", SOURCE_DIR)) / "assets"
+    package_dir: Path
+    source_dir: Path
+    data_home: Path
+    project_dir: Path
+    assets_dir: Path
+    config_home: Path
+    downloads_dir: Path
+    rules_file: Path
+    log_dir: Path
+    settings_file: Path
+    backup_dir: Path
+    export_dir: Path
+    cache_dir: Path
+    legacy_cache_dir: Path
+    music_source_dir: Path
+    music_target_dir: Path
+    frozen: bool
+    in_source_tree: bool
+
+
+def _xdg_user_dir(variable: str, fallback: Path, config_home: Path | None = None,
+                  home: Path | None = None) -> Path:
+    """The XDG user directory for ``variable`` (for example, ``XDG_DOWNLOAD_DIR``).
+
+    Read ``~/.config/user-dirs.dirs``; use ``fallback`` if the file or entry
+    is missing. Resolve ``$HOME`` in the file.
+    """
+    try:
+        directory = config_home if config_home is not None else current_paths().config_home
+        text = (directory / "user-dirs.dirs").read_text(encoding="utf-8")
+    except OSError:
+        return fallback
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith(f"{variable}="):
+            continue
+        value = line.split("=", 1)[1].strip().strip('"')
+        if value:
+            return Path(value.replace("$HOME", str(home or Path.home())))
+    return fallback
+
+
+def production_paths(*, environ: Mapping[str, str] | None = None,
+                     home: Path | None = None, source_dir: Path | None = None,
+                     frozen: bool | None = None, assets_base: Path | None = None) -> AppPaths:
+    """Resolve production paths from the environment and installation at call time."""
+    env = os.environ if environ is None else environ
+    home = Path.home() if home is None else Path(home)
+    package = Path(__file__).resolve().parent
+    source = package.parent if source_dir is None else Path(source_dir)
+    is_frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    in_source = not is_frozen and (source / "sortiton.py").is_file()
+    data_value = env.get("XDG_DATA_HOME", "").strip()
+    data_home = Path(data_value) if data_value else home / ".local" / "share"
+    project_value = env.get("SORTITON_DATA_DIR", "").strip()
+    project = (Path(project_value) if project_value else
+               source if in_source else data_home / "sortiton")
+    config_value = env.get("XDG_CONFIG_HOME", "").strip()
+    config_home = Path(config_value) if config_value else home / ".config"
+    downloads = _xdg_user_dir("XDG_DOWNLOAD_DIR", home / "Downloads", config_home, home)
+    assets = Path(getattr(sys, "_MEIPASS", source) if assets_base is None else assets_base)
+    assets /= "assets"
+    folder_value = env.get("SORTITON_FOLDER", "").strip()
+    music_source = Path(folder_value) if folder_value else project.parent / "Musik"
+    if not music_source.is_dir():
+        music_source = home / "Musik"
+    target_value = env.get("SORTITON_TARGET", "").strip()
+    music_target = Path(target_value) if target_value else home / "Musik"
+    return AppPaths(
+        package, source, data_home, project, assets, config_home, downloads,
+        Path(env.get("SORTITON_RULES", project / "my_rules.ini")),
+        Path(env.get("SORTITON_LOG_DIR", project / "logs")),
+        Path(env.get("SORTITON_SETTINGS", project / "settings.ini")),
+        Path(env.get("SORTITON_BACKUP_DIR", project / "backups")),
+        Path(env.get("SORTITON_EXPORT_DIR") or downloads / "Sortiton"),
+        Path(env.get("SORTITON_CACHE_DIR", project / "cache")),
+        Path(env.get("XDG_CACHE_HOME", home / ".cache")) / "musik_export",
+        music_source, music_target, is_frozen, in_source,
+    )
+
+
+_PATH_NAMES = {item.name.upper(): item.name for item in fields(AppPaths)}
+_paths_context: ContextVar[AppPaths | None] = ContextVar("sortiton_paths", default=None)
+
+
+def selected_paths() -> AppPaths | None:
+    """Return paths explicitly selected for the current execution context."""
+    return _paths_context.get()
+
+
+def current_paths() -> AppPaths:
+    """Return selected paths or the current production configuration."""
+    return selected_paths() or production_paths()
+
+
+@contextmanager
+def use_paths(paths: AppPaths) -> Iterator[None]:
+    """Set paths for a run and restore the context afterwards."""
+    token = _paths_context.set(paths)
+    try:
+        yield
+    finally:
+        _paths_context.reset(token)
+
+
+def __getattr__(name: str):
+    """Expose legacy constant names through a dynamic compatibility adapter."""
+    if name in _PATH_NAMES:
+        return getattr(current_paths(), _PATH_NAMES[name])
+    raise AttributeError(name)
 
 AUDIO_EXTENSIONS = {
     ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wav", ".wma",
     ".opus", ".ape", ".mpc", ".wv",
 }
+
+READ_EXTENSIONS = AUDIO_EXTENSIONS | {".oga", ".mp4", ".aiff", ".aif"}
 
 FALLBACK_ARTIST = "_Unknown"
 MAX_NAME_LENGTH = 120
@@ -39,37 +143,43 @@ MUTAGEN_AVAILABLE = importlib.util.find_spec("mutagen") is not None
 WRITE_WORKERS = 8 if MUTAGEN_AVAILABLE else 4
 COPY_WORKERS = 4
 
-# Invisible, zero-width and BIDI characters.
 INVISIBLE = re.compile(
     r"[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFE00-\uFE0F\uFEFF\uFFF0-\uFFFF]"
 )
 
-# Valid on Linux, but known to break sync tools and SMB shares.
 INVALID_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1F\x7F]')
 
-# Every user path can be moved with an environment variable.
-RULES_FILE = Path(os.environ.get("SORTITON_RULES", PROJECT_DIR / "my_rules.ini"))
-LOG_DIR = Path(os.environ.get("SORTITON_LOG_DIR", PROJECT_DIR / "logs"))
-SETTINGS_FILE = Path(os.environ.get("SORTITON_SETTINGS", PROJECT_DIR / "settings.ini"))
-
-# Copies of the original files, taken before tags are changed (GUI option).
-BACKUP_DIR = Path(os.environ.get("SORTITON_BACKUP_DIR", PROJECT_DIR / "backups"))
-
-# SORTITON_LANG overrides settings.ini.
 DEFAULT_LANGUAGE = "en"
 
 LOG_KEEP = 50
 LOG_PREFIX = "sortiton"
 LATEST_LOG_NAME = "latest.log"
 
-# The run journal sits next to the log file and shares its name, so both are
-# created and pruned together. SORTITON_JOURNAL=false switches it off; the
-# journal keeps fewer runs than the log because it is the bigger file.
 JOURNAL_SUFFIX = ".jsonl"
 LATEST_JOURNAL_NAME = "latest_journal.jsonl"
 JOURNAL_KEEP = 20
 
 BACKUP_KEEP = 10
 
-# SORTITON_JOURNAL and SORTITON_BACKUP: these values mean "off".
 OFF_VALUES = {"0", "false", "no", "off", "nein", "aus"}
+
+
+def display_path(path: Path | str) -> str:
+    """Format a path for display, replacing the home directory with ``~``.
+
+    The UI then shows ``~/Downloads/Sortiton`` instead of a full
+    user-specific path.
+    """
+    text = str(path or "").strip()
+    if not text:
+        return text
+    try:
+        home = Path.home()
+        candidate = Path(text).expanduser()
+        if candidate == home:
+            return "~"
+        if home in candidate.parents:
+            return "~/" + str(candidate.relative_to(home))
+    except (OSError, ValueError):
+        pass
+    return text

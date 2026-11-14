@@ -1,17 +1,16 @@
-"""Rules: built-in tables, your own rules (my_rules.ini) and the text cleanup.
-
-Built-ins are generic and always active; artist- or collection-specific fixes
-belong in my_rules.ini and run afterwards.
-"""
+"""Rules: built-in tables, your own rules (my_rules.ini) and the text cleanup."""
 
 from __future__ import annotations
 
 import configparser
+import importlib
 import re
+import threading
+from dataclasses import dataclass
 from pathlib import Path
 
-from . import i18n
-from .config import INVISIBLE, RULES_FILE
+from . import config, i18n
+from .config import INVISIBLE
 
 GENRE_ALIASES = {
     "jpop": "J-Pop", "j pop": "J-Pop", "j-pop": "J-Pop",
@@ -21,9 +20,6 @@ GENRE_ALIASES = {
     "vtuber": "VTuber", "vocaloid": "Vocaloid",
 }
 
-# Built-in artist/text fixes: (regex, literal replacement). THE ORDER MATTERS.
-# Only generic rules belong here - artist names and spellings go into
-# my_rules.ini ([Artist] for literals, [Artist Regex] for patterns).
 ARTIST_FIXES: tuple[tuple[str, str], ...] = (
     (r"\s+from\s+", "; "),
     (r"\s+with\s+", "; "),
@@ -35,14 +31,8 @@ _ARTIST_FIXES_COMPILED: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(pattern), replacement) for pattern, replacement in ARTIST_FIXES
 )
 
-# Your own rules (my_rules.ini) - filled by load_custom_rules().
-CUSTOM_ARTISTS: list[tuple[re.Pattern, str]] = []
-CUSTOM_ARTIST_REGEX: list[tuple[re.Pattern, str]] = []
-CUSTOM_GENRES: dict[str, str] = {}
-CUSTOM_PROTECTED: list[tuple[re.Pattern, str]] = []
-
-# Section names work in English and German; a broken file never aborts a run -
-# bad lines are skipped and reported as warnings.
+MAX_CUSTOM_REGEX_LENGTH = 500
+MAX_CUSTOM_REGEX_INPUT = 512
 
 
 def builtin_rules_text() -> str:
@@ -53,6 +43,10 @@ def builtin_rules_text() -> str:
         i18n.t("rules.overview.header3"),
         i18n.t("rules.overview.header4"),
         i18n.t("rules.overview.header5"),
+        "#",
+        i18n.t("rules.overview.separator_title"),
+        i18n.t("rules.overview.separator1"),
+        i18n.t("rules.overview.separator2"),
         "#",
         i18n.t("rules.overview.genre_title"),
     ]
@@ -67,6 +61,7 @@ def builtin_rules_text() -> str:
         i18n.t("rules.overview.artist_title"),
         i18n.t("rules.overview.artist_sub1"),
         i18n.t("rules.overview.artist_sub2"),
+        i18n.t("rules.overview.artist_sub3"),
     ]
     for pattern, replacement in ARTIST_FIXES:
         lines.append(f'#      "{pattern}" = "{replacement}"')
@@ -96,80 +91,181 @@ def rules_template() -> str:
 
 def rules_summary() -> str:
     """Short description of the loaded custom rules (empty = none loaded)."""
+    custom = _custom_rules()
     parts: list[str] = []
-    if CUSTOM_ARTISTS:
-        parts.append(_count(len(CUSTOM_ARTISTS), "rules.summary.artists",
-                            "rules.summary.artists_plural"))
-    if CUSTOM_ARTIST_REGEX:
-        parts.append(i18n.t("rules.summary.regex", count=len(CUSTOM_ARTIST_REGEX)))
-    if CUSTOM_GENRES:
-        parts.append(i18n.t("rules.summary.genre", count=len(CUSTOM_GENRES)))
-    if CUSTOM_PROTECTED:
-        parts.append(i18n.t("rules.summary.protected", count=len(CUSTOM_PROTECTED)))
+    if custom.artists:
+        parts.append(i18n.t_count("rules.summary.artists", len(custom.artists)))
+    if custom.regex:
+        parts.append(i18n.t_count("rules.summary.regex", len(custom.regex)))
+    if custom.genres:
+        parts.append(i18n.t_count("rules.summary.genre", len(custom.genres)))
+    if custom.protected:
+        parts.append(i18n.t_count("rules.summary.protected", len(custom.protected)))
     return ", ".join(parts)
 
 
 def rules_status() -> dict:
     """Counts of the active rules, from the last :func:`load_custom_rules` call."""
+    custom = _custom_rules()
     return {
-        "artist": len(CUSTOM_ARTISTS),
-        "regex": len(CUSTOM_ARTIST_REGEX),
-        "genre": len(CUSTOM_GENRES),
-        "protected": len(CUSTOM_PROTECTED),
+        "artist": len(custom.artists),
+        "regex": len(custom.regex),
+        "genre": len(custom.genres),
+        "protected": len(custom.protected),
         "builtin_artists": len(ARTIST_FIXES),
         "builtin_genres": len(GENRE_ALIASES),
-        "custom_total": (len(CUSTOM_ARTISTS) + len(CUSTOM_ARTIST_REGEX)
-                         + len(CUSTOM_GENRES) + len(CUSTOM_PROTECTED)),
+        "custom_total": (len(custom.artists) + len(custom.regex)
+                         + len(custom.genres) + len(custom.protected)),
     }
 
 
-def _count(number: int, singular: str, plural: str) -> str:
-    key = singular if number == 1 else plural
-    return i18n.t(key, count=number)
+@dataclass(frozen=True)
+class CustomRules:
+    """One parsed my_rules.ini - immutable so workers can share it safely."""
+    artists: list[tuple[re.Pattern, str]]
+    regex: list[tuple[re.Pattern, str]]
+    genres: dict[str, str]
+    protected: list[tuple[re.Pattern, str]]
 
 
-def load_custom_rules(path: Path | None = None) -> list[str]:
-    """Read the custom rules file and refill the CUSTOM_* lists.
+_EMPTY_RULES = CustomRules([], [], {}, [])
+_CUSTOM = _EMPTY_RULES
+_custom_lock = threading.Lock()
 
-    Returns the warnings (empty = all good); bad entries are skipped.
-    """
-    global CUSTOM_ARTISTS, CUSTOM_ARTIST_REGEX, CUSTOM_GENRES, CUSTOM_PROTECTED
-    CUSTOM_ARTISTS = []
-    CUSTOM_ARTIST_REGEX = []
-    CUSTOM_GENRES = {}
-    CUSTOM_PROTECTED = []
 
-    warnings: list[str] = []
-    file = Path(path) if path is not None else RULES_FILE
-    if not file.is_file():
-        return warnings
+def _custom_rules() -> CustomRules:
+    """The active rule set as one consistent snapshot."""
+    with _custom_lock:
+        return _CUSTOM
 
+
+def snapshot() -> CustomRules:
+    """One rule set for a whole run (the GUI may reload rules mid-run)."""
+    return _custom_rules()
+
+
+def _set_custom_rules(rules: CustomRules) -> None:
+    """Atomically replace the active rule set (readers see old or new, never partial)."""
+    global _CUSTOM  # pylint: disable=global-statement
+    with _custom_lock:
+        _CUSTOM = rules
+
+
+def _regex_risk(pattern: str) -> bool:
+    """Reject the classic catastrophic-backtracking shapes."""
     try:
-        content = file.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError) as error:
-        warnings.append(i18n.t("rules.warn.read", file=file.name, error=error))
-        return warnings
+        constants = importlib.import_module("re._constants")
+        parser = importlib.import_module("re._parser")
+        tree = parser.parse(pattern, 0)
+    except (ImportError, re.error):
+        return False
 
-    # An indented line would count as a continuation of the line above (INI quirk).
-    content = "\n".join(line.lstrip() for line in content.splitlines())
+    repeats = {getattr(constants, "MAX_REPEAT", None),
+               getattr(constants, "MIN_REPEAT", None)}
+    possessive = getattr(constants, "POSSESSIVE_REPEAT", None)
+    if possessive is not None:
+        repeats.add(possessive)
+    repeats.discard(None)
+    branch_op = getattr(constants, "BRANCH", None)
+    subpattern_op = getattr(constants, "SUBPATTERN", None)
+    groupref_op = getattr(constants, "GROUPREF_EXISTS", None)
+    assert_ops = (getattr(constants, "ASSERT", None),
+                  getattr(constants, "ASSERT_NOT", None))
 
-    parser = configparser.ConfigParser(allow_no_value=True, interpolation=None, strict=False)
-    parser.optionxform = lambda optionstr: optionstr  # keep key spelling
+    def walk(items, inside_repeat: bool) -> bool:
+        for op, argument in items:
+            if op in repeats:
+                body = argument[2]
+                if inside_repeat or any(child_op is branch_op
+                                        for child_op, _ in body):
+                    return True
+                if walk(body, True):
+                    return True
+            elif op is subpattern_op:
+                if walk(argument[3], inside_repeat):
+                    return True
+            elif op is branch_op:
+                if inside_repeat:
+                    return True
+                for branch in argument[1]:
+                    if walk(branch, inside_repeat):
+                        return True
+            elif op is groupref_op:
+                if walk(argument[2], inside_repeat) or walk(argument[3], inside_repeat):
+                    return True
+            elif op in assert_ops:
+                if walk(argument[1], inside_repeat):
+                    return True
+        return False
+
+    return walk(tree, False)
+
+
+_INI_BLOCK = re.compile(r"```[ \t]*ini[ \t]*\r?\n(.*?)(?:```|\Z)",
+                        re.DOTALL | re.IGNORECASE)
+
+
+def extract_ini_block(text: str) -> str:
+    """The INI part of an LLM answer: the first ```ini block, else the whole text."""
+    match = _INI_BLOCK.search(text or "")
+    if match:
+        return match.group(1).strip("\r\n")
+    return (text or "").strip("\r\n")
+
+
+def _artist_key_pattern(key: str) -> re.Pattern:
+    """Compile an ``[Artist]`` key; ``|`` and ``;`` both separate values.
+
+    The tag reader joins multiple artists with ``"; "`` while the export shows
+    them with ``" | "``.  A rule copied from a TSV therefore has to match both
+    spellings.  ``[Artist Regex]`` is deliberately left alone: there ``|`` is
+    the regular-expression alternation.
+    """
+    parts = [part.strip() for part in re.split(r"[|;]", key) if part.strip()]
+    if not parts:
+        return re.compile(r"(?!)")
+    if len(parts) == 1:
+        return re.compile(re.escape(parts[0]), re.IGNORECASE)
+    return re.compile(r"\s*[;|]\s*".join(re.escape(part) for part in parts),
+                      re.IGNORECASE)
+
+
+def _artist_key_form(key: str) -> str:
+    """Comparison form of an artist/protected key, independent of the separator."""
+    parts = [part.strip() for part in re.split(r"[|;]", key) if part.strip()]
+    return "; ".join(parts).casefold()
+
+
+def parse_custom_rules(text: str,
+                       file_name: str | None = None) -> tuple[CustomRules, list[str]]:
+    """Parse the content of a my_rules.ini - without touching the file system."""
+    if file_name is None:
+        file_name = config.current_paths().rules_file.name
+    artists: list[tuple[re.Pattern, str]] = []
+    artist_regex: list[tuple[re.Pattern, str]] = []
+    genres: dict[str, str] = {}
+    protected_rules: list[tuple[re.Pattern, str]] = []
+    artist_keys: list[str] = []
+    protected_keys: list[str] = []
+    warnings: list[str] = []
+
+    content = "\n".join(line.lstrip() for line in text.splitlines())
+
+    parser = configparser.ConfigParser(allow_no_value=True, interpolation=None,
+                                       strict=False, delimiters=("=",))
+    parser.optionxform = lambda optionstr: optionstr
     try:
         parser.read_string(content)
     except configparser.Error as error:
-        warnings.append(i18n.t("rules.warn.invalid", file=file.name, error=error))
-        return warnings
+        warnings.append(i18n.t("rules.warn.invalid", file=file_name, error=error))
+        return CustomRules(artists, artist_regex, genres, protected_rules), warnings
 
-    # Section names are accepted in English and German: the shipped
-    # my_rules.ini uses German headings, the generated template English ones.
     def section(*names: str) -> configparser.SectionProxy | None:
         for present in parser.sections():
             if present.strip().lower() in names:
                 return parser[present]
         return None
 
-    # [Artist] / [Künstler] - simple replacements, case insensitive
     simple = section("artist", "artists", "künstler", "kuenstler")
     if simple is not None:
         for old, new in simple.items():
@@ -179,9 +275,11 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             if new is None:
                 warnings.append(i18n.t("rules.warn.artist_no_equals", rule=old))
                 continue
-            CUSTOM_ARTISTS.append((re.compile(re.escape(old), re.IGNORECASE), new))
+            if "|" in old:
+                warnings.append(i18n.t("rules.warn.pipe_separator", rule=old))
+            artist_keys.append(old)
+            artists.append((_artist_key_pattern(old), new))
 
-    # [Artist Regex] / [Künstler Regex] - replacements using a regular expression
     regex = section("artist regex", "artist-regex", "regex", "künstler regex",
                     "kuenstler regex", "künstler-regex", "kuenstler-regex")
     if regex is not None:
@@ -192,15 +290,20 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             if new is None:
                 warnings.append(i18n.t("rules.warn.regex_no_equals", rule=pattern))
                 continue
+            if len(pattern) > MAX_CUSTOM_REGEX_LENGTH:
+                warnings.append(i18n.t("rules.warn.regex_too_long", rule=pattern))
+                continue
+            if _regex_risk(pattern):
+                warnings.append(i18n.t("rules.warn.regex_unsafe", rule=pattern))
+                continue
             try:
                 checker = re.compile(pattern)
-                checker.sub(new, "")              # validate the replacement too
+                checker.sub(new, "")
             except re.error as error:
                 warnings.append(i18n.t("rules.warn.regex_invalid", rule=pattern, error=error))
                 continue
-            CUSTOM_ARTIST_REGEX.append((checker, new))
+            artist_regex.append((checker, new))
 
-    # [Genre] - spellings; an empty value deletes the genre
     genre = section("genre", "genres")
     if genre is not None:
         for old, new in genre.items():
@@ -210,26 +313,51 @@ def load_custom_rules(path: Path | None = None) -> list[str]:
             if new is None:
                 warnings.append(i18n.t("rules.warn.genre_no_equals", rule=old))
                 continue
-            CUSTOM_GENRES[old] = new
+            genres[old] = new
 
-    # [Protected] / [Geschützt] - names that stay as they are (optional spelling)
     protected = section("protected", "geschützt", "geschuetzt")
     if protected is not None:
         for word, wanted in protected.items():
             word = word.strip()
             if not word:
                 continue
-            CUSTOM_PROTECTED.append(
+            protected_keys.append(word)
+            protected_rules.append(
                 (re.compile(re.escape(word), re.IGNORECASE),
                  str(wanted).strip() if wanted else ""))
 
+    protected_forms = {_artist_key_form(key) for key in protected_keys}
+    for key in artist_keys:
+        if _artist_key_form(key) in protected_forms:
+            warnings.append(i18n.t("rules.warn.protected_conflict", rule=key))
+
+    return CustomRules(artists, artist_regex, genres, protected_rules), warnings
+
+
+def load_custom_rules(path: Path | None = None) -> list[str]:
+    """Read the custom rules file and swap in the new rule set."""
+    file = Path(path) if path is not None else config.current_paths().rules_file
+    if not file.is_file():
+        _set_custom_rules(_EMPTY_RULES)
+        return []
+
+    try:
+        content = file.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as error:
+        _set_custom_rules(_EMPTY_RULES)
+        return [i18n.t("rules.warn.read", file=file.name, error=error)]
+
+    parsed, warnings = parse_custom_rules(content, file.name)
+    _set_custom_rules(parsed)
     return warnings
 
 
-def _mask_protected(text: str) -> tuple[str, dict[str, str]]:
+def _mask_protected(text: str,
+                    custom: CustomRules | None = None) -> tuple[str, dict[str, str]]:
     """Swap protected names for placeholders and return the restore table."""
+    custom = custom or _custom_rules()
     table: dict[str, str] = {}
-    for index, (pattern, wanted) in enumerate(CUSTOM_PROTECTED):
+    for index, (pattern, wanted) in enumerate(custom.protected):
         counter = 0
 
         def replace(m: re.Match, index: int = index, wanted: str = wanted) -> str:
@@ -264,69 +392,57 @@ def strip_cv_notation(value: str) -> str:
         outside = m.group(1).strip()
         inside = m.group(2).strip()
 
-        # "(?i:...)" is NOT a capture group - the content is group(1).
         match = re.match(r"^(?i:CV[_.:：]?)\s*(.*)$", inside)
         if match:
             return match.group(1).strip()
 
-        # The bracketed part is the actor; both names stay for feat./ft.
-        # "featuring" has to come first in the alternation - otherwise "ft."
-        # would match inside it and leave "uring …" behind.
         match = re.match(r"^(?i:featuring|feat\.?|ft\.?)(?=\s|$)\s*(.*)$", inside)
         if match:
             return f"{outside}; {match.group(1).strip()}"
 
-        # idol groups like "... (46)" keep the bracket
         if re.search(r"\d+$", inside):
             return f"{outside}; {inside}"
 
-        # otherwise only the inside survives
         return inside
 
     return CV_REGEX.sub(replacement, value)
 
 
-def clean_artist(value: str) -> str:
+def clean_artist(value: str, custom: CustomRules | None = None) -> str:
     """Artist / album artist cleanup (idempotent)."""
     if not value:
         return value or ""
 
+    custom = custom or _custom_rules()
     new = strip_cv_notation(value)
 
-    # Park protected names: they keep their spelling and are restored 1:1 below.
-    new, protect_table = _mask_protected(new)
+    new, protect_table = _mask_protected(new, custom)
 
     new = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]", "", new)
 
-    # Full-width characters from Japanese taggers.
-    new = new.replace("\uFF06", "&")      # ＆
-    new = new.replace("\uFF1B", ";")      # ；
-    new = new.replace("\uFF0C", ",")      # ，
-    new = new.replace("\u3001", "; ")     # 、
+    new = new.replace("\uFF06", "&")
+    new = new.replace("\uFF1B", ";")
+    new = new.replace("\uFF0C", ",")
+    new = new.replace("\u3001", "; ")
 
-    # "・" only outside single letters (A・B・C).
     if not re.match(r"^[A-Za-z0-9\u3040-\u30FF]{1,3}(·|・)[A-Za-z0-9\u3040-\u30FF]", new):
         new = new.replace("\u30FB", "; ")
 
-    # Built-in fixes - literal replacement (lambda), so special characters are
-    # never treated as regex backreferences.
     for pattern, replacement in _ARTIST_FIXES_COMPILED:
         new = pattern.sub(lambda _m, e=replacement: e, new)
 
-    # Custom rules: literals first, then regex - they run after the built-ins.
-    for pattern, replacement in CUSTOM_ARTISTS:
+    for pattern, replacement in custom.artists:
         new = pattern.sub(lambda _m, e=replacement: e, new)
-    for pattern, replacement in CUSTOM_ARTIST_REGEX:
-        new = pattern.sub(replacement, new)
+    if len(new) <= MAX_CUSTOM_REGEX_INPUT:
+        for pattern, replacement in custom.regex:
+            new = pattern.sub(replacement, new)
 
-    # Normalise separators.
     new = re.sub(r"\s*/\s*", "; ", new)
     new = re.sub(r"\s+&\s+", "; ", new)
     new = re.sub(r"\s+[xX×]\s+", "; ", new)
     new = re.sub(r"\s*,\s*", "; ", new)
     new = re.sub(r"(?i)\s+(feat\.?|ft\.?|featuring|meets)\s+", "; ", new)
 
-    # Drop empties and duplicates.
     if ";" in new:
         parts: list[str] = []
         for part in new.split(";"):
@@ -335,7 +451,6 @@ def clean_artist(value: str) -> str:
                 parts.append(part)
         new = "; ".join(parts)
 
-    # Restore protected names 1:1 (even with ";" in the name).
     for placeholder, original in protect_table.items():
         new = new.replace(placeholder, original)
 
@@ -343,34 +458,31 @@ def clean_artist(value: str) -> str:
     new = re.sub(r"  +", " ", new)
     new = new.strip()
 
-    # Single correction for a name the built-in rules leave garbled -
-    # the overview shows it as artist_f9.
+    # Correct a known artist-name split; also listed in --builtin.
     if new == "Orchestr; a; Plays":
         new = "Orchestra Plays"
 
     return new
 
 
-def clean_genre(value: str) -> str:
-    """Genre cleanup: normalise spellings, never split at "-".
-
-    Only ";" and "," split, so "J-Pop" stays intact.
-    """
+def clean_genre(value: str, custom: CustomRules | None = None) -> str:
+    """Genre cleanup: normalise spellings, never split at "-"."""
     if not value:
         return value or ""
 
     new = clean_text_field(value)
+    custom = custom or _custom_rules()
 
     parts: list[str] = []
-    for part in re.split(r"[;,，、]\s*", new):
+    for part in re.split(r"[;,，、|]\s*", new):
         part = part.strip()
         if not part:
             continue
         key = part.lower()
-        if key in CUSTOM_GENRES:
-            part = CUSTOM_GENRES[key]
+        if key in custom.genres:
+            part = custom.genres[key]
             if not part:
-                continue          # custom rule with an empty value deletes the genre
+                continue
         else:
             part = GENRE_ALIASES.get(key, part)
         if part not in parts:

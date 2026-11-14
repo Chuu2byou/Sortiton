@@ -34,7 +34,12 @@ jobs:
     # inside the app, ffmpeg stays a requirement of the target machine.
     - name: Install build dependencies
       run: |
-        sudo apt-get update
+        # Same precaution as in pylint.yml: a packages.microsoft.com entry in
+        # the runner image can answer 403 and make "apt-get update" fail with
+        # exit code 100. Everything installed here comes from Ubuntu.
+        grep -rls 'packages.microsoft.com' /etc/apt/sources.list.d/ \
+          | sudo xargs -r rm -f
+        sudo apt-get update -o Acquire::Retries=3
         sudo apt-get install -y ffmpeg python3-tk xvfb
         python -m pip install --upgrade pip
         pip install -r requirements-dev.txt

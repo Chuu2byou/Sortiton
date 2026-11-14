@@ -2,38 +2,37 @@
 
 <img src="assets/icon.png" width="64" alt="App icon">
 
-A music sorter for Linux. It cleans up tags, renames files from those tags and
-sorts them into a library - the Linux port of some old PowerShell scripts.
+Sortiton organises music on Linux: it cleans tags, renames files, and sorts them
+into a library.
 
 ![Interface of Sortiton](assets/screenshot.png)
 
 ## Features
 
-- **Clean tags**, **Rename**, **Sort**, **Apply all** - nothing is written
-  before you have seen a preview of it.
-- **Your own rules, no code:** artist and genre fixes go into `my_rules.ini`.
-- A name that is already taken gets `(2)`, `(3)`, …; a file that sits in the
-  target with identical content is skipped. Nothing is overwritten.
-- Every run lands in a journal, and `sortiton restore --apply` turns it back.
-- The rules are idempotent: running them twice gives the same result as once.
-  Genres are not split at `-` either, so `J-Pop` stays intact.
-- Few dependencies: Tkinter, ffmpeg for tags, mutagen if you want it faster.
+- Clean tags, rename files, and sort music, individually or together.
+- Preview changes before applying them; undo runs when needed.
+- Define artist and genre corrections in `my_rules.ini`.
+- Find duplicates, apply CSV corrections, and export reports for an LLM.
+- Avoid overwriting files: conflicting names get a numbered suffix; identical
+  files are skipped.
 
-## Install
+## Installation
 
-Nothing has to be installed to run the release files, ffmpeg aside:
+### Release files
 
-- **`Sortiton-<version>-x86_64.AppImage`** - one file: `chmod +x` it and start
-  it (a double click works as well; it needs `libfuse2`).
-- **`sortiton-<version>-linux-x86_64.tar.gz`** - unpack it and run
-  `Sortiton/Sortiton`; the same folder holds `sortiton`, the command line.
+The release files require no installation apart from ffmpeg.
 
-Both come from [Releases](https://github.com/Chuu2byou/Sortiton/releases);
-`SHA256SUMS` lists their checksums. Tkinter and mutagen are bundled, ffmpeg is
-not. Logs, backups, `settings.ini` and `my_rules.ini` live in
-`~/.local/share/sortiton/`; `SORTITON_DATA_DIR` moves the folder.
+| File | Usage |
+| --- | --- |
+| `Sortiton-<version>-x86_64.AppImage` | Make executable (`chmod +x`) and run. Requires `libfuse2`. |
+| `sortiton-<version>-linux-x86_64.tar.gz` | Unpack and run `Sortiton/Sortiton`. The same folder contains `sortiton`, the command-line tool. |
 
-From the source (Python 3.12 or newer):
+Both are available under Releases; `SHA256SUMS` lists their checksums.
+Tkinter and mutagen are bundled; ffmpeg is not. Logs, backups, `settings.ini`
+and `my_rules.ini` are stored in `~/.local/share/sortiton/`.
+The `SORTITON_DATA_DIR` variable changes this location.
+
+### From source (Python 3.12 or newer)
 
 ```bash
 sudo apt install ffmpeg python3-tk        # Debian/Ubuntu
@@ -47,141 +46,144 @@ pipx install "git+https://github.com/Chuu2byou/Sortiton.git"
 pipx inject sortiton mutagen              # optional: faster tag writing
 ```
 
-This brings the commands `sortiton` (the command line) and `sortiton-gui` (the
-window); `python -m sortiton.gui` does the same. In a virtual environment
-`pip install ".[mutagen]"` takes the optional mutagen along.
+This installs the commands `sortiton` (command line) and `sortiton-gui`
+(graphical interface). `python -m sortiton.gui` is equivalent to the latter.
+In a virtual environment, `pip install ".[mutagen]"` includes mutagen.
 
-## The window
+## Command line
 
-```bash
-sortiton-gui
-```
-
-Four tabs - **Clean tags**, **Rename**, **Sort**, **Apply all** - all in the
-same order: create a preview, check it, then write. The button that writes
-stays disabled until a preview for exactly these inputs has run, and locks
-again as soon as an input changes. "Apply all" does everything in one run:
-clean tags → rename → sort into the library.
-
-The status bar shows the running step and the progress; the result area shows
-the counters of the last run next to the newest log lines ("Show details"
-opens the full log). Folder pickers open a native system dialog (`kdialog` on
-KDE, `zenity` on GNOME), Tkinter only as a fallback. Before anything is
-written, the confirmation shows the counts and offers a backup of the original
-files (see [Logs, backup and undo](#logs-backup-and-undo)). "Undo last run …"
-lists the journals and shows the plan before anything happens.
-
-## The command line
-
-> **Important:** without `--apply` every command only runs a **preview** -
-> nothing is changed.
+Without `--apply`, every command runs as a preview only. Nothing is changed.
 
 ```bash
-sortiton tags   ~/Downloads/Music              # clean tags
-sortiton rename ~/Downloads/Music --apply      # %artist% - %title%
+sortiton tags   ~/Downloads/Music              # clean tags (in-place)
+sortiton tags   ~/Downloads/Music ~/Music --move --apply  # clean tags and sort
+sortiton rename ~/Downloads/Music --apply      # %artist% - %title% (in-place)
+sortiton rename ~/Downloads/Music ~/Music --move --apply  # rename and sort
 sortiton sort   ~/Downloads/Music ~/Music --move --apply
 sortiton all    ~/Downloads/Music ~/Music --move --apply
 sortiton scan   ~/Music                        # count files/albums/artists
+sortiton export ~/Music                        # write reports for an LLM
+sortiton fixes  changes.csv --root ~/Music     # preview CSV corrections
+sortiton dedupe ~/Music                        # preview exact duplicates
+sortiton dedupe ~/Music --apply                # move them to .duplicates
 sortiton rules  --template                     # create my_rules.ini
-sortiton restore --list                        # which runs can be undone
+sortiton restore --list                        # list runs that can be undone
 sortiton restore --apply                       # undo the last run
 ```
 
-In the source tree the same commands run as `python3 sortiton.py …`.
+In the source tree, the same commands run as `python3 sortiton.py …`.
 
-Placeholders: `%artist%`, `%albumartist%`, `%album%`, `%title%` (default
-`%artist% - %title%`).
+Placeholders for file names: `%artist%`, `%albumartist%`, `%album%`, `%title%`.
+The default is `%artist% - %title%`.
 
-## Your own rules (`my_rules.ini`)
+Use `sortiton --help` or `sortiton <command> --help` for all options. For example,
+`--track-format` controls track and disc number formatting, and `--diff` shows
+tag changes.
 
-Artist names and anything that only your collection needs belong in
-`my_rules.ini` instead of the code; the file is read on every run.
+### Folders and targets
+
+- For tag cleaning and renaming, an empty target means changes are made in the source folder. Sorting and the all-in-one operation require a target.
+- The target cannot be the source or one of its subfolders; a parent folder is allowed. Export reports must also be outside the source. Dedupe (`.duplicates`) and CSV corrections intentionally modify the source.
+- The GUI saves the most recently used folders for core pages and tools in `settings.ini`. `SORTITON_FOLDER` and `SORTITON_TARGET` take precedence on the next launch; an invalid target is left empty and must be selected again. Without a saved or explicitly configured target, the target for sorting and the all-in-one operation is empty.
+- Relative paths are resolved from the process working directory. Before preview and execution, Sortiton checks whether the target folder exists or can be created; permissions may still change afterwards.
+
+## Export for an LLM
+
+`sortiton export ~/Music` creates reports and track lists for a large language
+model, by default in `~/Downloads/Sortiton`. The export does not change music
+files. Use `--fingerprint` for duplicate reports (requires `fpcalc`) or `--jsonl`
+for raw tags.
+
+## Find duplicates (`dedupe`)
+
+`sortiton dedupe ~/Music` scans a folder and previews which files it would
+move. Nothing is deleted: every duplicate is moved into a hidden
+`.duplicates/` folder below the scanned root, with its relative path preserved.
+The next scan ignores that folder automatically.
+
+```bash
+sortiton dedupe ~/Music                 # preview
+sortiton dedupe ~/Music --apply         # move the duplicates
+sortiton restore                        # preview the undo
+sortiton restore --apply                # move them back
+```
+
+By default, only byte-for-byte identical files are considered duplicates.
+`--by tags` also matches artist, title, album, and duration; it requires mutagen
+or ffprobe and can group different recordings. Review the preview carefully.
+
+The same feature is available in the GUI under Tools → Duplicates.
+
+## Custom rules (`my_rules.ini`)
+
+Artist names and other collection-specific corrections belong in `my_rules.ini`
+rather than in the code. The file is read on every run.
 
 ```ini
-[Artist]                   # own spellings (case does not matter)
+[Artist]                   # custom spellings (case-insensitive)
 Sample Band = Sample Band Official
 
-[Artist Regex]             # patterns (regular expressions, groups like \1 work)
+[Artist Regex]             # regular expressions; groups such as \1 work
 (?i)\bsample\s+band\b = Sample Band
 
-[Genre]                    # unify spellings; nothing right of "=" deletes the genre
+[Genre]                    # unify spellings; an empty value deletes the genre
 synthpop = Synth-Pop
 junkgenre =
 
-[Protected]                # stays exactly as it is and is never split
+[Protected]                # left unchanged and never split
 Example & Co
 Foo/Bar = Foo / Bar
 ```
 
-- **Create:** `sortiton rules --template` - or "Custom Rules …" in the GUI.
-- **Check:** `sortiton rules` shows the path, the loaded rules and any
-  warnings; a broken line is skipped, it does not abort the run.
-- **Built-in rules:** `sortiton rules --builtin` lists them (genre aliases such
-  as `jpop = J-Pop`, structural fixes such as `"  +" = " "`); they are always
-  active and applied **before** your own rules.
-- Names containing "&", "/" or "," are never split; an **empty value**
-  (`junkgenre =`) deletes the genre. Another location: `SORTITON_RULES`.
+- Create a template with `sortiton rules --template`, or use "Custom Rules …"
+  in the GUI.
+- Run `sortiton rules` to check loaded rules and warnings; use `--builtin` to
+  list built-in rules.
+- Use `[Protected]` to keep names containing separators together. Protected
+  names take precedence over `[Artist]` rules; use `K/DA = K／DA` in
+  `[Protected]` to also change the spelling.
 
-## Logs, backup and undo
+## Logs, backup, and undo
 
-Every run - in the GUI and on the command line - writes a log file into `logs/`
-(`sortiton_<date>_<time>.log`, the last 50 are kept) and a machine-readable
-**journal** next to it. The GUI shows the newest lines in the result area,
-"Show details" opens the full log, "Open logs" the folder.
-
-Before tags are written, every file that is about to change can be copied into
-`backups/` (relative paths kept, so restoring is a plain copy back). The option
-is on by default, switchable in the confirmation dialog and remembered in
-`settings.ini` (`--backup` on the command line, the last 10 runs are kept).
-
-`sortiton restore` reads the journal and turns the changes around, newest
-first, so a combined run (tags -> rename -> sort) comes back as sort -> rename
--> tags:
+Runs create logs and journals in `logs/`. Backups before tag changes are enabled
+by default in the GUI; on the command line, use `--backup`. Restore uses the
+journal to reverse changes, including duplicate moves.
 
 ```bash
-sortiton restore --list            # which runs can be undone
-sortiton restore                   # preview: what the undo would do
-sortiton restore --apply           # undo it
+sortiton restore --list            # list runs that can be undone
+sortiton restore                   # preview the undo
+sortiton restore --apply           # perform the undo
 ```
-
-A step whose old name is taken again is **skipped**, never overwritten. A run
-that copied files is undone by deleting those copies - the original stays. The
-preview rule holds here too: without `--apply` nothing is changed. `restore`
-writes a journal of its own, so an undo stays traceable;
-`SORTITON_JOURNAL=false` switches the journal off.
-
-Tags are read with **mutagen** if installed (~1.8 ms/file) and written in
-place; ffprobe/ffmpeg is the fallback. Reading, writing and copying run in
-parallel.
 
 ## Environment variables
 
-Every path and a few switches can be overridden without touching a file:
-
 | Variable | Meaning |
 | --- | --- |
-| `SORTITON_DATA_DIR` | folder of the released app (`~/.local/share/sortiton`) |
-| `SORTITON_RULES` | path of `my_rules.ini` |
-| `SORTITON_LOG_DIR` | folder for the log files |
-| `SORTITON_BACKUP_DIR` | folder for the backups |
-| `SORTITON_SETTINGS` | path of `settings.ini` |
+| `SORTITON_DATA_DIR` | Data folder of the released app (`~/.local/share/sortiton`) |
+| `SORTITON_RULES` | Path to `my_rules.ini` |
+| `SORTITON_LOG_DIR` | Folder for log files |
+| `SORTITON_BACKUP_DIR` | Folder for backups |
+| `SORTITON_SETTINGS` | Path to `settings.ini` |
+| `SORTITON_EXPORT_DIR` | Folder for the export reports |
+| `SORTITON_CACHE_DIR` | Folder for the fingerprint cache |
 | `SORTITON_BACKUP` | `false` disables the backup |
-| `SORTITON_JOURNAL` | `false` disables the run journal (`restore` then has nothing) |
-| `SORTITON_FOLDER` / `SORTITON_TARGET` | start folders of the GUI |
+| `SORTITON_JOURNAL` | `false` disables the run journal (restore then has nothing to work with) |
+| `SORTITON_FOLDER` / `SORTITON_TARGET` | GUI source folder / library target for sorting and the all-in-one operation; override saved values |
+| `SORTITON_UI_SCALE` | UI scale of the GUI, e.g. `1.25` (default: screen DPI) |
 
 ## Contributing
 
-Bug reports and pull requests go through the issue tracker. Before sending a
-patch, run both of these:
+Bug reports and pull requests go through the issue tracker.
+Before submitting a patch, run both of the following:
 
 ```bash
-tools/checks.sh               # syntax, imports, smoke test, pylint, CLI
-tools/build_app.sh            # freeze the program (tar.gz, --appimage)
+tools/checks.sh       # syntax, imports, pytest, pylint, CLI
+tools/build_app.sh    # freeze the program (tar.gz, --appimage)
 ```
 
-How the project is laid out, what the checks do and how a release is cut is
-described in [CONTRIBUTING.md](CONTRIBUTING.md).
+`CONTRIBUTING.md` describes the project layout, what the checks do,
+and how a release is made.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT. See `LICENSE`.

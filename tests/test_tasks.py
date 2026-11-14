@@ -1,0 +1,616 @@
+"""Core operations: tags, rename, sort, all and backups.
+
+Tests use the ``cmd_*`` functions with patched readers/writers so they run
+without audio tools and verify only behaviour: where files go, which return
+code is produced and what the counters report.
+"""
+
+from __future__ import annotations
+
+import unittest.mock as mock
+
+import pytest
+
+from _support import Path, SimpleNamespace, check, config, current_stats, tempfile
+
+
+def test_all_pipeline(tmp_path: Path) -> None:
+    """cmd_all runs tags -> rename -> sort, in this order."""
+    from sortiton import tasks
+
+    order: list[str] = []
+
+    def recorder(name: str):
+        def run(_args) -> int:
+            order.append(name)
+            return 0
+        return run
+
+    def all_args(**extra):
+        data = dict(source=str(tmp_path), target=str(tmp_path.parent / "dst"),
+                    pattern="%artist% - %title%",
+                    move=False, apply=True, backup=False)
+        data.update(extra)
+        return SimpleNamespace(**data)
+
+    with mock.patch.object(tasks, "cmd_tags", recorder("tags")), \
+            mock.patch.object(tasks, "cmd_rename", recorder("rename")), \
+            mock.patch.object(tasks, "cmd_sort", recorder("sort")):
+        rc = tasks.cmd_all(all_args())
+
+    check("all returns 0", rc == 0, str(rc))
+    check("all runs tags -> rename -> sort",
+          order == ["tags", "rename", "sort"], str(order))
+    keys = [step.title_key for step in tasks._pipeline_steps(all_args())]
+    check("pipeline has the three stages",
+          keys == ["task.step.tags", "task.step.rename", "task.step.sort"], str(keys))
+
+
+def test_target_inside_source_stops_all_operations() -> None:
+    """All core operations reject a target inside the source folder."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as source_dir:
+        source = Path(source_dir)
+        (source / "a.mp3").write_bytes(b"audio")
+        for target in (source, source / "sorted"):
+            sort_args = SimpleNamespace(source=str(source), target=str(target),
+                                        pattern="%title%", move=True, apply=True)
+            sort_rc = tasks.cmd_sort(sort_args)
+
+            all_args = SimpleNamespace(source=str(source), target=str(target),
+                                       pattern="%title%", move=True, apply=True,
+                                       backup=False)
+            with mock.patch.object(tasks, "cmd_tags") as tags, \
+                    mock.patch.object(tasks, "cmd_rename") as rename:
+                all_rc = tasks.cmd_all(all_args)
+
+            tags_rc = tasks.cmd_tags(SimpleNamespace(
+                folder=str(source), target=str(target), move=True, apply=True,
+                backup=False))
+            rename_rc = tasks.cmd_rename(SimpleNamespace(
+                folder=str(source), target=str(target), pattern="%title%",
+                move=True, apply=True))
+
+            check(f"sort refuses {target}", sort_rc == 2, str(sort_rc))
+            check(f"all refuses {target}", all_rc == 2, str(all_rc))
+            check(f"tags refuses {target}", tags_rc == 2, str(tags_rc))
+            check(f"rename refuses {target}", rename_rc == 2, str(rename_rc))
+            check(f"all starts no step for {target}",
+                  not tags.called and not rename.called)
+        check("the source file was not moved", (source / "a.mp3").exists())
+        check("no nested target was created", not (source / "sorted").exists())
+
+
+def test_all_preview_passes_cleaned_tags_and_renamed_paths_forward() -> None:
+    """Rename and sort previews use the planned output of preceding stages."""
+    from sortiton import output as out, tasks
+
+    with tempfile.TemporaryDirectory() as source_dir, \
+            tempfile.TemporaryDirectory() as target_dir:
+        source = Path(source_dir)
+        (source / "old.mp3").write_bytes(b"audio")
+        tags = {"artist": "OldArtist", "album_artist": "", "album": "Album",
+                "title": "Song", "genre": "", "track": "", "disc": "", "year": ""}
+        plans = []
+        args = SimpleNamespace(source=source_dir, target=target_dir,
+                               pattern="%artist% - %title%", move=False,
+                               apply=False, backup=False)
+        context = out.RunContext(
+            plan_sink=lambda event: plans.append((event.kind, event.data)))
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                mock.patch.object(tasks, "clean_artist",
+                                  side_effect=lambda value, _rules:
+                                  "NewArtist" if value == "OldArtist" else value):
+            rc = context.execute(lambda: tasks.cmd_all(args)).returncode
+
+        rename_plan = next(data for kind, data in plans if kind == "rename")
+        sort_plan = next(data for kind, data in plans if kind == "sort")
+        check("pipeline preview succeeds", rc == 0, str(rc))
+        check("rename preview uses cleaned tags",
+              Path(rename_plan["target"]).name == "NewArtist - Song.mp3",
+              str(rename_plan))
+        check("sort preview uses the planned renamed source",
+              Path(sort_plan["source"]).name == "NewArtist - Song.mp3",
+              str(sort_plan))
+        check("sort preview uses the cleaned artist folder",
+              Path(sort_plan["target"]).parent.name == "Album"
+              and Path(sort_plan["target"]).parent.parent.name == "NewArtist",
+              str(sort_plan))
+
+
+def test_all_preview_accounts_for_tag_changes_before_identical_check() -> None:
+    """Preview and execution choose the same free target after tag changes."""
+    from sortiton import output as out, tasks
+
+    for dirty in (False, True):
+        with tempfile.TemporaryDirectory() as source_dir, \
+                tempfile.TemporaryDirectory() as target_dir:
+            source = Path(source_dir) / "old.mp3"
+            source.write_bytes(b"original")
+            existing = Path(target_dir) / "Artist" / "Song.mp3"
+            existing.parent.mkdir()
+            existing.write_bytes(b"original")
+            plans = []
+
+            def probe(paths, **_kwargs):
+                return [{"artist": "Artist " if dirty and path.read_bytes() == b"original"
+                         else "Artist", "album_artist": "", "album": "", "title": "Song",
+                         "genre": "", "track": "", "disc": "", "year": ""}
+                        for path in paths]
+
+            def write(path, _diff):
+                path.write_bytes(b"cleaned")
+                return True
+
+            args = SimpleNamespace(source=source_dir, target=target_dir,
+                                   pattern="%title%", move=False, apply=False, backup=False)
+            context = out.RunContext(
+                plan_sink=lambda event: plans.append((event.kind, event.data)))
+            with mock.patch.object(tasks, "probe_many", side_effect=probe), \
+                    mock.patch.object(tasks, "write_tags", side_effect=write):
+                preview_rc = context.execute(lambda: tasks.cmd_all(args)).returncode
+                preview_targets = [data["target"] for kind, data in plans if kind == "sort"]
+                plans.clear()
+                args.apply = True
+                apply_rc = context.execute(lambda: tasks.cmd_all(args)).returncode
+                applied_targets = [data["target"] for kind, data in plans if kind == "sort"]
+
+            expected = [existing.with_name("Song (2).mp3")] if dirty else []
+            check("both pipeline runs succeed", preview_rc == apply_rc == 0)
+            check("preview and apply agree about identical files",
+                  preview_targets == applied_targets == expected,
+                  str((preview_targets, applied_targets, dirty)))
+            check("the identical old target survives", existing.read_bytes() == b"original")
+            if dirty:
+                check("the cleaned copy is placed", expected[0].read_bytes() == b"cleaned")
+
+
+def test_stats_count_only_written_files() -> None:
+    """A failed write counts as an error, not a change."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first = root / "one.mp3"
+        second = root / "two.mp3"
+        first.write_bytes(b"x")
+        second.write_bytes(b"y")
+
+        def fake_write(path, _updates):
+            if path == second:
+                raise OSError("disk full")
+            return True
+
+        # A trailing space makes the cleaned artist differ from the raw value,
+        # so both files are included in the plan.
+        tags = {"artist": "Old ", "album_artist": "", "album": "", "title": "T",
+                "genre": ""}
+        args = SimpleNamespace(folder=str(root), apply=True, backup=False)
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags), dict(tags)]), \
+                mock.patch.object(tasks, "write_tags", fake_write):
+            rc = tasks.cmd_tags(args)
+
+    stats = current_stats("tags")
+    check("the run reports the failed write", rc == 1, str(rc))
+    check("only the written file counts as changed", stats.get("changed") == 1, str(stats))
+    check("the failed file counts as an error", stats.get("errors") == 1, str(stats))
+
+
+def test_tags_diff_and_diff_csv() -> None:
+    """--diff groups changes; --diff-csv writes rows the fixes tool can read."""
+    from sortiton import tasks
+    from sortiton.features.fixes import parse
+
+    with tempfile.TemporaryDirectory() as src:
+        root = Path(src)
+        first = root / "one.mp3"
+        second = root / "two.mp3"
+        first.write_bytes(b"one")
+        second.write_bytes(b"two")
+        csv_path = root / "changes.csv"
+        tags = {"artist": "Artist ", "album_artist": "", "album": "", "title": "Title",
+                "genre": "", "track": "", "disc": "", "year": ""}
+        lines: list[str] = []
+        args = SimpleNamespace(folder=src, apply=False, backup=False, diff=True,
+                               diff_csv=str(csv_path))
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags), dict(tags)]), \
+                mock.patch.object(tasks, "message",
+                                  side_effect=lambda text="": lines.append(str(text))):
+            rc = tasks.cmd_tags(args)
+
+        text = "\n".join(lines)
+        check("the diff run succeeds", rc == 0, str(rc))
+        check("the diff has a heading", "Planned tag changes" in text, text)
+        check("the diff groups by field", "  artist" in text, text)
+        check("the diff counts both files", "(2)" in text, text)
+        check("the diff names the file", "one.mp3" in text and "two.mp3" in text, text)
+        check("the diff CSV is announced", "Diff CSV" in text, text)
+
+        rows = parse.read_csv(csv_path.read_text(encoding="utf-8"))
+        check("the CSV has two rows", len(rows) == 2, str(rows))
+        # The fixes reader trims cells; the stripped current value still matches.
+        check("the CSV rows are fixes-compatible",
+              all(row.field == "artist" and row.old == "Artist"
+                  and row.new == "Artist" for row in rows), str(rows))
+
+
+def test_track_format_normalisation() -> None:
+    """keep/number/padded only touch plain track and disc numbers."""
+    from sortiton import tasks
+
+    check("keep keeps the total",
+          tasks._normalise_number("1/11", "keep") == "1/11")
+    check("number drops the total",
+          tasks._normalise_number("1/11", "number") == "1",
+          tasks._normalise_number("1/11", "number"))
+    check("number removes leading zeroes",
+          tasks._normalise_number("07", "number") == "7",
+          tasks._normalise_number("07", "number"))
+    check("padded adds a leading zero",
+          tasks._normalise_number("1/11", "padded") == "01",
+          tasks._normalise_number("1/11", "padded"))
+    check("padded leaves three digits alone",
+          tasks._normalise_number("123", "padded") == "123")
+    for value in ("", "A1", "1a", "1; 2", "-1"):
+        check(f"{value!r} stays untouched",
+              tasks._normalise_number(value, "padded") == value,
+              tasks._normalise_number(value, "padded"))
+
+
+def test_tags_apply_track_format() -> None:
+    """The chosen mode reaches the tags diff written by cmd_tags."""
+    from sortiton import tasks
+
+    for mode, expected in (("number", ("7", "1")), ("padded", ("07", "01"))):
+        with tempfile.TemporaryDirectory() as src:
+            track = Path(src) / "track.mp3"
+            track.write_bytes(b"audio-data")
+            tags = {"artist": "Artist", "album_artist": "", "album": "Album",
+                    "title": "Track", "genre": "", "track": "7/12", "disc": "1/2",
+                    "year": ""}
+            written: list[dict] = []
+            args = SimpleNamespace(folder=src, apply=True, backup=False,
+                                   track_format=mode)
+            with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                    mock.patch.object(tasks, "write_tags",
+                                      side_effect=lambda _path, diff: written.append(dict(diff)) or True):
+                rc = tasks.cmd_tags(args)
+
+            check(f"{mode}: the run succeeds", rc == 0, str(rc))
+            check(f"{mode}: the file is written", len(written) == 1, str(written))
+            check(f"{mode}: the track is normalised",
+                  written[0].get("track") == expected[0], str(written))
+            check(f"{mode}: the disc is normalised",
+                  written[0].get("disc") == expected[1], str(written))
+
+
+def test_tags_with_target_copy_and_move() -> None:
+    """With a target, tags sorts files into the library (copy or move)."""
+    from sortiton import tasks
+
+    tags = {"artist": "Artist ", "album_artist": "", "album": "Album",
+            "title": "Track", "genre": ""}
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
+        track = Path(src) / "track.mp3"
+        track.write_bytes(b"audio-data")
+        args = SimpleNamespace(folder=src, target=dst, move=False, apply=True, backup=False)
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                mock.patch.object(tasks, "write_tags", lambda _path, _diff: True):
+            rc = tasks.cmd_tags(args)
+        check("tags with target returns 0", rc == 0, str(rc))
+        expected_dst = Path(dst) / "Artist" / "Album" / "track.mp3"
+        check("file copied to library", expected_dst.exists())
+        check("original kept on copy", track.exists())
+
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
+        track = Path(src) / "track.mp3"
+        track.write_bytes(b"audio-data")
+        args = SimpleNamespace(folder=src, target=dst, move=True, apply=True, backup=False)
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                mock.patch.object(tasks, "write_tags", lambda _path, _diff: True):
+            rc = tasks.cmd_tags(args)
+        check("tags with target returns 0", rc == 0, str(rc))
+        expected_dst = Path(dst) / "Artist" / "Album" / "track.mp3"
+        check("file moved to library", expected_dst.exists())
+        check("original removed on move", not track.exists())
+
+
+def test_tags_with_dirty_identical_target_places_cleaned_copy() -> None:
+    """Do not skip a dirty source just because the target is identical."""
+    from sortiton import tasks
+
+    tags = {"artist": "Artist ", "album_artist": "", "album": "Album",
+            "title": "Track", "genre": ""}
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
+        track = Path(src) / "track.mp3"
+        track.write_bytes(b"audio-data")
+        existing = Path(dst) / "Artist" / "Album" / track.name
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"audio-data")
+        args = SimpleNamespace(folder=src, target=dst, move=False, apply=True,
+                               backup=False)
+
+        def clean_file(path: Path, _diff: dict) -> bool:
+            path.write_bytes(b"cleaned-audio-data")
+            return True
+
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]), \
+                mock.patch.object(tasks, "write_tags", side_effect=clean_file):
+            rc = tasks.cmd_tags(args)
+
+        placed = existing.with_name("track (2).mp3")
+        check("tags with an identical old target returns 0", rc == 0, str(rc))
+        check("old target is preserved", existing.read_bytes() == b"audio-data")
+        check("cleaned copy is placed at a free name",
+              placed.exists() and placed.read_bytes() == b"cleaned-audio-data")
+
+
+def test_rename_with_target_copy_and_move() -> None:
+    """With a target, rename renames files and sorts them into the library (copy or move)."""
+    from sortiton import tasks
+
+    tags = {"artist": "Artist", "album_artist": "", "album": "Album",
+            "title": "Song", "genre": ""}
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
+        track = Path(src) / "old.mp3"
+        track.write_bytes(b"audio-data")
+        args = SimpleNamespace(folder=src, target=dst, pattern="%artist% - %title%",
+                               move=False, apply=True)
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]):
+            rc = tasks.cmd_rename(args)
+        check("rename with target returns 0", rc == 0, str(rc))
+        expected_dst = Path(dst) / "Artist" / "Album" / "Artist - Song.mp3"
+        check("renamed file copied to library", expected_dst.exists())
+        renamed_src = Path(src) / "Artist - Song.mp3"
+        check("source renamed and kept on copy", renamed_src.exists())
+
+    with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as dst:
+        track = Path(src) / "old.mp3"
+        track.write_bytes(b"audio-data")
+        args = SimpleNamespace(folder=src, target=dst, pattern="%artist% - %title%",
+                               move=True, apply=True)
+        with mock.patch.object(tasks, "probe_many", return_value=[dict(tags)]):
+            rc = tasks.cmd_rename(args)
+        check("rename with target returns 0", rc == 0, str(rc))
+        expected_dst = Path(dst) / "Artist" / "Album" / "Artist - Song.mp3"
+        check("renamed file moved to library", expected_dst.exists())
+        renamed_src = Path(src) / "Artist - Song.mp3"
+        check("source removed on move", not renamed_src.exists())
+
+
+def test_move_without_target_is_rejected() -> None:
+    """Moving without a target must not silently happen in place."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as folder:
+        tags_args = SimpleNamespace(folder=folder, target=None, move=True,
+                                    apply=True, backup=False)
+        rename_args = SimpleNamespace(folder=folder, target=None, move=True,
+                                      pattern="%title%", apply=True)
+        with mock.patch.object(tasks, "probe_many") as probe:
+            tags_rc = tasks.cmd_tags(tags_args)
+            rename_rc = tasks.cmd_rename(rename_args)
+
+    check("tags rejects move without a target", tags_rc == 2, str(tags_rc))
+    check("rename rejects move without a target", rename_rc == 2, str(rename_rc))
+    check("invalid move does not scan or modify files", not probe.called)
+
+
+def test_rename_does_not_replace_a_racing_destination() -> None:
+    """A destination created after planning must survive the rename attempt."""
+    from sortiton import fileops, tasks
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "old.mp3"
+        target = root / "new.mp3"
+        source.write_bytes(b"original")
+        tags = {"artist": "Artist", "album_artist": "", "album": "",
+                "title": "new", "genre": "", "track": "", "disc": "",
+                "year": ""}
+
+        def race_move(origin: Path, destination: Path) -> None:
+            destination.write_bytes(b"foreign")
+            fileops.move_no_clobber(origin, destination)
+
+        args = SimpleNamespace(folder=str(root), pattern="%title%", apply=True)
+        with mock.patch.object(tasks, "probe_many", return_value=[tags]), \
+                mock.patch.object(tasks, "move_no_clobber", side_effect=race_move):
+            rc = tasks.cmd_rename(args)
+
+        check("the colliding rename reports failure", rc == 1, str(rc))
+        check("the racing destination is preserved",
+              target.read_bytes() == b"foreign")
+        check("the original file is preserved", source.read_bytes() == b"original")
+
+
+def test_sort_worker_stops_before_the_next_file_after_cancel() -> None:
+    """A worker checks for cancellation immediately before each file operation."""
+    from sortiton import fileops, tasks
+    from sortiton.cancel import CancelToken
+
+    with tempfile.TemporaryDirectory() as source_dir, \
+            tempfile.TemporaryDirectory() as target_dir:
+        source = Path(source_dir)
+        first = source / "a.mp3"
+        second = source / "b.mp3"
+        first.write_bytes(b"a")
+        second.write_bytes(b"b")
+        cancel = CancelToken()
+        tag_rows = [
+            {"artist": "Artist", "album_artist": "", "album": "",
+             "title": "a", "genre": "", "track": "", "disc": "", "year": ""},
+            {"artist": "Artist", "album_artist": "", "album": "",
+             "title": "b", "genre": "", "track": "", "disc": "", "year": ""},
+        ]
+        moved = []
+
+        def cancel_after_move(origin: Path, destination: Path) -> None:
+            fileops.move_no_clobber(origin, destination)
+            moved.append(origin)
+            cancel.cancel()
+
+        args = SimpleNamespace(source=source_dir, target=target_dir,
+                               pattern="%title%", move=True, apply=True,
+                               cancel=cancel)
+        with mock.patch.object(tasks, "COPY_WORKERS", 1), \
+                mock.patch.object(tasks, "probe_many", return_value=tag_rows), \
+                mock.patch.object(tasks, "move_no_clobber",
+                                  side_effect=cancel_after_move):
+            rc = tasks.cmd_sort(args)
+
+        check("sort returns the cancellation code", rc == 130, str(rc))
+        check("only one worker operation started", len(moved) == 1, str(moved))
+        check("the other source remains", (first.exists() != second.exists()))
+
+
+def test_tags_workers_stop_even_when_completion_observer_is_delayed() -> None:
+    """Tag workers check cancellation independently of main-thread result handling."""
+    from concurrent.futures import as_completed
+    from sortiton import tasks
+    from sortiton.cancel import CancelToken
+
+    with tempfile.TemporaryDirectory() as folder:
+        sources = [Path(folder) / f"{name}.mp3" for name in ("a", "b", "c")]
+        for path in sources:
+            path.write_bytes(b"audio")
+        tags = {"artist": "Artist ", "album_artist": "", "album": "",
+                "title": "Song", "genre": ""}
+        cancel = CancelToken()
+        written = []
+
+        def write_and_cancel(path, _diff):
+            written.append(path)
+            cancel.cancel()
+            return True
+
+        def delayed_observer(futures):
+            return iter(list(as_completed(futures)))
+
+        args = SimpleNamespace(folder=folder, apply=True, backup=False, cancel=cancel)
+        with mock.patch.object(tasks, "WRITE_WORKERS", 1), \
+                mock.patch.object(tasks, "probe_many",
+                                  return_value=[dict(tags) for _path in sources]), \
+                mock.patch.object(tasks, "write_tags", side_effect=write_and_cancel), \
+                mock.patch.object(tasks, "as_completed", side_effect=delayed_observer), \
+                mock.patch.object(tasks.journal, "record_failure") as failure:
+            rc = tasks.cmd_tags(args)
+
+        check("tag cancellation returns 130", rc == 130, str(rc))
+        check("only the in-flight tag write completes", written == sources[:1], str(written))
+        check("cancellation is not journaled as a file error", not failure.called)
+
+
+def test_placement_cancellation_stops_queued_moves() -> None:
+    """Do not start queued moves after cancellation."""
+    from sortiton import tasks
+    from sortiton.cancel import CancelToken, Cancelled
+
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        sources = [root / f"source-{index}.mp3" for index in range(3)]
+        destinations = [root / "target" / source.name for source in sources]
+        cancel = CancelToken()
+        moved: list[Path] = []
+
+        def cancel_after_first(source: Path, _destination: Path) -> None:
+            moved.append(source)
+            cancel.cancel()
+
+        with mock.patch.object(tasks, "COPY_WORKERS", 1), \
+                mock.patch.object(tasks, "_no_clobber_move", cancel_after_first), \
+                mock.patch.object(tasks.journal, "record_move"):
+            try:
+                tasks._place_files(list(zip(sources, destinations)), root / "target",
+                                   move=True, apply=True, cancel=cancel)
+            except Cancelled:
+                was_cancelled = True
+            else:
+                was_cancelled = False
+
+    check("placement propagates cancellation", was_cancelled)
+    check("only the in-flight move completes", moved == sources[:1], str(moved))
+
+
+def test_scan_counts_files_and_can_be_cancelled() -> None:
+    """``scan`` counts files, reports a missing folder and can be cancelled."""
+    from sortiton.cancel import Cancelled, CancelToken
+    from sortiton.tasks import cmd_scan
+
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "track.mp3").write_bytes(b"\x00" * 64)
+        rc = cmd_scan(SimpleNamespace(folder=tmp))
+        check("scan runs", rc == 0)
+        check("scan counts files", current_stats("scan").get("files") == 1,
+              str(current_stats("scan")))
+        check("scan of a missing folder fails",
+              cmd_scan(SimpleNamespace(folder=str(Path(tmp) / "nope"))) == 2)
+
+        token = CancelToken()
+        token.cancel()
+        with pytest.raises(Cancelled):
+            cmd_scan(SimpleNamespace(folder=tmp, cancel=token))
+
+
+def test_backup_deduplicates_paths_that_resolve_to_the_same_file() -> None:
+    """Back up a CSV file only once even when multiple rows refer to it."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source = root / "song.mp3"
+        source.write_bytes(b"audio")
+        alias = root / "unused" / ".." / "song.mp3"
+        folder = tasks._backup_files(root, [source, alias, source])
+        copies = list(folder.rglob("song.mp3")) if folder is not None else []
+
+    check("backup succeeds with duplicate inputs", folder is not None, str(folder))
+    check("the source is present exactly once", len(copies) == 1, str(copies))
+
+
+def test_incomplete_backup_stops_before_writing() -> None:
+    """A backup that could not copy every file does not provide protection."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = Path(tmp) / "gone.mp3"
+        folder = tasks._backup_files(Path(tmp), [missing])
+    check("an incomplete backup returns no folder", folder is None, str(folder))
+
+
+def test_backup_retention_does_not_let_incomplete_evict_complete() -> None:
+    """An incomplete backup must not displace the last usable one."""
+    from sortiton import tasks
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "music"
+        root.mkdir()
+        source = root / "song.mp3"
+        source.write_bytes(b"music")
+        backups = Path(tmp) / "backups"
+        backups.mkdir()
+
+        with mock.patch.object(config, "BACKUP_DIR", backups):
+            complete = tasks._backup_files(root, [source])
+            check("a complete backup was created", complete is not None)
+            assert complete is not None
+            check("the complete marker exists", (complete / ".complete").is_file())
+
+            # Simulate a crash: a newer folder has an incomplete marker.
+            incomplete = backups / "backup_2999-01-01_00-00-00"
+            incomplete.mkdir()
+            (incomplete / ".incomplete").write_text("incomplete\n", encoding="utf-8")
+
+            tasks._prune_backups(keep=1)
+            check("the complete backup survived", complete.is_dir())
+            check("the incomplete folder left the backup namespace",
+                  not incomplete.exists())
+            check("the incomplete folder is kept as evidence",
+                  (backups / "failed" / incomplete.name).is_dir())
+
+            # A backup that fails during copying does not count either.
+            failed = tasks._backup_files(root, [root / "missing.mp3"])
+            check("a failed backup is not returned", failed is None)
+            tasks._prune_backups(keep=1)
+            check("the good backup still survived", complete.is_dir())

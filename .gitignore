@@ -1,8 +1,13 @@
 # Runtime artefacts
+.codegraph/
 __pycache__/
 *.py[cod]
+.coverage
+htmlcov/
 logs/
 backups/
+exports/
+cache/
 
 # Build output of tools/build_app.sh
 build/

@@ -1,25 +1,123 @@
-"""User settings (settings.ini) - the UI language and the backup switch."""
+"""User settings (settings.ini) - language, backup switch and fine-tuning."""
 
 from __future__ import annotations
 
 import configparser
 import os
+import re
+from pathlib import Path
 
-from . import i18n
-from .config import DEFAULT_LANGUAGE, OFF_VALUES, SETTINGS_FILE
+from . import config, i18n
+from .paths import PathProblem, check_core_paths
+from .config import DEFAULT_LANGUAGE, OFF_VALUES
+from .fileops import atomic_write_text
+
+SETTINGS_FILE = config.current_paths().settings_file
+_DEFAULT_SETTINGS_FILE = SETTINGS_FILE
 
 SECTION = "general"
 KEY_LANGUAGE = "language"
 KEY_BACKUP = "backup"
+KEY_TRACK_FORMAT = "track_format"
+KEY_THEME = "theme"
+
+#: How track/disc numbers are normalised when tags are cleaned.
+#: ``keep`` leaves them alone, ``number`` turns ``1/11`` into ``1`` and
+#: ``padded`` turns ``1`` into ``01``.
+TRACK_FORMATS = ("keep", "number", "padded")
+THEME_MODES = ("auto", "light", "dark")
+
+SECTION_TOOLS = "tools"
+SECTION_FOLDERS = "folders"
+FOLDER_PAGES = ("tags", "rename", "sort", "all")
+FOLDER_KEYS = frozenset(f"{page}_{kind}" for page in FOLDER_PAGES
+                        for kind in ("source", "target"))
+
+#: ``key<sep>value`` on a line; ``sep`` is preserved when replacing the value.
+_KEY_LINE = re.compile(r"^(?P<key>[^=:#\s][^=:]*?)(?P<sep>\s*[=:]\s*)(?P<value>.*)$")
+
+
+def _settings_file():
+    paths = config.selected_paths()
+    if paths is not None:
+        return paths.settings_file
+    if SETTINGS_FILE != _DEFAULT_SETTINGS_FILE:
+        return SETTINGS_FILE
+    return config.current_paths().settings_file
 
 
 def _parser() -> configparser.ConfigParser:
-    parser = configparser.ConfigParser()
+    parser = configparser.ConfigParser(interpolation=None)
     try:
-        parser.read(SETTINGS_FILE, encoding="utf-8")
+        parser.read(_settings_file(), encoding="utf-8")
     except (OSError, configparser.Error):
         pass
     return parser
+
+
+def _merge_settings(text: str, parser: configparser.ConfigParser) -> str:
+    """Replace values in ``text`` and append missing keys.
+
+    ``ConfigParser.write`` would reformat the file and lose all comments and
+    ordering, but ``settings.ini`` is meant to be editable by hand. Keep every
+    other line untouched: replace only known values, drop keys the parser no
+    longer knows (this is how ``[tools]`` is replaced), and append missing
+    lines at the end of their section.
+    """
+    wanted = {section: dict(parser.items(section)) for section in parser.sections()}
+    done: set[tuple[str, str]] = set()
+    seen: set[str] = set()
+    out: list[str] = []
+    current: str | None = None
+
+    def flush() -> None:
+        """Append missing keys from the current section."""
+        if current is None or current not in wanted:
+            return
+        for key, value in wanted[current].items():
+            if (current, key) not in done:
+                out.append(f"{key} = {value}")
+                done.add((current, key))
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            flush()
+            current = stripped[1:-1].strip()
+            seen.add(current)
+            out.append(line)
+            continue
+        match = _KEY_LINE.match(stripped) if current in wanted else None
+        if match is not None and not line[:1].isspace():
+            key = match.group("key").strip()
+            if key.lower() not in wanted[current]:
+                continue  # Intentionally removed (for example, an obsolete tool option).
+            out.append(f"{key}{match.group('sep')}{wanted[current][key.lower()]}")
+            done.add((current, key.lower()))
+            continue
+        out.append(line)
+    flush()
+    for name, values in wanted.items():
+        if name in seen:
+            continue
+        if out:
+            out.append("")
+        out.append(f"[{name}]")
+        out.extend(f"{key} = {value}" for key, value in values.items())
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def _write(parser: configparser.ConfigParser) -> bool:
+    """Write the parser back to settings.ini. False if that failed."""
+    try:
+        try:
+            text = _settings_file().read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        atomic_write_text(_settings_file(), _merge_settings(text, parser))
+    except OSError:
+        return False
+    return True
 
 
 def read_value(key: str, default: str = "") -> str:
@@ -36,13 +134,82 @@ def write_value(key: str, value: str) -> bool:
     if not parser.has_section(SECTION):
         parser.add_section(SECTION)
     parser.set(SECTION, key, value)
-    try:
-        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with SETTINGS_FILE.open("w", encoding="utf-8") as datei:
-            parser.write(datei)
-    except OSError:
-        return False
-    return True
+    return _write(parser)
+
+
+def read_folder_values() -> dict[str, str]:
+    """Read the saved folders for each core page."""
+    parser = _parser()
+    if not parser.has_section(SECTION_FOLDERS):
+        return {}
+    return {key: value for key, value in parser.items(SECTION_FOLDERS)
+            if key in FOLDER_KEYS or re.fullmatch(r"tool_[a-z0-9_]+", key)}
+
+
+def save_folder_values(values: dict[str, str]) -> bool:
+    """Save folders without removing other settings or comments."""
+    parser = _parser()
+    if not parser.has_section(SECTION_FOLDERS):
+        parser.add_section(SECTION_FOLDERS)
+    for key, value in values.items():
+        if ((key in FOLDER_KEYS or re.fullmatch(r"tool_[a-z0-9_]+", key))
+                and "\n" not in value and "\r" not in value):
+            parser.set(SECTION_FOLDERS, key, value)
+    return _write(parser)
+
+
+def restore_folder_values(paths: config.AppPaths) -> dict[str, str]:
+    """Load saved paths; environment variables take precedence.
+
+    A missing or invalid target folder remains empty. Targets that do not yet
+    exist are allowed if they can be created.
+    """
+    stored = read_folder_values()
+    env_source = bool(os.environ.get("SORTITON_FOLDER", "").strip())
+    env_target = bool(os.environ.get("SORTITON_TARGET", "").strip())
+    result: dict[str, str] = {}
+    for page in FOLDER_PAGES:
+        source_key, target_key = f"{page}_source", f"{page}_target"
+        source = str(paths.music_source_dir)
+        if not env_source and stored.get(source_key):
+            candidate = stored[source_key].strip()
+            try:
+                if Path(candidate).expanduser().is_dir():
+                    source = candidate
+            except (OSError, RuntimeError, ValueError):
+                pass
+        target = ""
+        if page in ("sort", "all") and env_target:
+            target = str(paths.music_target_dir)
+        elif target_key in stored:
+            target = stored[target_key].strip()
+        if target:
+            problem = check_core_paths(source, target).problem
+            if problem in (PathProblem.SOURCE_MISSING, PathProblem.SOURCE_INVALID,
+                           PathProblem.TARGET_IN_SOURCE, PathProblem.TARGET_INVALID,
+                           PathProblem.TARGET_UNWRITABLE):
+                target = ""
+        result[source_key], result[target_key] = source, target
+    return result
+
+
+def read_tool_values() -> dict[str, str]:
+    """All stored tool options from the [tools] section (empty if there is none)."""
+    parser = _parser()
+    if not parser.has_section(SECTION_TOOLS):
+        return {}
+    return {key: value for key, value in parser.items(SECTION_TOOLS)}
+
+
+def save_tool_values(values: dict[str, str]) -> bool:
+    """Replace the [tools] section with ``values``. False if it could not be written."""
+    parser = _parser()
+    if parser.has_section(SECTION_TOOLS):
+        parser.remove_section(SECTION_TOOLS)
+    parser.add_section(SECTION_TOOLS)
+    for key, value in values.items():
+        parser.set(SECTION_TOOLS, key, value)
+    return _write(parser)
 
 
 def resolve_language() -> str:
@@ -67,10 +234,7 @@ def save_language(code: str) -> bool:
 
 
 def resolve_backup() -> bool:
-    """Whether a backup is written before tags change (default: yes).
-
-    ``SORTITON_BACKUP`` overrides settings.ini (so a test run can switch it off).
-    """
+    """Whether a backup is written before tags change (default: yes)."""
     from_env = os.environ.get("SORTITON_BACKUP", "").strip().lower()
     if from_env:
         return from_env not in OFF_VALUES
@@ -83,3 +247,25 @@ def resolve_backup() -> bool:
 def save_backup(enabled: bool) -> bool:
     """Remember the backup switch in settings.ini."""
     return write_value(KEY_BACKUP, "true" if enabled else "false")
+
+
+def resolve_track_format() -> str:
+    """Active track/disc format: settings.ini, falling back to ``keep``."""
+    stored = read_value(KEY_TRACK_FORMAT, "").strip().lower()
+    return stored if stored in TRACK_FORMATS else "keep"
+
+
+def save_track_format(value: str) -> bool:
+    """Remember the track/disc format in settings.ini."""
+    return write_value(KEY_TRACK_FORMAT, value if value in TRACK_FORMATS else "keep")
+
+
+def resolve_theme() -> str:
+    """Selected theme mode, falling back to system appearance."""
+    stored = read_value(KEY_THEME, "").strip().lower()
+    return stored if stored in THEME_MODES else "auto"
+
+
+def save_theme(value: str) -> bool:
+    """Remember the selected theme mode in settings.ini."""
+    return write_value(KEY_THEME, value if value in THEME_MODES else "auto")
