@@ -34,10 +34,10 @@ FP_TIMEOUT_SECS = 600.0
 
 def run_fpcalc(path: Path | str, secs: int,
                cancel: CancelToken | None = None) -> tuple[list[int] | None, str]:
-    """Führt ``fpcalc`` aus und liefert ``(fingerprint, fehler)``.
+    """Run ``fpcalc`` and return ``(fingerprint, error)``.
 
-    Der Fingerprint ist ``None``, wenn ``fpcalc`` fehlschlägt oder keine
-    ``FINGERPRINT=``-Zeile schreibt; der zweite Wert ist dann die Meldung.
+    The fingerprint is ``None`` if ``fpcalc`` fails or does not write a
+    ``FINGERPRINT=`` line; the second value then contains the error message.
     """
     cancel = cancel or NO_CANCEL
     try:
@@ -60,11 +60,11 @@ def run_fpcalc(path: Path | str, secs: int,
     for line in (stdout or "").splitlines():
         if line.startswith("FINGERPRINT="):
             return [int(x) & 0xFFFFFFFF for x in line[12:].split(",") if x.strip()], ""
-    return None, (stderr or "").strip() or "keine FINGERPRINT-Ausgabe"
+    return None, (stderr or "").strip() or "no FINGERPRINT output"
 
 
 def _wait_fpcalc(proc: subprocess.Popen[str], cancel: CancelToken) -> tuple[str, str]:
-    """Wartet in kurzen Schritten auf ``fpcalc``; bricht bei Abbruch oder Timeout ab."""
+    """Wait for ``fpcalc`` in short intervals; stop on cancellation or timeout."""
     deadline = time.monotonic() + FP_TIMEOUT_SECS
     while True:
         try:
@@ -99,13 +99,13 @@ def fp_cache_path(root: Path) -> Path:
 
 
 def _cache_entry(value: object, cache_key: str) -> tuple[list[int], list[int]] | None:
-    """Prüft einen Cache-Eintrag: ``(meta, fp)``, oder ``None`` wenn unbrauchbar.
+    """Validate a cache entry: ``(meta, fp)``, or ``None`` if unusable.
 
-    Die Cache-Datei ist reine Daten von der Platte, also wird nichts geglaubt:
-    der Eintrag muss ein Dictionary mit genau zwei int-Metawerten, dem Schlüssel
-    der aktuellen Fingerprint-Länge und einer nicht-leeren Liste von ints sein.
-    ``bool`` wird abgelehnt, obwohl es in Python ein ``int`` ist. Ein ungültiger
-    Eintrag wird verworfen und die Datei neu berechnet, nicht übernommen.
+    The cache file is untrusted data from disk. The entry must be a dictionary
+    with exactly two integer metadata values, the current fingerprint-length
+    key and a non-empty list of integers. Reject ``bool`` even though it is an
+    ``int`` in Python. Discard invalid entries and recompute them instead of
+    using them.
     """
     if not isinstance(value, dict):
         return None
@@ -129,10 +129,10 @@ def compute_fingerprints(recs, root: Path, secs: int,
                          cancel=None,
                          write: Callable[[str, str], str] | None = None
                          ) -> dict[int, list[int]]:
-    """Fingerprints with a cache (path+size+mtime) so repeats stay fast.
+    """Compute fingerprints with a cache (path+size+mtime) for faster repeats.
 
-    ``write`` schreibt die Datei und liefert ihren Namen zurück - so bleibt die
-    Herkunftsprüfung des Ausgabeordners auch für ``fpcalc_fehler.log`` gültig.
+    ``write`` writes the file and returns its name, keeping output-folder
+    ownership checks valid for ``fpcalc_fehler.log`` as well.
     """
     cancel = cancel or NO_CANCEL
     cache_file = fp_cache_path(root)

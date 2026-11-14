@@ -1,4 +1,4 @@
-"""Gemeinsame GUI-Konstanten und Formatierungshilfen."""
+"""Shared GUI constants and formatting helpers."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _LOG_MAX_LINES = 5000
 _LOG_TRIM_LINES = 1000
 
 def _fmt_number(value) -> str:
-    """Eine Anzahl in der aktiven Sprache formatieren."""
+    """Format a count in the active language."""
     return i18n.format_number(value)
 
 

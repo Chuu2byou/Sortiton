@@ -61,7 +61,7 @@ def _style_text(issue: tuple, lang: str) -> str:
 
 
 def _error_text(error: str, lang: str) -> str:
-    """Ein Lesefehler aus dem Reader: der Sentinel wird übersetzt."""
+    """Translate the reader's unreadable sentinel."""
     return i18n.t_in(lang, "export.report.unreadable") if error == UNREADABLE else error
 
 
@@ -395,9 +395,9 @@ def write_report(sections: list[Section],
                  write: Callable[[str, str], str]) -> list[str]:
     """Write the report sections into the ``01_*``, ``02_*`` and ``03_*`` files.
 
-    ``write`` legt eine Datei an und liefert ihren (eventuell abweichenden)
-    Namen zurück. Der Export entscheidet dort, ob ein vorhandener Name uns
-    gehört oder einer fremden Datei ausgewichen werden muss.
+    ``write`` creates a file and returns its (possibly changed) name. The
+    export writer decides whether an existing name belongs to us or whether
+    it must choose another name to avoid a foreign file.
     """
     contents: dict[str, list[str]] = {"summary": [], "anomalies": [], "duplicates": []}
     for section in sections:
@@ -430,7 +430,7 @@ def tsv_row(r):
 
 
 def write_chunks(recs, write: Callable[[str, str], str], limit: int) -> list[str]:
-    """Write one TSV per chunk; ``write`` legt die Datei an und liefert ihren Namen."""
+    """Write one TSV per chunk; ``write`` creates the file and returns its name."""
     head = "\t".join(TSV_HEAD)
     by_dir = defaultdict(list)
     for r in recs:

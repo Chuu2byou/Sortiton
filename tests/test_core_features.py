@@ -1,4 +1,4 @@
-"""Gemeinsame Beschreibungen der Kernaufträge."""
+"""Shared descriptions of core operations."""
 
 from types import SimpleNamespace
 from unittest.mock import Mock

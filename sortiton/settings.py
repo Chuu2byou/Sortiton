@@ -33,7 +33,7 @@ FOLDER_PAGES = ("tags", "rename", "sort", "all")
 FOLDER_KEYS = frozenset(f"{page}_{kind}" for page in FOLDER_PAGES
                         for kind in ("source", "target"))
 
-#: ``key<sep>value`` einer Zeile; ``sep`` bleibt beim Ersetzen erhalten.
+#: ``key<sep>value`` on a line; ``sep`` is preserved when replacing the value.
 _KEY_LINE = re.compile(r"^(?P<key>[^=:#\s][^=:]*?)(?P<sep>\s*[=:]\s*)(?P<value>.*)$")
 
 
@@ -56,14 +56,13 @@ def _parser() -> configparser.ConfigParser:
 
 
 def _merge_settings(text: str, parser: configparser.ConfigParser) -> str:
-    """Ersetzt Werte in ``text`` und ergänzt fehlende Schlüssel.
+    """Replace values in ``text`` and append missing keys.
 
-    ``ConfigParser.write`` würde die Datei neu formatieren und dabei alle
-    Kommentare und die Reihenfolge verlieren - ``settings.ini`` darf aber von
-    Hand gepflegt werden. Deshalb bleiben alle anderen Zeilen unangetastet:
-    nur der Wert bekannter Schlüssel wird ausgetauscht, Schlüssel, die der
-    Parser nicht mehr kennt, fallen weg (das ist das "Ersetzen" von
-    ``[tools]``), und fehlende Zeilen werden am Abschnittsende angehängt.
+    ``ConfigParser.write`` would reformat the file and lose all comments and
+    ordering, but ``settings.ini`` is meant to be editable by hand. Keep every
+    other line untouched: replace only known values, drop keys the parser no
+    longer knows (this is how ``[tools]`` is replaced), and append missing
+    lines at the end of their section.
     """
     wanted = {section: dict(parser.items(section)) for section in parser.sections()}
     done: set[tuple[str, str]] = set()
@@ -72,7 +71,7 @@ def _merge_settings(text: str, parser: configparser.ConfigParser) -> str:
     current: str | None = None
 
     def flush() -> None:
-        """Fehlende Schlüssel des laufenden Abschnitts anhängen."""
+        """Append missing keys from the current section."""
         if current is None or current not in wanted:
             return
         for key, value in wanted[current].items():
@@ -92,7 +91,7 @@ def _merge_settings(text: str, parser: configparser.ConfigParser) -> str:
         if match is not None and not line[:1].isspace():
             key = match.group("key").strip()
             if key.lower() not in wanted[current]:
-                continue  # absichtlich entfernt (z. B. altes Werkzeug-Option)
+                continue  # Intentionally removed (for example, an obsolete tool option).
             out.append(f"{key}{match.group('sep')}{wanted[current][key.lower()]}")
             done.add((current, key.lower()))
             continue
@@ -139,7 +138,7 @@ def write_value(key: str, value: str) -> bool:
 
 
 def read_folder_values() -> dict[str, str]:
-    """Gespeicherte Ordner je Kernseite lesen."""
+    """Read the saved folders for each core page."""
     parser = _parser()
     if not parser.has_section(SECTION_FOLDERS):
         return {}
@@ -148,7 +147,7 @@ def read_folder_values() -> dict[str, str]:
 
 
 def save_folder_values(values: dict[str, str]) -> bool:
-    """Ordner speichern, ohne andere Einstellungen oder Kommentare zu entfernen."""
+    """Save folders without removing other settings or comments."""
     parser = _parser()
     if not parser.has_section(SECTION_FOLDERS):
         parser.add_section(SECTION_FOLDERS)
@@ -160,10 +159,10 @@ def save_folder_values(values: dict[str, str]) -> bool:
 
 
 def restore_folder_values(paths: config.AppPaths) -> dict[str, str]:
-    """Gespeicherte Pfade laden; Umgebungsvariablen haben Vorrang.
+    """Load saved paths; environment variables take precedence.
 
-    Ein fehlender oder unzulässiger Zielordner bleibt leer. Noch nicht
-    existierende, erstellbare Ziele sind zulässig.
+    A missing or invalid target folder remains empty. Targets that do not yet
+    exist are allowed if they can be created.
     """
     stored = read_folder_values()
     env_source = bool(os.environ.get("SORTITON_FOLDER", "").strip())

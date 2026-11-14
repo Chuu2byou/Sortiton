@@ -26,7 +26,7 @@ _log_lock = threading.Lock()
 
 @dataclass(frozen=True)
 class PlanEvent:
-    """Ein Planereignis und seine auftragsspezifischen Daten."""
+    """A plan event and its operation-specific data."""
 
     kind: str
     data: dict
@@ -34,7 +34,7 @@ class PlanEvent:
 
 @dataclass(frozen=True)
 class TagPlanEvent(PlanEvent):
-    """Geplante Änderung von Tagfeldern einer Datei."""
+    """A planned change to a file's tag fields."""
 
     path: str | Path
     changes: dict[str, tuple[str, str]]
@@ -42,7 +42,7 @@ class TagPlanEvent(PlanEvent):
 
 @dataclass(frozen=True)
 class FilePlanEvent(PlanEvent):
-    """Geplante Dateioperation mit optionaler Referenzdatei."""
+    """A planned file operation with an optional reference file."""
 
     source: str | Path
     target: str | Path
@@ -51,7 +51,7 @@ class FilePlanEvent(PlanEvent):
 
 @dataclass(frozen=True)
 class RunReport:
-    """Abschlussstatus und Zähler eines einzelnen Laufs."""
+    """Completion status and counters for one run."""
 
     returncode: int
     stats: dict[str, dict]
@@ -59,7 +59,7 @@ class RunReport:
 
 @dataclass
 class RunContext:
-    """Ausgabe und Zähler eines Laufs; Callbacks werden unmittelbar aufgerufen."""
+    """Run output and counters; callbacks are invoked immediately."""
 
     logger: Callable | None = None
     progress_sink: Callable | None = None
@@ -71,7 +71,7 @@ class RunContext:
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def execute(self, action: Callable[[], int]) -> RunReport:
-        """Aktion im Kontext ausführen und ihren Abschlussbericht zurückgeben."""
+        """Run an action in this context and return its final report."""
         with use_run_context(self):
             returncode = action()
         with self.lock:
@@ -79,12 +79,12 @@ class RunContext:
         return RunReport(returncode, stats)
 
     def last_stats(self, kind: str) -> dict:
-        """Die zuletzt gemeldeten Zähler dieser Art aus diesem Lauf."""
+        """Return the most recently reported counters of this kind for this run."""
         with self.lock:
             return dict(self.stats.get(kind, {}))
 
     def clear_stats(self, *kinds: str) -> None:
-        """Zähler dieses Laufs vor einer erneuten Auswertung vergessen."""
+        """Clear this run's counters before evaluating it again."""
         with self.lock:
             for kind in kinds:
                 self.stats.pop(kind, None)
@@ -95,7 +95,7 @@ _run_context: ContextVar[RunContext | None] = ContextVar("sortiton_run_context",
 
 @contextmanager
 def use_run_context(context: RunContext) -> Iterator[None]:
-    """Kontext nur für den aktuellen Ausführungspfad aktivieren."""
+    """Activate the context only for the current execution path."""
     token = _run_context.set(context)
     try:
         if context.paths is None:
@@ -108,12 +108,12 @@ def use_run_context(context: RunContext) -> Iterator[None]:
 
 
 def current_run_context() -> RunContext | None:
-    """Aktiven Kontext zurückgeben oder ``None`` außerhalb eines Laufs."""
+    """Return the active context, or ``None`` outside a run."""
     return _run_context.get()
 
 
 def require_run_context() -> RunContext:
-    """Den aktiven Laufkontext verlangen; ohne ihn gibt es keinen Ausgabeort."""
+    """Require the active run context; without it, structured output has no sink."""
     context = current_run_context()
     if context is None:
         raise RuntimeError(
@@ -123,7 +123,7 @@ def require_run_context() -> RunContext:
 
 
 def submit_with_context(pool, function, *args):
-    """Den Ausführungskontext für jeden Poolauftrag einzeln übernehmen."""
+    """Copy the execution context into each pool task."""
     context = copy_context()
     return pool.submit(context.run, function, *args)
 
@@ -160,7 +160,7 @@ def progress(current: int, total: int, text: str = "") -> None:
 
 
 def _plan_event(kind: str, data: dict) -> PlanEvent:
-    """Aus den übergebenen Feldern das passende typisierte Ereignis bauen."""
+    """Build the matching typed event from the supplied fields."""
     if kind == "tags" and "path" in data and "changes" in data:
         return TagPlanEvent(kind, data, data["path"], data["changes"])
     if "source" in data and "target" in data:

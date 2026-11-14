@@ -1,4 +1,4 @@
-"""Gemeinsame, nebenwirkungsfreie Prüfung der Pfade von Kernaufträgen."""
+"""Shared, side-effect-free path validation for core operations."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .files import target_inside_source
 
 
 class PathProblem(Enum):
-    """Maschinenlesbare Ursachen für ungültige Auftragspfade."""
+    """Machine-readable reasons why an operation path is invalid."""
 
     SOURCE_MISSING = "source_missing"
     SOURCE_INVALID = "source_invalid"
@@ -23,7 +23,7 @@ class PathProblem(Enum):
 
 @dataclass(frozen=True)
 class PathCheck:
-    """Validierte Pfade oder der erste Fehler ohne Dateisystemänderungen."""
+    """Validated paths, or the first error without filesystem changes."""
 
     source: Path | None
     target: Path | None
@@ -32,10 +32,10 @@ class PathCheck:
 
 def check_core_paths(source: str | Path | None, target: str | Path | None,
                      *, target_required: bool = False) -> PathCheck:
-    """Prüfe Quelle und Ziel; ein leeres optionales Ziel bedeutet in-place.
+    """Validate source and target; an empty optional target means in-place.
 
-    Relative Pfade beziehen sich auf das Arbeitsverzeichnis des Prozesses.
-    Ein Ziel oberhalb der Quelle ist erlaubt. Die Prüfung erzeugt keine Ordner.
+    Relative paths are resolved from the process working directory.
+    A target above the source is allowed. Validation does not create folders.
     """
     source_text = str(source or "").strip()
     target_text = str(target or "").strip()

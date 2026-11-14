@@ -43,7 +43,7 @@ def tk_root():
 
 
 def test_gui_saves_folder_changes_on_close(tk_root, tmp_path, monkeypatch) -> None:
-    """Auch unmittelbar vor dem Schließen geänderte Ordner bleiben erhalten."""
+    """Preserve folders changed immediately before closing."""
     from dataclasses import replace
     import tkinter as tk
     from sortiton.gui.app import SortitonGUI
@@ -78,7 +78,7 @@ def test_gui_saves_folder_changes_on_close(tk_root, tmp_path, monkeypatch) -> No
 
 
 def test_target_picker_starts_outside_source_and_rejects_source(tk_root, tmp_path, monkeypatch) -> None:
-    """Der Ziel-Picker startet beim Elternordner und verwirft die Quelle."""
+    """The target picker starts at the parent folder and rejects the source."""
     import tkinter as tk
     from types import SimpleNamespace
     from sortiton.gui.mixins import pages
@@ -100,7 +100,7 @@ def test_target_picker_starts_outside_source_and_rejects_source(tk_root, tmp_pat
 
 
 def test_preview_more_label_expands_inline(tk_root) -> None:
-    """Das „+N weitere“-Label klappt die Änderungen in der Karte auf und zu."""
+    """The "+N more" label expands and collapses changes in the card."""
     import tkinter as tk
 
     from sortiton.gui.panels import PreviewCard
@@ -139,7 +139,7 @@ def test_preview_more_label_expands_inline(tk_root) -> None:
 @pytest.mark.parametrize("rc", [0, 1, 130, 99])
 @pytest.mark.parametrize("applied", [False, True])
 def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applied: bool) -> None:
-    """Auch Teilfehler und Abbruch eines Schreiblaufs entwerten andere Vorschauen."""
+    """Partial errors and cancellation of a write run also invalidate other previews."""
     from types import SimpleNamespace
     from typing import cast
     from unittest.mock import Mock
@@ -166,7 +166,7 @@ def test_gui_finish_invalidates_previews_after_every_applied_run(rc: int, applie
 
 
 def test_gui_refuses_target_inside_source() -> None:
-    """Ein Ziel im Quellordner wird vor Vorschau und Lauf abgewiesen."""
+    """Reject a target inside the source before preview and execution."""
     import unittest.mock as mock
     from types import SimpleNamespace
 
@@ -192,7 +192,7 @@ def test_gui_refuses_target_inside_source() -> None:
 
 
 def test_only_one_operation_runs_at_a_time() -> None:
-    """Eine laufende Aktion bzw. ein offener Bestätigungsdialog blockiert Wiederholung."""
+    """A running operation or open confirmation dialog blocks repeated triggers."""
     from types import SimpleNamespace
 
     from sortiton.gui.mixins.run import _single_operation
@@ -219,7 +219,7 @@ def test_only_one_operation_runs_at_a_time() -> None:
 
 
 def test_round_button_ignores_key_repeat(tk_root) -> None:
-    """Tastenwiederholung löst einen Knopf nur einmal aus."""
+    """Key repeat triggers a button only once."""
     import time
 
     from sortiton.gui.widgets import RoundButton
@@ -243,7 +243,7 @@ def test_round_button_ignores_key_repeat(tk_root) -> None:
 
 
 def test_every_gui_operation_refuses_target_inside_source(tk_root) -> None:
-    """Auch Tags und Umbenennen nehmen den Quellordner nicht als Ziel."""
+    """Tags and rename also reject the source folder as a target."""
     import unittest.mock as mock
 
     from sortiton.gui.app import SortitonGUI
@@ -322,8 +322,8 @@ def test_gui(tk_root) -> None:
     try:
         gui = SortitonGUI(root)
         root.update()
-        # Der Start maximiert das Fenster, wo der Fenstermanager das unterstützt.
-        # Für die Höhenprüfung unten braucht das Fenster wieder Raum zum Wachsen.
+        # Startup maximizes the window when supported by the window manager.
+        # The height check below needs room for the window to grow again.
         try:
             root.attributes("-zoomed", False)
         except tk.TclError:
@@ -349,8 +349,8 @@ def test_gui(tk_root) -> None:
                              > gui._content_canvas.winfo_height() + 1)
         check("scrollbar visibility matches content overflow",
               gui._content_scrollbar.winfo_ismapped() == content_overflows)
-        # Die Vorschau füllt den freien Raum und wächst mit der Fensterhöhe;
-        # der Ergebnisbereich öffnet sich bedarfsgerecht statt als fester Block.
+        # The preview fills the available space and grows with the window;
+        # the result area opens on demand instead of remaining a fixed block.
         preview_before = gui._preview_area.winfo_height()
         check("preview fills the remaining window height", preview_before > 100,
               str(preview_before))
@@ -489,8 +489,8 @@ def test_gui(tk_root) -> None:
               gui_common._fmt_number(1842))
         i18n.set_language(spoken)
 
-        # Der Tools-Tab erzeugt ein Formular aus der Feature-Liste, hat keinen
-        # Schreibknopf und startet den (nur lesenden) Export über einen Knopf.
+        # The Tools tab builds a form from the feature list. It has no write
+        # button and starts the read-only export with a single button.
         from sortiton import external
         from sortiton.features import FEATURES as feature_list
         from sortiton.gui import tools as gui_tools
@@ -644,8 +644,8 @@ def test_gui(tk_root) -> None:
         root.update()
         check("settings window closes again", gui._prefs_window is None)
 
-        # Ein schreibendes Feature (fixes) macht aus der Tools-Leiste das
-        # übliche Paar Vorschau/Schreiben; der Export behält seinen einen Knopf.
+        # A writing feature (fixes) gives the Tools bar the usual
+        # Preview/Write pair; export keeps its single button.
         fixes_key = next(feature.key for feature in feature_list if feature.writes)
         gui.var_tool_choice.set(fixes_key)
         gui._tools_actions()
@@ -700,8 +700,8 @@ def test_gui(tk_root) -> None:
                 gui.var_tool[export.key]["output"].set(str(outdir))
                 gui.var_tool[export.key]["chunk_chars"].set("1500")
                 gui._run_tools()
-                # 30 s genug fuer ein Fixture mit einer Handvoll Dateien; ein
-                # Haenger soll nicht zwei Minuten bis zur Fehlermeldung kosten.
+                # 30 seconds is enough for a fixture with a few files; a hang
+                # should not take two minutes to report.
                 deadline = time_module.monotonic() + 30
                 while gui.running and time_module.monotonic() < deadline:
                     try:
@@ -719,8 +719,8 @@ def test_gui(tk_root) -> None:
                       gui.last_path == outdir.resolve(), str(gui.last_path))
                 check("tools export wrote a report", (outdir / "00_prompt.md").is_file())
 
-        # Eine eingefügte LLM-Antwort wird geprüft und an den Regel-Editor
-        # übergeben; my_rules.ini wird erst beim Speichern dort geschrieben.
+        # Validate pasted LLM output and pass it to the rules editor;
+        # my_rules.ini is written only when saved there.
         rules_file = config.RULES_FILE
         existed = rules_file.exists()
         gui._llm_rules_import()
@@ -737,10 +737,10 @@ def test_gui(tk_root) -> None:
               and "DJ Example = Example DJ" in gui._rules_text.get("1.0", "end-1c"))
         check("llm apply never saves on its own", rules_file.exists() == existed)
 
-        # Der zweite Import landet in einem bereits offenen Editor und fragt
-        # vorher nach ("Text ersetzen?"). Ohne Nutzer wartet diese Rückfrage
-        # endlos: im CI blieb der Lauf hier stehen, bis der Timeout ihn
-        # abbrach. Die Antworten gibt deshalb der Test, nicht ein Dialog.
+        # The second import targets an already open editor and asks
+        # ("Replace text?") first. Without a user, this prompt waits forever:
+        # CI used to hang here until the timeout. The test supplies the
+        # response instead of opening a dialog.
         from sortiton.gui.mixins import rules as gui_rules
 
         gui._llm_text.delete("1.0", "end")
@@ -749,8 +749,8 @@ def test_gui(tk_root) -> None:
             gui._llm_rules_apply()
             root.update()
         check("llm apply asks before it replaces the editor text", confirm.called)
-        # Die Warnung wird vor der Rückfrage protokolliert; erst der Vergleich
-        # des Editorinhalts belegt, dass der Block wirklich übergeben wurde.
+        # The warning is logged before the prompt; comparing editor contents
+        # confirms that the block was actually passed through.
         check("llm apply reports warnings in the log",
               any("broken" in line for line in gui._log_history))
         editor_text = gui._rules_text.get("1.0", "end-1c")
@@ -815,7 +815,7 @@ def test_gui(tk_root) -> None:
 
 @pytest.mark.gui
 def test_gui_aux_windows_follow_language(tk_root) -> None:
-    """Sprachwechsel aktualisiert bestehende Fenster und erhält ihre Inhalte."""
+    """Language changes update existing windows and preserve their contents."""
     import tkinter as tk
     import unittest.mock as mock
 
@@ -904,7 +904,7 @@ def test_gui_aux_windows_follow_language(tk_root) -> None:
 
 
 def test_dialog_timeout_falls_back_to_tkinter() -> None:
-    """Ein hängender nativer Dialog fällt auf Tkinter zurück statt zu blockieren."""
+    """A stalled native dialog falls back to Tkinter instead of blocking."""
     import subprocess
     import unittest.mock as mock
 
@@ -923,7 +923,7 @@ def test_dialog_timeout_falls_back_to_tkinter() -> None:
 
 
 def _gui_on_size(tk_root, size: tuple[int, int]) -> tuple[object, object, bool]:
-    """Fenster auf eine Größe bringen; False, wenn Screen oder WM das verhindern."""
+    """Resize the window; return False if the screen or window manager prevents it."""
     root = tk_root
     if (root.winfo_screenwidth() < size[0] or root.winfo_screenheight() < size[1]):
         return None, None, False
@@ -931,8 +931,8 @@ def _gui_on_size(tk_root, size: tuple[int, int]) -> tuple[object, object, bool]:
     gui = SortitonGUI(root)
     root.geometry(f"{size[0]}x{size[1]}+0+0")
     root.update()
-    # Fenstermanager oder Minsize können die Wunschgröße verwerfen; dann ist
-    # der Modus nicht vergleichbar und der Fall wird übersprungen.
+    # The window manager or minimum size may reject the requested size. In that
+    # case, the mode cannot be compared and the test is skipped.
     comparable = abs(root.winfo_width() - size[0]) <= 8
     return gui, root, comparable
 
@@ -940,7 +940,7 @@ def _gui_on_size(tk_root, size: tuple[int, int]) -> tuple[object, object, bool]:
 @pytest.mark.gui
 @pytest.mark.parametrize("size", [(1280, 720), (1920, 1080), (2560, 1440)])
 def test_gui_wide_workspace(tk_root, size) -> None:
-    """Breite Arbeitsfläche: zwei Spalten, volle Breite, gemeinsame Außenkanten."""
+    """Wide workspace: two columns, full width and aligned outer edges."""
     import tkinter as tk
 
     gui, root, comparable = _gui_on_size(tk_root, size)
@@ -1031,7 +1031,7 @@ def test_gui_wide_workspace(tk_root, size) -> None:
 
 @pytest.mark.gui
 def test_gui_config_column_starts_at_max_width(tk_root) -> None:
-    """Die Konfigurationsleiste startet immer in ihrer maximalen Breite."""
+    """The configuration pane always starts at its maximum width."""
     import tkinter as tk
 
     from sortiton.gui import design
@@ -1059,7 +1059,7 @@ def test_gui_config_column_starts_at_max_width(tk_root) -> None:
 
 @pytest.mark.gui
 def test_gui_rule_chips_have_vertical_padding(tk_root) -> None:
-    """Regel-Chips: fester Innenabstand oben/unten, Punkt als glattes Textzeichen."""
+    """Rule chips use fixed vertical padding and a smoothly drawn text dot."""
     import tkinter as tk
 
     from sortiton.gui import design
@@ -1088,7 +1088,7 @@ def test_gui_rule_chips_have_vertical_padding(tk_root) -> None:
 
 @pytest.mark.gui
 def test_gui_buttons_keep_their_vertical_padding(tk_root) -> None:
-    """Knöpfe wachsen mit der Schrift, statt die Beschriftung einzuklemmen."""
+    """Buttons grow with the font instead of clipping their labels."""
     import tkinter as tk
 
     from sortiton.gui import design
@@ -1117,7 +1117,7 @@ def test_gui_buttons_keep_their_vertical_padding(tk_root) -> None:
 @pytest.mark.gui
 @pytest.mark.parametrize("size", [(1100, 780), (820, 660)])
 def test_gui_narrow_workspace(tk_root, size) -> None:
-    """Schmales Fenster: Konfiguration eingeklappt bzw. oberhalb, ohne Scrollen."""
+    """Narrow window: collapse configuration or stack it above without scrolling."""
     import tkinter as tk
 
     gui, root, comparable = _gui_on_size(tk_root, size)
@@ -1181,7 +1181,7 @@ def test_gui_narrow_workspace(tk_root, size) -> None:
 
 
 def _inside_column(widget, limit: int) -> list[tuple[str, int, int]]:
-    """Alle sichtbaren Kinder, die über die rechte Kante hinausragen."""
+    """Return all visible children that extend beyond the right edge."""
     outside: list[tuple[str, int, int]] = []
     for child in widget.winfo_children():
         if not child.winfo_ismapped():
@@ -1195,7 +1195,7 @@ def _inside_column(widget, limit: int) -> list[tuple[str, int, int]]:
 
 @pytest.mark.gui
 def test_gui_tools_tab_fits_the_config_column(tk_root) -> None:
-    """Werkzeug-Reiter: Umschalter, Badge und Knopfreihe bleiben in der Spalte."""
+    """Tools tab: selector, badge and button row stay inside the column."""
     import tkinter as tk
 
     from sortiton.gui import design

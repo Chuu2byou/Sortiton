@@ -140,7 +140,7 @@ def same_content(a: Path, b: Path) -> bool:
 
 
 def canonical_path(path: Path | str) -> Path:
-    """Pfade für Vergleiche physisch auflösen; relative Pfade nutzen das CWD."""
+    """Resolve paths physically for comparison; relative paths use the CWD."""
     return Path(path).expanduser().resolve()
 
 

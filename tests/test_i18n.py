@@ -1,4 +1,4 @@
-"""Prüft die Übersetzungskataloge: doppelte, fehlende und unbenutzte Schlüssel."""
+"""Check translation catalogs for duplicate, missing and unused keys."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def _python_files() -> list[Path]:
 
 
 def test_count_and_number_formatting() -> None:
-    """Plural und Zahlformat werden sprachabhängig zentral bestimmt."""
+    """Plural forms and number formatting are handled centrally per language."""
     previous = i18n.get_language()
     try:
         i18n.set_language("en")
@@ -150,10 +150,10 @@ def test_feature_descriptions_are_translated() -> None:
 
 
 def test_used_keys_exist_in_both_languages() -> None:
-    """Jeder im Code benutzte ``i18n.t()``-Schlüssel existiert in en und de.
+    """Every ``i18n.t()`` key used in the code exists in both en and de.
 
-    Beide Kataloge müssen außerdem deckungsgleich sein: ein Schlüssel nur in
-    einer Sprache fällt sonst erst im Betrieb als englischer Ersatztext auf.
+    The catalogs must also have matching keys; otherwise a missing translation
+    would appear as English fallback text only at runtime.
     """
     en, de = i18n.catalog("en"), i18n.catalog("de")
     check("both catalogs non-empty", bool(en) and bool(de))
@@ -167,12 +167,12 @@ def test_used_keys_exist_in_both_languages() -> None:
     for path in _python_files():
         raw |= set(KEY_RE.findall(path.read_text(encoding="utf-8")))
 
-    # Ohne diese Prüfung wären die beiden folgenden auf einem Projekt grün,
-    # das i18n anders aufruft - nichts gefunden ist nicht nichts falsch.
+    # Without this check, the next two checks could pass if the project called
+    # i18n differently: finding nothing does not mean finding no problems.
     check("i18n.t() calls were found at all", bool(raw))
 
-    # Dynamische Schlüssel wie i18n.t("gui.confirm." + page + ".title") werden
-    # als reiner Präfix gefunden und nur auf vorhandene Einträge geprüft.
+    # Dynamic keys such as i18n.t("gui.confirm." + page + ".title") are found
+    # as prefixes and checked only for matching catalog entries.
     used = {key for key in raw if not key.endswith(".")}
     prefixes = sorted(key for key in raw if key.endswith("."))
     unknown = sorted(used - set(en))
@@ -184,7 +184,7 @@ def test_used_keys_exist_in_both_languages() -> None:
 
 
 def test_settings_fine_tuning_uses_concise_labels() -> None:
-    """Die Einstellungen zeigen kurze, zweisprachige Bezeichnungen."""
+    """Settings use concise, bilingual labels."""
     from sortiton.gui.tools import OptionForm, fine_tuning_items
 
     previous = i18n.get_language()

@@ -24,9 +24,9 @@ from .base import GuiBase
 
 
 class FillPreviewCard(PreviewCard):
-    """Vorschaukarte, die den freien Raum der rechten Spalte ausfüllt.
+    """Preview card that fills the available space in the right column.
 
-    Der Inhalt bleibt oben verankert, die Karte wächst mit der Fensterhöhe.
+    Content stays anchored at the top while the card grows with the window.
     """
 
     def __init__(self, parent: tk.Misc, title: str) -> None:
@@ -34,7 +34,7 @@ class FillPreviewCard(PreviewCard):
         children = self.winfo_children()
         inner = children[0] if children else None
         if inner is not None:
-            # Innenrahmen und Tabellenkörper dürfen die volle Höhe nutzen.
+            # Let the inner frame and table body use the full height.
             inner.grid_configure(sticky="nsew")
             inner.grid_rowconfigure(1, weight=1)
             self.grid_rowconfigure(0, weight=1)
@@ -70,7 +70,7 @@ class PageMixin(GuiBase):
         return page
 
     def _page_header(self, page: tk.Frame, row: int, title: str, hint: str) -> None:
-        """Kompakter Seitentitel über dem Auftrag."""
+        """Compact page title above the operation."""
         header = tk.Frame(page, bg=CARD)
         header.grid(row=row, column=0, sticky="ew", padx=design.px(16),
                     pady=(design.px(16), design.px(24)))
@@ -79,7 +79,7 @@ class PageMixin(GuiBase):
                  font=design.FONT_TITLE, anchor="w").grid(row=0, column=0, sticky="w")
 
     def _core_page(self, parent: tk.Frame, key: str) -> tk.Frame:
-        """Eine Kernseite anhand derselben Beschreibung wie die CLI aufbauen."""
+        """Build a core page from the same description used by the CLI."""
         feature = core_feature(key)
         page = self._new_page(parent)
         self._page_header(page, 0, i18n.t(f"gui.tab.{key}"), i18n.t(f"gui.hint.{key}"))
@@ -153,9 +153,8 @@ class PageMixin(GuiBase):
             shown = card if feature is not None and feature.writes else self._preview_blank
             if shown is not None:
                 shown.tkraise()
-        # Die neu erzeugte Reihe liegt durch das Grid oben; die aktive Seite
-        # muss sie deshalb wieder überdecken, auch wenn die Werkzeuge nicht
-        # sichtbar sind.
+        # Grid places the newly created row on top, so raise the active page
+        # above it again even when the tools page is not visible.
         active = self._action_frames.get(self.var_page.get())
         if active is not None:
             active.tkraise()
@@ -165,7 +164,7 @@ class PageMixin(GuiBase):
         self.root.after_idle(self._refresh_content_layout)
 
     def _card(self, parent: tk.Frame, row: int, title: str = "") -> tk.Frame:
-        """Ungefasster Formularabschnitt auf der gemeinsamen Arbeitsfläche."""
+        """Unframed form section on the shared workspace."""
         outer = tk.Frame(parent, bg=CARD, highlightthickness=0, bd=0)
         outer.grid(row=row, column=0, sticky="ew", pady=(0, design.px(24)))
         outer.columnconfigure(0, weight=1)
@@ -201,9 +200,9 @@ class PageMixin(GuiBase):
     def _path_entry(self, parent: tk.Misc, variable: tk.StringVar) -> tk.Entry:
         """The dark input field used for folders and for patterns.
 
-        ``width=1`` hält die angeforderte Breite klein: das Feld füllt über
-        ``sticky="ew"`` die Zelle und schrumpft in schmalen Spalten mit, statt
-        den Knopf daneben aus dem Panel zu schieben.
+        ``width=1`` keeps the requested width small: ``sticky="ew"`` lets the
+        field fill its cell and shrink in narrow columns instead of pushing
+        the adjacent button out of the panel.
         """
         return tk.Entry(parent, textvariable=variable, bg=FIELD, fg=TEXT,
                         insertbackground=TEXT, relief="flat", bd=0, width=1,
@@ -239,7 +238,7 @@ class PageMixin(GuiBase):
         self._refresh_rules_card()
 
     def _preview_card(self, _page: tk.Frame, _row: int, key: str) -> None:
-        """Vorschaukarte der rechten Spalte; Titel kennzeichnet die Zusammenfassung."""
+        """Preview card for the right column; the title identifies the summary."""
         card = FillPreviewCard(self._preview_area,
                                i18n.t("gui.section.preview_summary"))
         card.grid(row=0, column=0, sticky="nsew")

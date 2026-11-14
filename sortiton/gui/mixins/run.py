@@ -65,7 +65,7 @@ class RunMixin(GuiBase):
                            Path(path).parent, source=str(path))
 
     def _run_core(self, page: str, execute: bool) -> None:
-        """Starte einen Kernauftrag anhand seiner gemeinsamen Beschreibung."""
+        """Start a core operation using its shared description."""
         feature = core_feature(page)
         source = getattr(self, feature.source_var).get().strip()
         target = getattr(self, feature.target_var).get().strip()
@@ -330,7 +330,7 @@ class RunMixin(GuiBase):
             self._render_preview(page)
 
     def _render_preview(self, page: str) -> None:
-        """Zeige den Plan und schalte die zugehörige Aktion frei."""
+        """Show the plan and enable its corresponding action."""
         card = self._previews.get(page)
         if card is None:
             return
@@ -671,13 +671,13 @@ class RunMixin(GuiBase):
 
     def _core_paths_ok(self, page: str, source: str, target: str,
                        move: bool = False) -> bool:
-        """Zeige das Ergebnis derselben Pfadprüfung wie bei CLI-Aufträgen."""
+        """Show the result of the same path validation used by CLI operations."""
         required = core_feature(page).target_required or move
         result = check_core_paths(source, target, target_required=required)
         return self._show_core_path_problem(result, source, target)
 
     def _show_core_path_problem(self, result, source: str, target: str) -> bool:
-        """Übersetze strukturierte Pfadfehler in passende Dialoge."""
+        """Map structured path errors to the appropriate dialogs."""
         if result.problem is None:
             return True
         if result.problem == PathProblem.SOURCE_MISSING:

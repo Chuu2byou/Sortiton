@@ -13,15 +13,15 @@ from .design import (BACKGROUND, BORDER, CARD, GREEN, TEXT, TEXT_FAINT, TEXT_MUT
 from .tools import OptionForm, feature_label, fine_tuning_cards, section_title
 from .widgets import Pill, RoundButton, Segments, fit_wraplength
 
-# Startbreite: breit genug für zwei Formularspalten, aber nie breiter als der
-# Bildschirm. Auf großen Monitoren wächst das Fenster mit, bleibt aber lesbar.
+# Initial width: wide enough for two form columns, but never wider than the
+# screen. The window grows on large monitors while remaining readable.
 MIN_WIDTH = 560
 PREFERRED_WIDTH = 1000
 WIDTH_RATIO = 0.56
 MAX_WIDTH = 1160
 MIN_HEIGHT = 420
 HEIGHT_RATIO = 0.90
-CARDS_TWO_COLUMNS = 840  # ab dieser Inhaltsbreite stehen die Karten zweispaltig
+CARDS_TWO_COLUMNS = 840  # Cards use two columns from this content width onward.
 
 
 class PreferencesWindow:
@@ -236,9 +236,8 @@ class PreferencesWindow:
         except tk.TclError:
             return
         if window_width <= 1:
-            # Vor dem ersten Mapping: die spätere Fensterbreite abschätzen,
-            # damit schon die erste Größenberechnung die richtige Spaltenzahl
-            # und Höhe sieht.
+            # Estimate the final window width before the first mapping so the
+            # initial size calculation uses the correct column count and height.
             screen_width = self.window.winfo_screenwidth()
             window_width = min(max(design.px(PREFERRED_WIDTH),
                                    int(screen_width * WIDTH_RATIO)),

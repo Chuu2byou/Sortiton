@@ -1,8 +1,8 @@
-"""Tag-Lesen und -Schreiben (``sortiton/tags.py``).
+"""Tag reading and writing (``sortiton/tags.py``).
 
-Die Erwartungswerte stammen aus den Export-Goldens (``alle_tags.jsonl``), damit
-der Tag-Leser und der Bericht nicht auseinanderlaufen. Tests, die echte
-Audiodateien brauchen, bauen sie mit ffmpeg und überspringen sich sonst.
+Expected values come from the export golden (``alle_tags.jsonl``), keeping the
+tag reader and report in sync. Tests that need real audio files generate them
+with ffmpeg and are skipped otherwise.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from _support import (
 FIXTURE = _load_export_helper().FIXTURE_DIR
 FLAC_SAMPLE = FIXTURE / "Artist A" / "Album One" / "01 - Song One.flac"
 
-#: Eine Fixture je Format, das der Leser können muss.
+#: One fixture for each format the reader must support.
 SAMPLES = ("Artist A/Album One/01 - Song One.flac",
            "Sampler/01.mp3",
            "Artist B/Album Two/01 Song (Official Video).ogg",
@@ -36,7 +36,7 @@ SAMPLES = ("Artist A/Album One/01 - Song One.flac",
 @pytest.mark.external
 @pytest.mark.skipif(importlib.util.find_spec("mutagen") is None, reason="mutagen not installed")
 def test_tag_reader() -> None:
-    """``read_info`` liest alle acht Felder für jedes unterstützte Format."""
+    """``read_info`` reads all eight fields for every supported format."""
     from sortiton.tags import TAG_FIELDS, TrackInfo, read_info
 
     helper = _load_export_helper()
@@ -66,11 +66,11 @@ def test_tag_reader() -> None:
 @pytest.mark.external
 @pytest.mark.skipif(importlib.util.find_spec("mutagen") is None, reason="mutagen not installed")
 def test_probe_tags_keeps_its_five_text_fields() -> None:
-    """``probe_tags`` behält die fünf Textfelder und den ``"; "``-Trenner.
+    """``probe_tags`` keeps the five text fields and the ``"; "`` separator.
 
-    Die Erwartungswerte wurden vor der Zusammenführung der Leser aufgenommen;
-    dieser Test sichert tags/rename/sort/scan ab. ``track``, ``disc`` und
-    ``year`` dürfen zusätzlich kommen - sie füllen ``%track%``, ``%disc%`` und
+    Expected values were recorded before the readers were unified. This test
+    protects tags/rename/sort/scan. The additional ``track``, ``disc`` and
+    ``year`` fields are allowed; they populate ``%track%``, ``%disc%`` and
     ``%year%``.
     """
     from sortiton.tags import probe_tags
@@ -100,10 +100,10 @@ def test_probe_tags_keeps_its_five_text_fields() -> None:
 
 
 def test_probe_tags_includes_track_disc_and_year() -> None:
-    """Alle unterstützten Namens-Platzhalter erhalten Werte aus dem Tag-Lesen.
+    """All supported name placeholders receive values from tag reading.
 
-    Der Einzel-Leser und der parallele Batch-Leser, den rename und sort wirklich
-    nutzen, müssen die drei Zusatzfelder beide mitbringen.
+    Both the single-file reader and the parallel batch reader used by rename
+    and sort must provide the three additional fields.
     """
     from sortiton import tags as tag_reader
 
@@ -123,7 +123,7 @@ def test_probe_tags_includes_track_disc_and_year() -> None:
 
 @pytest.mark.skipif(importlib.util.find_spec("mutagen") is None, reason="mutagen not installed")
 def test_title_is_not_split_at_semicolons() -> None:
-    """Nur Mehrfachwert-Felder werden an ``;`` getrennt, ein Titel nicht."""
+    """Split only multi-value fields on ``;``, never a title."""
     from sortiton.tags import read_info, write_tags
 
     if not FLAC_SAMPLE.is_file():
@@ -143,7 +143,7 @@ def test_title_is_not_split_at_semicolons() -> None:
 
 
 def test_writer_mappings_cover_every_tag_field() -> None:
-    """Jede Writer-Tabelle kennt jedes Feld, das die fixes schreiben können."""
+    """Every writer mapping includes every field the fixes feature can write."""
     from sortiton import tags
 
     fields = set(tags.TAG_FIELDS)
@@ -155,7 +155,7 @@ def test_writer_mappings_cover_every_tag_field() -> None:
 
 
 def test_write_tags_reports_a_missing_writer() -> None:
-    """Ohne mutagen und ohne ffmpeg wirft ``write_tags`` RuntimeError."""
+    """``write_tags`` raises RuntimeError without mutagen or ffmpeg."""
     from sortiton import tags
 
     with tempfile.TemporaryDirectory() as tmp:

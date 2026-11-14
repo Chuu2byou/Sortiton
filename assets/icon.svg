@@ -1,6 +1,6 @@
 <svg width="120" height="120" viewBox="0 0 120 120" role="img" xmlns="http://www.w3.org/2000/svg">
-  <title>Sortiton – App-Icon (Blau)</title>
-  <desc>Plattenregal als App-Icon mit abgerundetem blauem Hintergrund</desc>
+  <title>Sortiton app icon (blue)</title>
+  <desc>Record shelf app icon on a rounded blue background</desc>
   <rect width="120" height="120" rx="27" fill="#185FA5"/>
   <g transform="translate(12,14)" fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
     <path d="M8 84H88" stroke="#FFFFFF"/>

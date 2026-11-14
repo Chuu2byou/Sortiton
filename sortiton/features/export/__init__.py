@@ -17,11 +17,11 @@ from . import fingerprint, reader, report
 
 
 MANIFEST_NAME = ".sortiton-export.json"
-"""Name des Manifests, das die in einem Lauf von Sortiton erzeugten Dateien nennt."""
+"""Name of the manifest listing files created by a Sortiton run."""
 
 
 def _valid_name(name: object) -> str | None:
-    """Ein reiner Dateiname im Ausgabeordner, oder ``None`` für alles andere."""
+    """A plain file name in the output folder, or ``None`` otherwise."""
     if not isinstance(name, str) or not name or name in (".", "..", MANIFEST_NAME):
         return None
     if "\0" in name or Path(name).name != name:
@@ -30,10 +30,10 @@ def _valid_name(name: object) -> str | None:
 
 
 def _read_manifest(outdir: Path) -> list[str]:
-    """Die im alten Manifest gelisteten Namen; leer bei fehlendem/kaputtem Manifest.
+    """Names listed in the old manifest; empty if it is missing or invalid.
 
-    Nur ein vollständig lesbares Manifest mit einer Namensliste gilt als Nachweis
-    der eigenen Herkunft - alles andere führt dazu, dass nichts gelöscht wird.
+    Only a fully readable manifest containing a list of names proves ownership;
+    otherwise, nothing is deleted.
     """
     try:
         data = json.loads((outdir / MANIFEST_NAME).read_text(encoding="utf-8"))
@@ -53,7 +53,7 @@ def _read_manifest(outdir: Path) -> list[str]:
 
 
 def _write_manifest(outdir: Path, names: list[str]) -> None:
-    """Schreibt das Manifest der bisher in diesem Lauf erzeugten Dateien."""
+    """Write the manifest for files created so far in this run."""
     try:
         (outdir / MANIFEST_NAME).write_text(
             json.dumps({"version": 1, "files": names}, ensure_ascii=False) + "\n",
@@ -63,11 +63,11 @@ def _write_manifest(outdir: Path, names: list[str]) -> None:
 
 
 def _clear_reports(outdir: Path) -> list[str]:
-    """Entfernt ausschließlich die im alten Manifest belegten Berichte.
+    """Remove only reports listed in the old manifest.
 
-    Fehlt das Manifest oder ist es unlesbar, bleibt jede Datei unangetastet -
-    auch eine TSV des Nutzers, die zufällig wie ein Bericht heißt. Zurück kommt
-    die noch leere Liste der in diesem Lauf erzeugten Dateien.
+    If the manifest is missing or unreadable, leave every file untouched,
+    including a user TSV that happens to have a report-like name. Return the
+    (still empty) list of files created in this run.
     """
     old = _read_manifest(outdir)
     for name in old:
@@ -80,16 +80,15 @@ def _clear_reports(outdir: Path) -> list[str]:
 
 
 class _Output:
-    """Schreibt die Berichte und ersetzt dabei nie eine fremde Datei.
+    """Write reports without ever replacing a file we do not own.
 
-    ``names`` sind die Dateien dieses Laufs; nur sie dürfen überschrieben
-    werden. Existiert ein Zielname bereits und gehört nicht uns, weicht die
-    Datei auf einen freien Namen aus (" (2)"), damit die Zusage "nichts wird
-    überschrieben" auch für einen vom Nutzer gewählten Ordner gilt.
+    ``names`` are this run's files; only they may be overwritten. If a target
+    name already exists and is not ours, choose a free name (`` (2)``) so the
+    promise that nothing is overwritten also holds for a user-selected folder.
 
-    Der Name steht im Manifest, *bevor* geschrieben wird: bricht der Lauf
-    dazwischen ab, gilt die halbe Datei als unsere und wird beim nächsten Lauf
-    aufgeräumt statt als fremd liegen zu bleiben.
+    Record the name in the manifest *before* writing: if the run stops midway,
+    the partial file is treated as ours and cleaned up next time instead of
+    being left behind as an unknown file.
     """
 
     def __init__(self, outdir: Path) -> None:
@@ -97,7 +96,7 @@ class _Output:
         self.names: list[str] = []
 
     def _claim(self, name: str) -> Path:
-        """Der Zielpfad für ``name``; fremde Dateien weichen auf " (2)" aus."""
+        """Return the target path for ``name``, choosing `` (2)`` if needed."""
         if name in self.names:
             return self.outdir / name
         path = free_path(self.outdir / name)
@@ -106,13 +105,13 @@ class _Output:
         return path
 
     def write(self, name: str, text: str) -> str:
-        """Schreibt ``text`` und liefert den tatsächlich benutzten Namen."""
+        """Write ``text`` and return the name actually used."""
         path = self._claim(name)
         path.write_text(text, encoding="utf-8")
         return path.name
 
     def open(self, name: str):
-        """Öffnet ``name`` zum Schreiben (für zeilenweise Ausgaben)."""
+        """Open ``name`` for writing (for line-by-line output)."""
         return self._claim(name).open("w", encoding="utf-8")
 
 

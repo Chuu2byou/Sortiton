@@ -1,4 +1,4 @@
-"""Protokollverlauf ohne GUI testen."""
+"""Test log history without the GUI."""
 
 from sortiton.gui.log_history import LogHistory, line_marker
 

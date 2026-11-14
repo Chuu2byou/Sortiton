@@ -7,7 +7,7 @@ name = "sortiton"
 # Keep in sync with sortiton/__init__.py::__version__ - tests/test_public_api.py::test_version
 # fails when they drift apart. It cannot be read from there: the entry script
 # sortiton.py sits next to the package, and setuptools would load that file.
-version = "1.0.0"
+version = "1.0.1"
 description = "Sort a music library: clean tags, rename files, tidy folders"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -1,4 +1,4 @@
-"""Begrenzter Verlauf und Klassifizierung von Protokollzeilen."""
+"""Bounded log history and classification of log lines."""
 
 from __future__ import annotations
 
@@ -8,28 +8,28 @@ _INFO_MARKERS = ("->", "PREVIEW", "VORSCHAU")
 
 
 class LogHistory:
-    """Bewahrt die letzten Zeilen unabhängig von den GUI-Widgets auf."""
+    """Keep recent lines independently of GUI widgets."""
 
     def __init__(self) -> None:
         self._lines: list[str] = []
 
     def append(self, line: str) -> None:
-        """Eine Zeile ergänzen und alte Einträge bei Bedarf entfernen."""
+        """Append a line and remove old entries when needed."""
         self._lines.append(line)
         if len(self._lines) > 2000:
             del self._lines[:1000]
 
     def clear(self) -> None:
-        """Den Verlauf leeren."""
+        """Clear the history."""
         self._lines.clear()
 
     def lines(self) -> list[str]:
-        """Eine Kopie des Verlaufs liefern."""
+        """Return a copy of the history."""
         return self._lines.copy()
 
 
 def line_marker(line: str) -> str | None:
-    """Die Darstellungsfarbe einer Protokollzeile bestimmen."""
+    """Determine the display colour for a log line."""
     if any(word in line for word in _ERROR_MARKERS):
         return "err"
     if any(word in line for word in _OK_MARKERS):

@@ -54,7 +54,7 @@ class Feature:
 
 def validate_feature_paths(feature: Feature, args: CmdArgs, *,
                            output_path: Path | str | None = None) -> PathProblem | None:
-    """Prüfe die deklarierte Ausgaberegel mit dem tatsächlichen Ausgabeziel."""
+    """Check the declared output rule against the actual output target."""
     if not feature.output_outside_source:
         return None
     values = resolve_args(feature, args)
@@ -63,7 +63,7 @@ def validate_feature_paths(feature: Feature, args: CmdArgs, *,
     outputs = [getattr(values, option.name) for option in feature.options
                if option.path_role == "output_folder"]
     if len(sources) != 1 or len(outputs) != 1:
-        raise ValueError("Feature benötigt genau eine Quell- und eine Ausgabeoption")
+        raise ValueError("Feature needs exactly one source option and one output option")
     target = output_path if output_path is not None else outputs[0]
     return check_core_paths(sources[0], target, target_required=True).problem
 
@@ -71,9 +71,9 @@ def validate_feature_paths(feature: Feature, args: CmdArgs, *,
 def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:
     """Add one :class:`Option` to ``parser``.
 
-    Eine eigene ``add_argument``-Zeile je ``kind``: so bleibt der Typvertrag
-    konkret (``type=str``/``int``/``float``, ``choices``) statt in einem
-    untypisierten ``**kwargs``-Dictionary zu verschwinden.
+    Use a separate ``add_argument`` call for each ``kind`` so the type contract
+    stays explicit (``type=str``/``int``/``float``, ``choices``) instead of
+    disappearing into an untyped ``**kwargs`` dictionary.
     """
     help_text = i18n.t(option.help_key) if option.help_key else None
 
@@ -110,7 +110,7 @@ def _add_option(parser: argparse.ArgumentParser, option: Option) -> None:
 
 
 def add_options(parser: argparse.ArgumentParser, options: tuple[Option, ...]) -> None:
-    """Die beschriebenen Optionen in ihrer vorgegebenen Reihenfolge registrieren."""
+    """    Register the described options in the specified order."""
     for option in options:
         _add_option(parser, option)
 
@@ -130,9 +130,9 @@ def add_feature_parser(subparsers, feature: Feature,
 def resolve_args(feature: Feature, args: CmdArgs) -> SimpleNamespace:
     """Fill every option the caller left out with its default.
 
-    ``args`` darf ein ``Namespace``, ein ``SimpleNamespace`` oder ein Mapping
-    sein. Ein Objekt ohne Attribute wird laut abgelehnt: still mit lauter
-    Standardwerten weiterzulaufen wäre schlimmer als ein klarer Fehler.
+    ``args`` may be a ``Namespace``, ``SimpleNamespace`` or mapping. An object
+    without attributes is rejected explicitly: continuing silently with only
+    default values would be worse than raising a clear error.
     """
     if isinstance(args, Mapping):
         values = dict(args)

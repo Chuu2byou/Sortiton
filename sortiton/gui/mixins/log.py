@@ -27,7 +27,7 @@ class LogMixin(GuiBase):
         return self._history.lines()
 
     def _build_result_area(self) -> None:
-        """Ergebnis und Log öffnen sich bedarfsgerecht - kein dauerhafter Block."""
+        """Open the result and log only when needed; do not keep a permanent block."""
         self._result_area = tk.Frame(self.root, bg=BACKGROUND)
         self._result_area.grid(row=ROW_RESULT, column=0, sticky="nsew")
         self._result_area.columnconfigure(0, weight=1)
@@ -43,7 +43,7 @@ class LogMixin(GuiBase):
             self._render_stats(last_kind, last_values)
         else:
             self._rebuild_result_header()
-            # Noch kein Lauf: der Ergebnisbereich bleibt geschlossen.
+            # No run yet: keep the result area closed.
             self._result_area.grid_remove()
 
         view = tk.Frame(self._result_area, bg=LOG_BG, highlightthickness=1,
@@ -89,7 +89,7 @@ class LogMixin(GuiBase):
         self._log_lines = 0
 
     def _update_log_scrollbar(self) -> None:
-        """Scrollbalken direkt am Log, nur wenn der Text überläuft."""
+        """Keep the scrollbar beside the log and show it only when text overflows."""
         scroll = getattr(self, "_log_scroll", None)
         if scroll is None or not self.logbox.winfo_ismapped():
             return
@@ -113,7 +113,7 @@ class LogMixin(GuiBase):
         self.logbox.see("end")
 
     def _show_result_view(self) -> None:
-        """Switch back to the counters; ohne Ergebnis bleibt der Bereich zu."""
+        """Switch back to the counters; keep the area closed if there is no result."""
         self._log_view.grid_remove()
         self.result_panel.grid(row=0, column=0, sticky="nsew")
         self._log_shown = False
@@ -121,7 +121,7 @@ class LogMixin(GuiBase):
         self._refresh_recent()
 
     def _resize_result_area(self, height: int, weight: int) -> None:
-        """Ergebnisbereich nur öffnen, wenn ein Ergebnis oder Log existiert."""
+        """Open the result area only when a result or log exists."""
         has_result = bool(getattr(self, "_last_result_kind", None))
         if self._log_shown or has_result:
             self._result_area.grid()
@@ -171,14 +171,14 @@ class LogMixin(GuiBase):
         self._refresh_recent()
 
     def _build_footer(self) -> None:
-        """Untere Zeile: Einstellungen links, Status und Schnellzugriffe rechts."""
+        """Bottom row: settings on the left, status and shortcuts on the right."""
         tk.Frame(self.root, bg=BORDER, height=1).grid(row=ROW_LINE_BOTTOM, column=0,
                                                       sticky="ew")
         footer = tk.Frame(self.root, bg=BACKGROUND)
         footer.grid(row=ROW_FOOTER, column=0, sticky="ew",
                     pady=(design.px(8), design.px(design.SPACE_M)))
-        # Der freie Platz liegt zwischen Einstellungen und Statusgruppe: die
-        # Statusanzeige sitzt damit immer rechts, egal wie breit das Fenster ist.
+        # Place flexible space between settings and the status group so the
+        # status indicator stays on the right at every window width.
         footer.columnconfigure(1, weight=1)
         self._footer = footer
 
@@ -227,11 +227,10 @@ class LogMixin(GuiBase):
         self.root.after_idle(self._apply_minsize)
 
     def _fit_footer(self, event=None) -> None:
-        """Blendet Schnellzugriffe aus, wenn der Platz in der Fußzeile fehlt.
+        """Hide shortcuts when there is not enough room in the footer.
 
-        Einstellungen, Status und Fortschritt bleiben immer sichtbar; die
-        Schnellzugriffe weichen in dieser Reihenfolge: Logs, Rückgängig. So
-        kann nichts über den Rand hinauslaufen.
+        Keep settings, status and progress visible. Hide shortcuts in this
+        order: logs, then undo. Nothing can extend beyond the window edge.
         """
         footer = getattr(self, "_footer", None)
         if footer is None:
@@ -275,7 +274,7 @@ class LogMixin(GuiBase):
     def _rebuild_result_header(self, backup: str = "", export_dir: str = "") -> None:
         """Buttons of the result card: log details, the export, the backup."""
         if getattr(self, "_last_result_kind", None) and not self._log_shown:
-            # Erst ein Ergebnis öffnet den Ergebnisbereich (bedarfsgerecht).
+            # Show the result area only when a result is available.
             self._result_area.grid()
             self.root.rowconfigure(ROW_RESULT, weight=0, minsize=0)
         for child in self.result_panel.header_right.winfo_children():

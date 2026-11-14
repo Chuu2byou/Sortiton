@@ -38,7 +38,7 @@ _STEP_LINE = "#" * 62
 
 
 def _check_task_paths(page: str, source, target, move: bool = False) -> bool:
-    """Prüfe Pfadregeln vor Vorschau und Ausführung gleichermaßen."""
+    """Check path rules before both preview and execution."""
     required = core_feature(page).target_required or move
     result = check_core_paths(source, target, target_required=required)
     if result.problem is None:
@@ -700,7 +700,7 @@ def _pipeline_steps(args: CmdArgs) -> list[Step]:
     pipeline_state = {"tags": {}, "paths": {}} if not args.apply else None
 
     def stage(**values) -> SimpleNamespace:
-        """Argumente einer Stufe: gemeinsame Werte plus die der Stufe."""
+        """Arguments for a stage: shared values plus stage-specific ones."""
         return SimpleNamespace(cancel=cancel, pipeline_state=pipeline_state, **values)
 
     steps: list[Step] = [

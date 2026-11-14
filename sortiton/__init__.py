@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 BACKUP_DIR: Path
 LOG_DIR: Path
@@ -29,7 +29,7 @@ from .features.export import cmd_export
 from .features.fixes import cmd_fixes
 
 def __getattr__(name: str):
-    """Frühere Pfadexporte dynamisch aus der aktiven Konfiguration beziehen."""
+    """Resolve legacy path exports dynamically from the active configuration."""
     if name in {"BACKUP_DIR", "LOG_DIR", "PROJECT_DIR", "RULES_FILE"}:
         return getattr(config, name)
     raise AttributeError(name)

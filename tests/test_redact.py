@@ -1,8 +1,8 @@
-"""Redaktion von URLs und Kommandozeilen (``sortiton/redact.py``).
+"""Redaction of URLs and command lines (``sortiton/redact.py``).
 
-Zugangsdaten, Pfadsegmente, Query-Werte und Tokens dürfen nicht im Log oder in
-einer Fehlermeldung landen - auch nicht in einer URL ohne Schema oder hinter
-einem ``--source-url=…``.
+Credentials, path segments, query values and tokens must not appear in logs or
+error messages, including in URLs without a scheme or after
+``--source-url=…``.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from _support import check
 
 
 def test_urls_and_arguments_are_redacted() -> None:
-    """Nur Schema und Host bleiben lesbar, alles andere wird ersetzt."""
+    """Keep only the scheme and host readable; replace everything else."""
     from sortiton import redact
 
     # Redaction test fixture; not a real credential.

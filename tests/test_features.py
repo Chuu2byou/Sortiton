@@ -52,7 +52,7 @@ def test_external_tools() -> None:
         check("available(MUTAGEN) follows config (on)",
               external.available(external.MUTAGEN))
 
-    # Die Registry listet jedes Werkzeug einmal.
+    # The registry lists each tool exactly once.
     keys = [tool.key for tool in external.TOOLS]
     check("TOOLS lists every tool once", len(keys) == len(set(keys)), ", ".join(keys))
     check("TOOLS contains fpcalc", external.FPCALC in external.TOOLS)
@@ -191,7 +191,7 @@ def test_features_base() -> None:
 
 
 def test_features_registry() -> None:
-    """Die Registry ist wohlgeformt und jeder Schlüssel ist übersetzt."""
+    """The registry is well formed and every key has a translation."""
     from sortiton.features import FEATURES
 
     keys = [feature.key for feature in FEATURES]
@@ -227,7 +227,7 @@ def test_features_registry() -> None:
           ", ".join(sorted(set(missing_keys))))
 
 def test_resolve_args_accepts_a_mapping() -> None:
-    """Ein Mapping wird gelesen, ein Objekt ohne Attribute klar abgelehnt."""
+    """Read mappings and reject objects without attributes explicitly."""
     from sortiton.features import get as feature_by_key
     from sortiton.features.base import resolve_args
 
@@ -240,11 +240,11 @@ def test_resolve_args_accepts_a_mapping() -> None:
         resolve_args(export, object())
 
 def test_features_isolation() -> None:
-    """Ein Feature bleibt ohne GUI und ohne ``tasks`` ladbar.
+    """A feature remains loadable without the GUI or ``tasks``.
 
-    Geprüft wird jedes Modul unter ``sortiton/features`` auf Importe der GUI
-    oder von ``tasks`` sowie auf ``print``/``sys.exit``/``global QUIET`` - die
-    Regeln, die ein Feature ein loses Plugin bleiben lassen.
+    Check every module under ``sortiton/features`` for imports from the GUI or
+    ``tasks``, as well as ``print``/``sys.exit``/``global QUIET``. These rules
+    keep a feature decoupled as a standalone plugin.
     """
     import ast
 
@@ -283,7 +283,7 @@ def test_features_isolation() -> None:
 
 @pytest.mark.external
 def test_fixes() -> None:
-    """Die CSV-Korrekturen: Vorschau, Anwenden, Überspringen, Sicherheit, Undo."""
+    """CSV corrections: preview, apply, skip, safety and undo."""
     from sortiton import external
     from sortiton.features.fixes import cmd_fixes, parse
     from sortiton.tags import read_info
@@ -397,7 +397,7 @@ def test_fixes() -> None:
 
 
 def test_fixes_normalises_exported_multivalues_but_preserves_literal_titles() -> None:
-    """Export-Separatoren gelten nur für Mehrfachwerte, nicht für wörtliche Titel."""
+    """Export separators apply only to multi-value fields, not literal titles."""
     import csv
     import io
     import unittest.mock as mock
@@ -437,7 +437,7 @@ def test_fixes_normalises_exported_multivalues_but_preserves_literal_titles() ->
 
 
 def test_fixes_counts_only_successful_writes() -> None:
-    """Die Zähler zeigen geschriebene Korrekturen, nicht die Größe des Plans."""
+    """Counters show written corrections, not the size of the plan."""
     import unittest.mock as mock
 
     from sortiton.features import fixes
@@ -472,7 +472,7 @@ def test_fixes_counts_only_successful_writes() -> None:
 
 
 def test_fixes_backup_does_not_mix_two_runs_in_one_second() -> None:
-    """Zwei ``fixes --backup``-Läufe in derselben Sekunde bekommen getrennte Ordner."""
+    """Two ``fixes --backup`` runs in the same second get separate folders."""
     from sortiton.features import fixes
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -490,7 +490,7 @@ def test_fixes_backup_does_not_mix_two_runs_in_one_second() -> None:
 
 
 def test_fixes_backup_failure_aborts_before_writing() -> None:
-    """``fixes --apply --backup`` schreibt nicht, wenn die Sicherung scheiterte."""
+    """``fixes --apply --backup`` must not write if the backup fails."""
     import unittest.mock as mock
 
     from sortiton.features import fixes
@@ -616,7 +616,7 @@ def test_dedupe_is_registered_and_reads_its_options() -> None:
 
 
 def test_fixes_prepare_handles_unresolved_path() -> None:
-    """Ein ``None``-Pfad aus ``resolve_path`` wird als fehlende Datei gemeldet."""
+    """A ``None`` path from ``resolve_path`` is reported as a missing file."""
     import unittest.mock as mock
 
     from sortiton.features.fixes import _prepare

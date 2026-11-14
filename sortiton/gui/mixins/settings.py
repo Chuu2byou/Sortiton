@@ -60,13 +60,13 @@ class SettingsMixin(GuiBase):
                     self.var_tool[feature.key][option.name].trace_add("write", self._folders_changed)
 
     def _folders_changed(self, *_args) -> None:
-        """Texteingaben gebündelt speichern statt bei jedem Tastendruck."""
+        """Save text inputs in a batch instead of on every keystroke."""
         if self._folder_save_job is not None:
             self.root.after_cancel(self._folder_save_job)
         self._folder_save_job = self.root.after(400, self._save_folders)
 
     def _save_folders(self) -> None:
-        """Alle Seitenpfade dauerhaft sichern."""
+        """Persist folder paths for every page."""
         if self._folder_save_job is not None:
             self.root.after_cancel(self._folder_save_job)
             self._folder_save_job = None
@@ -87,7 +87,7 @@ class SettingsMixin(GuiBase):
         settings.save_folder_values(values)
 
     def _restore_tool_folders(self) -> None:
-        """Werkzeugordner aus den Einstellungen anhand ihrer Rollen laden."""
+        """Load tool folders from settings according to their path roles."""
         stored = settings.read_folder_values()
         for feature in FEATURES:
             for option in feature.options:
@@ -173,7 +173,7 @@ class SettingsMixin(GuiBase):
             self._prefs_window = None
 
     def _language_changed(self, code: str) -> None:
-        """Sprache speichern und bestehende Oberflächen benachrichtigen."""
+        """Save the language and notify existing windows."""
         if self.running:
             _show_warning(i18n.t("gui.dialog.busy.title"), i18n.t("gui.dialog.busy.text"))
             self.var_language.set(i18n.get_language())

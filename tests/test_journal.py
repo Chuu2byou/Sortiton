@@ -102,7 +102,7 @@ def test_journal() -> None:
 
 
 def test_logs() -> None:
-    """Zwei Läufe in derselben Sekunde bekommen zwei eigene, vollständige Protokolle."""
+    """Two runs in the same second get separate, complete journals."""
     output.close_log_file()
 
     # A second run in the same second must not cut the first log short.
@@ -375,7 +375,7 @@ def test_restore() -> None:
 
 
 def test_journals_in_the_same_second_are_ordered() -> None:
-    """Das " (2)"-Journal derselben Sekunde ist neuer als das Basis-Journal."""
+    """The " (2)" journal from the same second is newer than the base journal."""
     config.LOG_DIR.mkdir(parents=True, exist_ok=True)
     base = config.LOG_DIR / "sortiton_2026-01-01_00-00-00.jsonl"
     later = config.LOG_DIR / "sortiton_2026-01-01_00-00-00 (2).jsonl"
@@ -393,7 +393,7 @@ def test_journals_in_the_same_second_are_ordered() -> None:
 
 
 def test_journal_paths_are_absolute_and_legacy_paths_use_recorded_cwd() -> None:
-    """Restore bindet alte relative Einträge an den damaligen Ordner des Laufs."""
+    """Restore resolves legacy relative entries against the run's recorded folder."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         original = root / "original"
@@ -424,7 +424,7 @@ def test_journal_paths_are_absolute_and_legacy_paths_use_recorded_cwd() -> None:
 
 
 def test_journal_write_failure_is_reported_once() -> None:
-    """Ein fehlschlagendes Journal stoppt den Lauf nicht, warnt aber genau einmal."""
+    """A failing journal does not stop the run, but warns exactly once."""
     class Broken:
         def write(self, _line: str) -> None:
             raise OSError("disk full")
@@ -447,7 +447,7 @@ def test_journal_write_failure_is_reported_once() -> None:
 
 
 def test_log_prune_uses_the_real_timestamp() -> None:
-    """Ein ``... (2).log`` derselben Sekunde ist neuer als die Basisdatei."""
+    """A ``... (2).log`` from the same second is newer than the base file."""
     with tempfile.TemporaryDirectory() as tmp:
         logs = Path(tmp)
         base = logs / f"{output.LOG_PREFIX}_2026-01-01_00-00-00.log"
@@ -465,10 +465,10 @@ def test_log_prune_uses_the_real_timestamp() -> None:
 
 
 def test_record_never_writes_after_close() -> None:
-    """``record`` prüft ``_file`` unter dem Lock, das ``close`` unter demselben räumt.
+    """``record`` checks ``_file`` under the lock that ``close`` uses to clear it.
 
-    Vor dem Fix konnte ein ``record()``, das die Prüfung gerade passiert hatte,
-    auf ``None`` schreiben und ``AttributeError`` werfen.
+    Before the fix, a ``record()`` call that had just passed the check could
+    write to ``None`` and raise ``AttributeError``.
     """
     class _NeverUsed:
         def write(self, _text):
@@ -484,7 +484,7 @@ def test_record_never_writes_after_close() -> None:
     def record_worker() -> None:
         try:
             journal.record("regression")
-        except BaseException as error:      # noqa: BLE001 - der Test sammelt sie
+        except BaseException as error:      # noqa: BLE001 - collected by the test
             errors.append(error)
 
     try:
@@ -492,8 +492,8 @@ def test_record_never_writes_after_close() -> None:
         journal._file = _NeverUsed()
         worker = threading.Thread(target=record_worker)
         worker.start()
-        time.sleep(0.1)                     # dem Worker die Prüfung passieren lassen
-        journal._file = None                # was close() unter dem Lock tut
+        time.sleep(0.1)                     # Let the worker pass the check.
+        journal._file = None                # What close() does under the lock.
         journal._lock.release()
         worker.join(timeout=2)
     finally:
@@ -503,7 +503,7 @@ def test_record_never_writes_after_close() -> None:
 
 
 def test_undo_keeps_a_modified_copy() -> None:
-    """Der Undo darf eine Kopie nur löschen, solange sie ihrem Original gleicht."""
+    """Undo may delete a copy only while it still matches its original."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as tmp:

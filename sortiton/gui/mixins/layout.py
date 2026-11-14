@@ -20,16 +20,16 @@ from ..design import (ACCENT, ACCENT_TEXT, BACKGROUND, BORDER, CARD, FIELD,
 from ..widgets import RoundButton, Segments
 from .pages import PageMixin
 
-# Arbeitsbereich: Zwei Spalten ab 1200 logischen Pixeln, einklappbare
-# Konfiguration zwischen 900 und 1199, darunter Konfiguration über der Vorschau.
+# Workspace: two columns from 1200 logical px, collapsible configuration
+# between 900 and 1199, and configuration above the preview below that.
 WIDE_MIN = 1200
 MID_MIN = 900
-CONFIG_MIN = 320       # kleinste Breite (Anwender verkleinert per Griff)
-CONFIG_MAX = 560       # größte sinnvolle Formularbreite
-# Startbreite: die Konfigurationsleiste beginnt immer in Maximalbreite.
+CONFIG_MIN = 320       # Minimum width (resizable by the user)
+CONFIG_MAX = 560       # Maximum practical form width
+# Start at the maximum configuration pane width.
 CONFIG_DEFAULT = CONFIG_MAX
-CONTENT_CAP = 720      # Maximalbreite für Lesetexte/Eingaben im Stapelmodus
-SCROLLBAR_WIDTH = 13   # Platz der vertikalen Scrollbar, auch ohne Überlauf
+CONTENT_CAP = 720      # Maximum width for text/inputs in stacked mode
+SCROLLBAR_WIDTH = 13   # Reserve space for the vertical scrollbar, even without overflow
 
 
 class LayoutMixin(PageMixin):
@@ -37,12 +37,12 @@ class LayoutMixin(PageMixin):
 
 
     def _outer_inset(self) -> int:
-        """Der gemeinsame Außenabstand: Formular, Kopf und Fuß teilen die Kanten."""
+        """Shared outer margin so the form, header and footer align."""
         return design.px(design.SPACE_XL)
 
     def _align_fixed_rows(self, event=None) -> None:
-        """Gleiche Außenkanten für Kopfzeile, Ergebnis und Fuß; passt zudem den
-        Arbeitsbereich (Zwei-Spalten/Stapel-Modus) an die Fensterbreite an."""
+        """Align the header, result and footer, and adapt the workspace
+        (two-column or stacked) to the window width."""
         if event is not None and event.widget is not self.root:
             return
         inset = self._outer_inset()
@@ -55,7 +55,7 @@ class LayoutMixin(PageMixin):
         self._apply_workspace_mode()
 
     def _build_all(self) -> None:
-        """Fenster beim Start oder beim Wechsel des Erscheinungsbilds aufbauen."""
+        """Build the window at startup or when the appearance changes."""
         for variable, identifier in self._traces:
             try:
                 variable.trace_remove("write", identifier)
@@ -77,8 +77,8 @@ class LayoutMixin(PageMixin):
         self._workspace_mode = None
         self._config_collapsed = False
         self._config_toggle = None
-        # Referenzen aus dem vorherigen Aufbau entsorgen, damit Zwischenrufe
-        # wie _apply_minsize nicht auf bereits zerstörte Widgets zugreifen.
+        # Drop references from the previous build so callbacks such as
+        # _apply_minsize cannot access widgets that have already been destroyed.
         self._tabs_bar = None
         self._footer = None
         self._result_area = None
@@ -189,18 +189,18 @@ class LayoutMixin(PageMixin):
         self.root.rowconfigure(ROW_CONTENT, weight=1)
 
     def _apply_minsize(self) -> None:
-        """Mindestbreite: Tabs plus Freigabe oben, Status plus Fußzeile unten."""
+        """Minimum width: tabs and approval above, status and footer below."""
         bar = getattr(self, "_tabs_bar", None)
         tabs = getattr(self, "_tabs", None)
         if bar is None or tabs is None:
             return
         needs = tabs.winfo_reqwidth() + design.px(44)
-        # Kopfzeile: Tabs links, Freigabe rechts (der Hinweis weicht zuerst).
+        # Header: tabs on the left, approval on the right (the hint yields first).
         actions_area = getattr(self, "_actions_area", None)
         if actions_area is not None:
-            # Für die Mindestbreite zählt die breiteste Knopfreihe ohne den
-            # erklärenden Hinweis; der darf bei Platzmangel weichen. Dadurch
-            # bleibt die Mindestbreite beim Tabwechsel stabil.
+            # Use the widest button row without its explanatory hint when
+            # calculating the minimum width. The hint can yield when space is
+            # tight, keeping the minimum width stable across tab changes.
             widths = []
             for key, frame in getattr(self, "_action_frames", {}).items():
                 try:
@@ -214,9 +214,9 @@ class LayoutMixin(PageMixin):
             actions_needed = max(widths, default=actions_area.winfo_reqwidth())
             needs += max(actions_needed, 1) + design.px(12)
         needed = needs
-        # Fußzeile: Einstellungen, Status und Schnellzugriffe müssen zusammenpassen.
-        # Für die Mindestbreite zählen nur die unverzichtbaren Teile; die
-        # Schnellzugriffe weichen bei schmalen Fenstern (siehe _fit_footer).
+        # Footer: settings, status and shortcuts must fit together.
+        # Only essential elements count towards the minimum width; shortcuts
+        # yield in narrow windows (see _fit_footer).
         footer = getattr(self, "_footer", None)
         if footer is not None:
             try:
@@ -229,21 +229,21 @@ class LayoutMixin(PageMixin):
                                           and not child.winfo_manager()):
                         continue
                     footer_needed += child.winfo_reqwidth()
-                footer_needed += design.px(60)  # Abstände der Basisspalten
-                # Die Fußzeile liegt beidseitig um den Außenabstand eingerückt.
+                footer_needed += design.px(60)  # Base column spacing
+                # The footer is inset by the outer margin on both sides.
                 needed = max(needed, footer_needed + 2 * self._outer_inset())
             except tk.TclError:
-                pass  # Fußzeile beim Neuaufbau noch nicht vorhanden
+                pass  # Footer is not available during a rebuild.
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         width = min(max(design.px(680), needed), screen_width - design.px(24))
         self.root.minsize(width, min(design.px(460), screen_height - design.px(48)))
 
     def _fit_top_bar(self, event=None) -> None:
-        """Hinweis neben der Freigabe ausblenden, wenn die Kopfzeile eng wird.
+        """Hide the hint beside approval when the header gets tight.
 
-        Tabs und die beiden Aktionsknöpfe bleiben immer sichtbar; nur die
-        erklärende Zeile daneben weicht, sobald der Platz nicht reicht.
+        Keep the tabs and both action buttons visible; hide only the
+        explanatory text when there is not enough room.
         """
         bar = getattr(self, "_tabs_bar", None)
         actions = getattr(self, "_actions_area", None)
@@ -255,8 +255,8 @@ class LayoutMixin(PageMixin):
             return
         note = self._preview_notes.get(self.var_page.get())
         if note is None:
-            # Nur-Lese-Werkzeuge haben keinen Hinweis; die Fläche muss trotzdem
-            # auf die aktive Knopfreihe zugeschnitten werden.
+            # Read-only tools have no hint; still size the area to the active
+            # button row.
             self._size_actions_area()
             return
         note_width = note.winfo_reqwidth() + design.px(14)
@@ -270,11 +270,11 @@ class LayoutMixin(PageMixin):
         self._size_actions_area()
 
     def _size_actions_area(self) -> None:
-        """Aktionsfläche auf die Knopfreihe der sichtbaren Seite zuschneiden.
+        """Size the action area to the visible page's button row.
 
-        Alle Knopfreihen bleiben dauerhaft gemappt und liegen übereinander.
-        Die Fläche bekommt trotzdem nur die Größe der aktiven Reihe, damit die
-        Kopfzeile nicht dauerhaft den Platz der breitesten Reihe reserviert.
+        Keep all button rows mapped and stacked. Size the area only to the
+        active row so the header does not permanently reserve space for the
+        widest row.
         """
         area = getattr(self, "_actions_area", None)
         if area is None:
@@ -288,8 +288,8 @@ class LayoutMixin(PageMixin):
         except tk.TclError:
             return
         if width <= 1 or height <= 1:
-            # Eine gerade erst erzeugte Reihe hat ihre angeforderte Größe noch
-            # nicht; Tk berechnet sie erst im nächsten Idle-Lauf.
+            # Tk has not calculated the requested size of a newly created row
+            # yet; it will do so during the next idle cycle.
             if not getattr(self, "_actions_size_retry", False):
                 self._actions_size_retry = True
                 self.root.after_idle(self._retry_actions_size)
@@ -301,7 +301,7 @@ class LayoutMixin(PageMixin):
         self._apply_minsize()
 
     def _retry_actions_size(self) -> None:
-        """Zweiter Versuch, sobald Tk die Größe einer neuen Knopfreihe kennt."""
+        """Retry after Tk has calculated the new button row's size."""
         self._actions_size_retry = False
         self._fit_top_bar()
 
@@ -370,12 +370,12 @@ class LayoutMixin(PageMixin):
                         navigation=True)
         tabs.grid(row=0, column=0, sticky="w")
         self._tabs = tabs
-        # Der Ein-/Ausklappknopf entsteht nur im Mittelbereich (900–1199 px).
+        # Show the collapse/expand button only at medium widths (900–1199 px).
         self._config_toggle = None
-        # Einstellungen sitzen in der Fußzeile (siehe _build_footer).
+        # Settings are in the footer (see _build_footer).
         self._settings_button = None
-        # Freigabe (Vorschau/Anwenden) rechts in der Kopfzeile; die Fläche
-        # hängt am Root, in_= setzt sie in die Leiste der Tabs.
+        # Approval (Preview/Apply) is on the right of the header. The area is
+        # attached to the root; in_= places it in the tab bar.
         self._actions_area = tk.Frame(self.root, bg=BACKGROUND)
         self._actions_area.columnconfigure(0, weight=1)
         self._actions_area.grid_propagate(False)
@@ -401,9 +401,9 @@ class LayoutMixin(PageMixin):
         """Scrollable configuration column; returns the frame that holds the pages."""
         config_area = tk.Frame(workspace, bg=CARD)
         config_area.columnconfigure(0, weight=1)
-        # Die Scrollbar-Spalte bleibt auch ohne Überlauf reserviert. Sonst
-        # ändert sich beim Seitenwechsel die Breite der Konfiguration und der
-        # Vorschau, sobald der Balken erscheint oder verschwindet.
+        # Reserve the scrollbar column even without overflow. Otherwise the
+        # configuration and preview widths change when switching pages as the
+        # scrollbar appears or disappears.
         config_area.columnconfigure(1, minsize=design.px(SCROLLBAR_WIDTH))
         config_area.rowconfigure(0, weight=1)
         self._config_area = config_area
@@ -445,8 +445,8 @@ class LayoutMixin(PageMixin):
         preview_area = tk.Frame(workspace, bg=BACKGROUND)
         preview_area.columnconfigure(0, weight=1)
         preview_area.rowconfigure(0, weight=1)
-        # Leere Fläche für nur lesende Werkzeuge. Sie bleibt wie alle Karten
-        # dauerhaft gemappt; sichtbar ist immer die oberste Karte.
+        # Empty area for read-only tools. Like all cards, it stays mapped;
+        # the topmost card is always visible.
         blank = tk.Frame(preview_area, bg=BACKGROUND)
         blank.grid(row=0, column=0, sticky="nsew")
         self._preview_blank = blank
@@ -462,9 +462,8 @@ class LayoutMixin(PageMixin):
             "tools":  self._page_tools(content),
         }
         for page in self.pages.values():
-            # Alle Seiten bleiben gemappt und liegen übereinander. Nur die
-            # aktive Seite wird nach vorne geholt; das vermeidet das schwarze
-            # Aufblitzen beim Unmap/Map-Wechsel.
+            # Keep all pages mapped and stacked. Raise only the active page to
+            # avoid a black flash during an unmap/map transition.
             page.place(x=0, y=0, relwidth=1, relheight=1)
             page.bind("<Configure>", self._page_configured, add="+")
         self._show_page(self.var_page.get())
@@ -477,7 +476,7 @@ class LayoutMixin(PageMixin):
             return 0
 
     def _apply_workspace_mode(self) -> None:
-        """Arbeitsbereich an die Fensterbreite anpassen (breit/mittel/schmal)."""
+        """Adapt the workspace to the window width (wide/medium/narrow)."""
         if getattr(self, "_workspace", None) is None:
             return
         width = self._window_logical_width()
@@ -490,7 +489,7 @@ class LayoutMixin(PageMixin):
         self._sync_content_width()
 
     def _grid_workspace(self, mode: str) -> None:
-        """Ordne Konfiguration, Griff und Vorschau für den Modus an."""
+        """Arrange configuration, divider and preview for the current mode."""
         workspace = self._workspace
         config_area = self._config_area
         preview_area = self._preview_area
@@ -503,14 +502,14 @@ class LayoutMixin(PageMixin):
         workspace.columnconfigure(2, weight=1)
         workspace.rowconfigure(1, weight=0)
         if mode == "narrow":
-            # Konfiguration oberhalb der Vorschau, beides ohne Horizontal-Scroll.
+            # Put configuration above the preview; neither needs horizontal scrolling.
             config_area.grid(row=0, column=0, columnspan=3, sticky="nsew")
             preview_area.grid(row=1, column=0, columnspan=3, sticky="ew",
                               pady=(design.px(design.SPACE_M), 0))
             workspace.rowconfigure(0, weight=1)
             return
         if collapsed:
-            # Eingeclippt: die Vorschau nutzt die volle Arbeitsbereichsbreite.
+            # Collapsed: let the preview use the full workspace width.
             preview_area.grid(row=0, column=0, columnspan=3, sticky="nsew")
             return
         config_area.grid(row=0, column=0, sticky="ns")
@@ -519,7 +518,7 @@ class LayoutMixin(PageMixin):
                           padx=(design.px(design.SPACE_M), 0))
 
     def _refresh_config_toggle(self) -> None:
-        """Ein-/Ausklappknopf nur im Mittelbereich (900–1199 px) zeigen."""
+        """Show the collapse/expand button only at medium widths (900–1199 px)."""
         old = getattr(self, "_config_toggle", None)
         if old is not None:
             old.destroy()
@@ -536,17 +535,17 @@ class LayoutMixin(PageMixin):
         self._apply_minsize()
 
     def _toggle_config(self) -> None:
-        """Konfigurationsspalte im Mittelbereich ein- oder ausklappen."""
+        """Collapse or expand the configuration column at medium widths."""
         self._config_collapsed = not getattr(self, "_config_collapsed", False)
         self._refresh_config_toggle()
         self._grid_workspace(self._workspace_mode)
 
     def _split_press(self, event) -> None:
-        """Startpunkt des Griffs merken."""
+        """Remember the divider's starting point."""
         self._split_start_x = event.x_root
 
     def _draw_split_grip(self) -> None:
-        """Gummlinien des Griffs über die volle Höhe zeichnen."""
+        """Draw the divider grip lines over the full height."""
         handle = self._split_handle
         handle.delete("all")
         height = max(handle.winfo_height(), 1)
@@ -555,7 +554,7 @@ class LayoutMixin(PageMixin):
                                fill=BORDER, width=1)
 
     def _split_drag(self, event) -> None:
-        """Konfigurationsbreite per Griff ändern, geklemmt auf CONFIG_MIN–CONFIG_MAX."""
+        """Resize the configuration pane, clamped to CONFIG_MIN–CONFIG_MAX."""
         canvas = self._content_canvas
         try:
             new = event.x_root - self._config_area.winfo_rootx()
@@ -567,8 +566,8 @@ class LayoutMixin(PageMixin):
             self._sync_content_width()
 
     def _sync_content_width(self, *_args) -> None:
-        """Inhaltsbreite der Konfigurationsspalte ohne altes 1120-px-Limit;
-        im Stapelmodus bekommen Lesetexte und Eingaben ein Lesemaximum."""
+        """Set the configuration content width without the old 1120 px limit.
+        In stacked mode, cap the width of reading text and inputs."""
         canvas = getattr(self, "_content_canvas", None)
         window = getattr(self, "_content_window", None)
         if canvas is None or window is None:
@@ -587,11 +586,11 @@ class LayoutMixin(PageMixin):
                            lambda _event, name=page: self._show_page(name))
 
     def _update_content_scrollbar(self) -> None:
-        """Scrollbereich und Balken an der aktiven Seite ausrichten.
+        """Align the scroll region and scrollbar with the active page.
 
-        Die Seiten liegen übereinander und füllen gemeinsam die höchste
-        angeforderte Höhe. Gescrollt wird trotzdem nur bis zum Ende der
-        sichtbaren Seite, damit darunter keine verdeckten Seiten erscheinen.
+        Pages are stacked and share the maximum requested height. Scrolling
+        still stops at the end of the visible page so hidden pages below it
+        do not appear.
         """
         canvas = self._content_canvas
         region = canvas.bbox("all")
@@ -609,7 +608,7 @@ class LayoutMixin(PageMixin):
             self._content_scrollbar.grid_remove()
 
     def _fit_content_height(self) -> None:
-        """Platz für die höchste Seite reservieren, ohne bei jedem Wechsel zu resizen."""
+        """Reserve space for the tallest page without resizing on every switch."""
         content = getattr(self, "_content", None)
         if content is None:
             return
@@ -626,23 +625,22 @@ class LayoutMixin(PageMixin):
         content.configure(height=height)
 
     def _refresh_content_layout(self) -> None:
-        """Reservierte Höhe und Scrollbalken nach Layoutänderungen nachziehen."""
+        """Update the reserved height and scrollbar after layout changes."""
         self._fit_content_height()
         self._update_content_scrollbar()
 
     def _page_configured(self, event) -> None:
-        """Nach einer Größenänderung den reservierten Platz nachziehen."""
+        """Update the reserved space after a resize."""
         self._fit_content_height()
         if event.widget is getattr(self, "_active_page", None):
             self._update_content_scrollbar()
 
     def _show_page(self, value: str) -> None:
-        """Wechselt die Seite, ohne Fenster zu unmapen oder neu zu mappen.
+        """Switch pages without unmapping and remapping their windows.
 
-        Alle Seiten und Vorschaukarten bleiben dauerhaft gemappt und liegen
-        übereinander. Sichtbar ist immer die nach vorne geholte Seite. Ein
-        Aus- und wieder Einhängen würde dagegen für einen Zeichenzyklus eine
-        leere (im dunklen Thema schwarze) Fläche hinterlassen.
+        Keep all pages and preview cards mapped and stacked. Raise the active
+        page to the front. Unmapping and remapping would leave an empty (black
+        in dark mode) area for one redraw cycle.
         """
         if self.var_page.get() != value:
             self.var_page.set(value)
@@ -658,10 +656,9 @@ class LayoutMixin(PageMixin):
             frame.tkraise()
         self._size_actions_area()
 
-        # In der rechten Spalte ist nur die Karte der aktiven Funktion sichtbar;
-        # ein nur lesendes Werkzeug zeigt die leere Fläche (kein Schreiben,
-        # keine Vorschau). Auch hier wird nichts ausgehängt, nur nach vorne
-        # geholt.
+        # Show only the active function's card in the right column. Read-only
+        # tools show the empty area (no writes and no preview). Keep cards
+        # mapped here too; only raise the visible one.
         tool_feature = (feature_by_key(self.var_tool_choice.get())
                         if value == "tools" else None)
         previews = getattr(self, "_previews", {})
@@ -684,7 +681,7 @@ class LayoutMixin(PageMixin):
         """Scroll the central viewport only while the pointer is over it."""
         canvas = self._content_canvas
         if not self._content_scrollbar.winfo_ismapped():
-            return None  # kein Überlauf, nichts zu scrollen
+            return None  # No overflow; nothing to scroll.
         x, y = event.x_root, event.y_root
         if not (canvas.winfo_rootx() <= x < canvas.winfo_rootx() + canvas.winfo_width()
                 and canvas.winfo_rooty() <= y < canvas.winfo_rooty() + canvas.winfo_height()):

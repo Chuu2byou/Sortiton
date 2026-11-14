@@ -50,7 +50,7 @@ def section_title(section: str) -> str:
 
 
 def feature_label(feature: Feature) -> str:
-    """Short name for the picker (falls back to the part before the dash)."""
+    """Short name for the picker; fall back to the text before the dash."""
     key = f"gui.tool.{feature.key}"
     text = i18n.t(key)
     if text != key:
@@ -469,7 +469,7 @@ class ToolsTab(tk.Frame):
         i18n.subscribe(box, "choices", translate_choices)
 
     def _description_row(self, row: int) -> int:
-        """Ein Satz zum gewählten Werkzeug plus Badge "read only"/"writes files"."""
+        """A sentence about the selected tool plus a "read only"/"writes files" badge."""
         frame = tk.Frame(self, bg=CARD)
         frame.grid(row=row, column=0, sticky="ew", padx=design.px(16),
                    pady=(0, design.px(14)))
@@ -484,7 +484,7 @@ class ToolsTab(tk.Frame):
         return row + 1
 
     def _resize_description(self, event=None) -> None:
-        """Beschreibung und Badge nebeneinander - in enger Spalte untereinander."""
+        """Place description and badge side by side, or stack them in a narrow column."""
         if self._description is None or self._badge is None:
             return
         frame = self._description_frame
@@ -504,7 +504,7 @@ class ToolsTab(tk.Frame):
                        width if stacked else width - reserve, minimum=140)
 
     def _secondary_row(self, parent: tk.Frame, row: int, feature: Feature) -> None:
-        """Hinweis auf die Feineinstellungen und die passenden Knöpfe."""
+        """Show the fine-tuning hint and its related buttons."""
         frame = tk.Frame(parent, bg=CARD)
         frame.grid(row=row, column=0, sticky="ew", padx=design.px(16),
                    pady=(design.px(4), 0))
@@ -535,17 +535,17 @@ class ToolsTab(tk.Frame):
 
     @staticmethod
     def _button_row_width(buttons: tk.Frame) -> int:
-        """Breite der Knopfreihe, auch wenn sie gerade untereinander steht."""
+        """Measure the button row width, including when its buttons are stacked."""
         children = buttons.winfo_children()
         gaps = max(len(children) - 1, 0) * design.px(10)
         return sum(child.winfo_reqwidth() for child in children) + gaps
 
     def _place_secondary(self, frame: tk.Frame, buttons: tk.Frame,
                          hint: tk.Label | None, event) -> None:
-        """Knöpfe rechts vom Hinweis oder - bei enger Spalte - darunter setzen.
+        """Place buttons beside the hint, or below it in a narrow column.
 
-        Reicht auch die gestapelte Zeile nicht aus, rücken die Knöpfe
-        untereinander, damit keiner aus der Konfigurationsspalte läuft.
+        If the stacked row still does not fit, stack the buttons too so none
+        extend beyond the configuration column.
         """
         width = max(event.width, 1)
         buttons_width = self._button_row_width(buttons)

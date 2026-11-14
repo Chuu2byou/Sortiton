@@ -1,4 +1,4 @@
-"""Öffentliche Schnittstelle, Version, Einstiegspunkte und Wheel-Inhalt."""
+"""Public interface, version, entry points and wheel contents."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def test_version() -> None:
 
 
 def test_packages_complete() -> None:
-    """Jedes Paket von ``sortiton`` steht in der Paketliste für das Wheel."""
+    """Every ``sortiton`` package is included in the wheel package list."""
     import tomllib
 
     text = (BASE / "pyproject.toml").read_text(encoding="utf-8")
@@ -50,7 +50,7 @@ def test_packages_complete() -> None:
 
 
 def test_read_extensions() -> None:
-    """Lesen akzeptiert mehr Formate, als das Schreiben anfasst."""
+    """Reading supports more formats than writing."""
     check("AUDIO_EXTENSIONS keeps the read-only formats out",
           not {".mp4", ".oga", ".aif"} & config.AUDIO_EXTENSIONS,
           str(sorted(config.AUDIO_EXTENSIONS)))

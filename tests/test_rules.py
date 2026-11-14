@@ -122,7 +122,7 @@ def test_separator_and_protected_order() -> None:
 
 
 def test_unsafe_regex_rules_are_rejected() -> None:
-    """Verschachtelte/alternierende Quantoren und überlange Muster werden verworfen."""
+    """Reject nested/alternating quantifiers and patterns that are too long."""
     text = ("[Artist Regex]\n"
             "(a+)+$ = nested\n"
             "(ab|cd)+$ = alternating\n"

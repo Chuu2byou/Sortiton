@@ -50,9 +50,9 @@ def _rounded_shape(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float
                    radius: float, **options) -> int:
     """Draw a rounded rectangle as an exact arc outline.
 
-    Ein ``smooth``-Polygon (Spline) hinterlässt an der Unterkante kurze
-    Strich-Fragmente; die aus Viertelkreisen zusammengesetzte Kontur ist
-    sauber und bleibt bei jeder Rundung und Skalierung gleichmässig.
+    A ``smooth`` polygon (spline) leaves short line fragments along the bottom
+    edge. An outline made from quarter circles stays clean and even at every
+    radius and scale.
     """
     r = max(0.0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
     if r < 0.5:
@@ -79,15 +79,14 @@ class _ButtonStyle(TypedDict):
 class RoundButton(tk.Canvas):
     """Rounded button with hover, press and disabled states.
 
-    Breite und Höhe entstehen aus den echten Schriftmaßen plus festem
-    Innenabstand. So bleibt über und unter der Beschriftung auch bei anderer
-    Schrift oder Skalierung der gleiche Abstand, statt sich aus einer festen
-    Pixelhöhe zu ergeben.
+    Width and height use the actual font metrics plus fixed padding. This
+    preserves the same spacing around the label across fonts and scaling,
+    instead of relying on a fixed pixel height.
     """
 
-    _PAD_X = 15          # seitlicher Innenabstand (logische Pixel)
-    _PAD_Y = 7           # Abstand über und unter der Beschriftung
-    _KEY_GUARD = 0.35    # Tastenwiederholung nicht als zweiter Klick zählen
+    _PAD_X = 15          # Horizontal padding (logical pixels)
+    _PAD_Y = 7           # Vertical padding around the label
+    _KEY_GUARD = 0.35    # Do not treat key repeat as a second click
 
     def __init__(self, parent: tk.Misc, text: str, command: Callable[[], None] | None = None,
                  style: str = "normal", height: int = 34, radius: int = 10) -> None:
@@ -126,7 +125,7 @@ class RoundButton(tk.Canvas):
         self._draw()
 
     def set_text(self, text: str) -> None:
-        """Beschriftung und Breite ohne Austausch des Knopfes aktualisieren."""
+        """Update the label and width without replacing the button."""
         self._bind_text(text)
         self._apply_text(text)
 
@@ -210,21 +209,20 @@ class RoundButton(tk.Canvas):
 
 
 class Pill(tk.Canvas):
-    """Moderner Status-Chip: getönter Grund, farbiger Punkt, ruhige Schrift.
+    """Modern status chip: tinted background, coloured dot and restrained text.
 
-    Statt eines blossen Rahmens trägt der Chip einen Hauch seiner Signalfarbe;
-    Punkt und Schrift bleiben farbig, damit Grün/Gelb/Grau unterscheidbar
-    bleiben, ohne wie ein Formularfeld zu wirken.
+    Instead of a plain border, the chip uses a hint of its signal colour.
+    Keep the dot and text coloured so green/yellow/grey remain distinguishable
+    without making the chip look like a form field.
 
-    Höhe und Breite entstehen aus den echten Schriftmaßen plus festem
-    Innenabstand. Damit bleibt der Abstand über und unter der Schrift auch auf
-    Systemen mit anderer Schrift oder Skalierung gleich gross, statt sich aus
-    einer festen Pixelhöhe zu ergeben.
+    Height and width use the actual font metrics plus fixed padding. This
+    preserves vertical spacing across system fonts and scaling instead of
+    relying on a fixed pixel height.
     """
 
-    _PAD_X = 12          # seitlicher Innenabstand (logische Pixel)
-    _PAD_Y = 6           # Abstand über und unter der Schrift
-    _DOT = "●"           # gefüllter Kreis als Text: glatt gezeichnet
+    _PAD_X = 12          # Horizontal padding (logical pixels)
+    _PAD_Y = 6           # Vertical padding around the text
+    _DOT = "●"           # Draw a filled circle as text for smooth edges
 
     def __init__(self, parent: tk.Misc, text: str, colour: str | None = None,
                  dot: bool = True) -> None:
@@ -250,7 +248,7 @@ class Pill(tk.Canvas):
         translations.subscribe(self, "text", callback)
 
     def _dot_width(self) -> int:
-        """Breite von Punkt und Abstand davor (0 ohne Punkt)."""
+        """Width of the dot and its preceding gap (zero when hidden)."""
         if not self._dot:
             return 0
         return self._font.measure(self._DOT) + self._gap
@@ -348,7 +346,7 @@ class Segments(tk.Canvas):
         self._widths = [measurer.measure(text) + design.px(36) for _, text in self._items]
         if height is not None:
             self._wanted_height = design.px(height)
-        # Höhe aus der Schrift: gleicher Abstand oben/unten bei jeder Skalierung.
+        # Derive height from the font to preserve vertical spacing at every scale.
         self.configure(width=sum(self._widths) + 2 * self._inner,
                        height=max(self._wanted_height,
                                   measurer.metrics("linespace") + 2 * design.px(7)))

@@ -1,4 +1,4 @@
-"""Gemeinsame Pfadprüfung für Vorschau und Ausführung."""
+"""Shared path validation for preview and execution."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +9,7 @@ from sortiton.paths import PathProblem, check_core_paths
 
 
 def test_core_path_rules(tmp_path: Path) -> None:
-    """Quelle, optionales Ziel und Zielbeziehungen werden einheitlich geprüft."""
+    """Validate sources, optional targets and target relationships consistently."""
     source = tmp_path / "source"
     source.mkdir()
     assert check_core_paths("", "").problem == PathProblem.SOURCE_MISSING
@@ -24,7 +24,7 @@ def test_core_path_rules(tmp_path: Path) -> None:
 
 
 def test_target_preflight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Dateien und nicht beschreibbare Elternordner werden früh abgewiesen."""
+    """Reject files and non-writable parent folders before execution."""
     source = tmp_path / "source"
     source.mkdir()
     file = tmp_path / "file"
@@ -36,7 +36,7 @@ def test_target_preflight(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_invalid_user_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Nicht auflösbare Home-Verzeichnisse erzeugen strukturierte Fehler."""
+    """Unresolvable home directories produce structured errors."""
     original = Path.expanduser
 
     def expand(path: Path) -> Path:
@@ -50,7 +50,7 @@ def test_invalid_user_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_target_symlinks(tmp_path: Path) -> None:
-    """Aliase der Quelle und kaputte Ziel-Links werden erkannt."""
+    """Detect source aliases and broken target symlinks."""
     source = tmp_path / "source"
     source.mkdir()
     alias = tmp_path / "alias"
@@ -64,7 +64,7 @@ def test_target_symlinks(tmp_path: Path) -> None:
 @pytest.mark.parametrize("output_kind", ["same", "nested", "symlink", "default"])
 def test_export_refuses_output_inside_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                              output_kind: str) -> None:
-    """Export sperrt auch indirekte und automatisch bestimmte Ziele in der Quelle."""
+    """Export also rejects indirect and automatically selected targets inside the source."""
     from dataclasses import replace
     from sortiton import config
     from sortiton.features.export import cmd_export
@@ -84,7 +84,7 @@ def test_export_refuses_output_inside_source(tmp_path: Path, monkeypatch: pytest
 
 
 def test_folder_persistence_and_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Persistierte Ordner, Umgebungswerte und ungültige Ziele haben klare Priorität."""
+    """Define precedence for saved folders, environment values and invalid targets."""
     from dataclasses import replace
     from sortiton import config, settings
 
@@ -117,7 +117,7 @@ def test_folder_persistence_and_defaults(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_path_metadata_invariants() -> None:
-    """Jede Ordneroption trägt eine Rolle und jedes Kernziel eine Regel."""
+    """Every folder option has a role, and every core target has a rule."""
     from sortiton.core_features import CORE_FEATURES
     from sortiton.features import FEATURES
 
@@ -135,7 +135,7 @@ def test_path_metadata_invariants() -> None:
 @pytest.mark.parametrize("page", ["tags", "rename", "sort", "all"])
 @pytest.mark.parametrize("apply", [False, True])
 def test_tasks_reject_file_as_target(tmp_path: Path, page: str, apply: bool) -> None:
-    """Ungültige Ziele werden vor jeder Vorschau und jedem Schreibauftrag abgelehnt."""
+    """Reject invalid targets before every preview and write operation."""
     from sortiton import tasks
 
     source = tmp_path / "source"

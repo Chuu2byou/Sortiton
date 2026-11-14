@@ -38,17 +38,17 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def current_stats(kind: str) -> dict:
-    """Zähler aus dem vom conftest installierten Laufkontext."""
+    """Return counters from the run context installed by conftest."""
     context = output.current_run_context()
     assert context is not None, "conftest must install a RunContext"
     return context.last_stats(kind)
 
 
 def skip(name: str, detail: str = "") -> None:
-    """Melde eine optionale Prüfung, die in diesem Lauf nicht möglich ist.
+    """Report an optional check that cannot run in this test session.
 
-    Anders als ``pytest.skip`` beendet das den umgebenden Test nicht: die
-    übrigen Prüfungen laufen weiter, die Lücke steht nur im Protokoll.
+    Unlike ``pytest.skip``, this does not stop the enclosing test: remaining
+    checks continue, and the omission is recorded in the log.
     """
     print(f"  [skip] {name}{(' - ' + detail) if detail else ''}")
 
@@ -95,8 +95,8 @@ def _export_texts(directory: Path, helper,
                   keep: tuple[str, ...] = ()) -> dict[str, str]:
     """Normalized text of every stored file, optionally limited to a prefix.
 
-    Das Herkunfts-Manifest (``.sortiton-export.json``) gehört zum Lauf, nicht
-    zum Bericht, und ist deshalb kein Teil des Golden-Vergleichs.
+    The ownership manifest (``.sortiton-export.json``) belongs to the run, not
+    the report, so it is excluded from golden comparisons.
     """
     texts: dict[str, str] = {}
     for path in sorted(directory.iterdir()):

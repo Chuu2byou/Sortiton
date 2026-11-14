@@ -17,9 +17,9 @@ from pathlib import Path
 
 from .. import settings
 
-# --- Farbpaletten -----------------------------------------------------------
-# Hell (Standard): Hintergrund #F4F5F7 / Karten #FFFFFF, Text #20242B /
-# #545D6B, Linien #D8DDE4, Primärakzent Petrol #006B68 mit weißem Text.
+# --- Colour palettes --------------------------------------------------------
+# Light (default): background #F4F5F7 / cards #FFFFFF, text #20242B / #545D6B,
+# lines #D8DDE4, primary teal accent #006B68 with white text.
 _LIGHT: dict[str, str] = {
     "BACKGROUND": "#F4F5F7",
     "CARD":       "#FFFFFF",
@@ -48,7 +48,7 @@ _LIGHT: dict[str, str] = {
     "SCROLLBAR_ACTIVE": "#ADB5BF",
 }
 
-# Dunkel (gleichwertige Einstellung, gleiche Rollen wie im hellen Thema).
+# Dark (equivalent setting, with the same roles as the light theme).
 _DARK: dict[str, str] = {
     "BACKGROUND": "#141819",
     "CARD":       "#1D2325",
@@ -106,19 +106,19 @@ LOG_TEXT: str
 SCROLLBAR: str
 SCROLLBAR_ACTIVE: str
 
-# --- Raster und Größen (logische Pixel; via design.px() skalieren) ----------
-SPACE_XS = 4    # Innenabstände kleiner Elemente
-SPACE_S = 8     # Standardlücke
-SPACE_M = 12    # Abstand zwischen Gruppen
-SPACE_L = 16    # Abstand zwischen Karten
-SPACE_XL = 24   # Gemeinsamer Außenabstand des Fensters
-CONTROL_HEIGHT = 36   # Höhe von Knöpfen, Eingaben und Umschaltern
-ROW_HEIGHT = 32       # Höhe einer Tabellenzeile
-RADIUS = 4            # Rundung von Karten und Bedienelementen
+# --- Grid and sizes (logical pixels; scale with design.px()) -----------------
+SPACE_XS = 4    # Inner spacing for small elements
+SPACE_S = 8     # Standard gap
+SPACE_M = 12    # Gap between groups
+SPACE_L = 16    # Gap between cards
+SPACE_XL = 24   # Shared outer window margin
+CONTROL_HEIGHT = 36   # Height of buttons, inputs and toggles
+ROW_HEIGHT = 32       # Table row height
+RADIUS = 4            # Corner radius for cards and controls
 
 
 def _apply_palette(palette: dict[str, str]) -> None:
-    """Schreibe die Palette in die Modulvariablen (alle Namen unverändert)."""
+    """Write the palette to module variables without changing their names."""
     globals().update(palette)
 
 
@@ -207,7 +207,7 @@ THEME = apply_theme(_resolve_theme())
 
 
 def theme() -> str:
-    """Der aktive Themenname (``light`` oder ``dark``)."""
+    """Return the active theme name (``light`` or ``dark``)."""
     return THEME
 
 
@@ -255,7 +255,7 @@ def px(value: float) -> int:
 
 
 def load_fonts(root: tk.Tk) -> None:
-    """Verfügbare Desktop-Schriften mit Cantarell als erster Wahl laden."""
+    """Load available desktop fonts, preferring Cantarell."""
     global FONT, FONT_SMALL, FONT_LABEL, FONT_TITLE, FONT_SECTION, FONT_BUTTON, FONT_MONO
     present = {name.lower() for name in tkfont.families(root)}
 

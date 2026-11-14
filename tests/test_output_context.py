@@ -1,4 +1,4 @@
-"""Laufbezogene Ausgabe und Statistik."""
+"""Run-specific output and statistics."""
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Thread

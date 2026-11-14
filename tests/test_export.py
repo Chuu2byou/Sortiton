@@ -32,14 +32,14 @@ MANIFEST = ".sortiton-export.json"
 
 
 def _reader_available() -> bool:
-    """Ob der Export überhaupt laufen kann (mutagen oder ffprobe)."""
+    """Whether export can run at all (mutagen or ffprobe)."""
     from sortiton import external
 
     return any(external.available(tool) for tool in (external.MUTAGEN, external.FFPROBE))
 
 
 def _library() -> Path:
-    """Die Fixture-Bibliothek oder ein Skip, wenn sie fehlt."""
+    """Return the fixture library or skip if it is missing."""
     fixture = _load_export_helper().FIXTURE_DIR
     if not fixture.is_dir():
         pytest.skip("export fixture missing")
@@ -47,11 +47,11 @@ def _library() -> Path:
 
 
 def _foreign_report_files(directory: Path) -> dict[str, bytes]:
-    """Dateien, die wie Berichte heißen, aber dem Nutzer gehören.
+    """Files that look like reports but belong to the user.
 
-    Bewusst keine Namen, die ein normaler Lauf selbst schreibt
-    (``01_*``/``02_*``/``tracks_partNN.tsv``/``00_prompt.md``): dort wäre ein
-    Überschreiben unvermeidbar und kein Herkunftsfehler.
+    Exclude names written by a normal run (``01_*``/``02_*``/
+    ``tracks_partNN.tsv``/``00_prompt.md``), where overwriting is unavoidable
+    and not an ownership error.
     """
     personal = {
         "tracks_part_privat.tsv": b"meine\tnotizen\n",
@@ -69,7 +69,7 @@ def _unchanged(directory: Path, personal: dict[str, bytes]) -> bool:
 
 
 def test_export_public_api() -> None:
-    """Der Export-Einstiegspunkt und der Fortschritt sind Teil der öffentlichen API."""
+    """The export entry point and progress reporting are part of the public API."""
     check("ms.cmd_export is public", hasattr(ms, "cmd_export") and "cmd_export" in ms.__all__)
     check("ms.progress is public", hasattr(ms, "progress") and "progress" in ms.__all__)
 
@@ -126,15 +126,14 @@ def test_cover_report_sections() -> None:
 
 @pytest.mark.slow
 def test_export_golden() -> None:
-    """Der deutsche Bericht entspricht dem Golden aus Phase 1 (``base``).
+    """The German report matches the Phase 1 golden (``base``).
 
-    Variante A ist der einfache Lauf, dessen gesamte Ausgabe unter
-    ``tests/golden/export/base``
-    liegt; Variante B setzt zusätzlich ``check_case``, dort sind nur
-    ``01_*``/``02_*`` gespeichert. Beide laufen mit ``report_lang="de"``,
-    damit das (unveränderte) deutsche Golden weiter passt; das englische
-    Gegenstück ist ``test_export_golden_en``. Verglichen wird nach
-    ``normalize_export_text`` (Ordner und Zeitstempel).
+    Variant A is the basic run, with all output under
+    ``tests/golden/export/base``. Variant B also enables ``check_case`` and
+    stores only ``01_*``/``02_*``. Both use ``report_lang="de"`` to keep the
+    unchanged German golden valid; the English counterpart is
+    ``test_export_golden_en``. Comparison uses ``normalize_export_text`` to
+    normalize folder paths and timestamps.
     """
     import unittest.mock as mock
 
@@ -182,7 +181,7 @@ def test_export_golden() -> None:
 
 @pytest.mark.slow
 def test_export_golden_en() -> None:
-    """Der englische Bericht ist auf ``tests/golden/export/base_en`` festgenagelt.
+    """The English report is pinned to ``tests/golden/export/base_en``.
 
     Same run as the German base golden, only with ``report_lang="en"``.  A
     missing translation key would show up as the raw key name, so the golden
@@ -226,7 +225,7 @@ def test_export_golden_en() -> None:
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
 def test_export_ffprobe_loose() -> None:
-    """Ohne mutagen liefert der ffprobe-Leser dieselben Tag-Spalten.
+    """The ffprobe reader returns the same tag columns without mutagen.
 
     Only the columns both readers fill from tags are compared; ``sek``,
     ``kbps``, ``codec`` and ``cover`` come from different tools and may differ.
@@ -275,7 +274,7 @@ def test_export_ffprobe_loose() -> None:
 @pytest.mark.external
 @pytest.mark.skipif(shutil.which("fpcalc") is None, reason="fpcalc not installed")
 def test_export_fingerprint() -> None:
-    """Ein Fingerprint-Lauf gruppiert das identische Paar, nicht die andere Datei.
+    """A fingerprint run groups the identical pair, not the other file.
 
     No byte comparison (fpcalc versions produce different fingerprints), only
     the grouping in ``03_duplikate.md``.  The default ``fp_seconds`` is used:
@@ -311,7 +310,7 @@ def test_export_fingerprint() -> None:
 
 @pytest.mark.slow
 def test_export_source_untouched() -> None:
-    """Der Export ist nur lesend - der Quellbaum bleibt unangetastet."""
+    """Export is read-only; the source tree remains untouched."""
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -337,7 +336,7 @@ def test_export_source_untouched() -> None:
 
 
 def test_export_errors() -> None:
-    """Die dokumentierten Rückgabecodes von ``cmd_export``."""
+    """Documented return codes from ``cmd_export``."""
     import unittest.mock as mock
 
     from sortiton import config as cfg, external
@@ -377,7 +376,7 @@ def test_export_errors() -> None:
 
 
 def test_export_cli() -> None:
-    """Das ``export``-Unterkommando und die deutschen Options-Aliase."""
+    """The ``export`` subcommand and localized option aliases."""
     script = BASE / "sortiton.py"
     fixture = _load_export_helper().FIXTURE_DIR
     command = [sys.executable, str(script), "export"]
@@ -403,7 +402,7 @@ def test_export_cli() -> None:
 
 
 def test_export_cache_migration() -> None:
-    """Der alte Fingerprint-Cache wird einmalig übernommen.
+    """Migrate the old fingerprint cache once.
 
     The legacy cache lives in ``$XDG_CACHE_HOME/musik_export``, the new one in
     ``SORTITON_CACHE_DIR/fingerprints``. With the old file copied over, a run
@@ -462,7 +461,7 @@ def test_export_cache_migration() -> None:
 
 
 def test_cancel() -> None:
-    """Ein abgebrochener Lauf stoppt ``cmd_export`` mit Code 130.
+    """A cancelled run stops ``cmd_export`` with code 130.
 
     The reader is patched to cancel the token after three files. ``scan`` has to
     notice it, drop the remaining reads and let ``cmd_export`` return 130
@@ -529,7 +528,7 @@ def test_cancel() -> None:
 @pytest.mark.external
 @pytest.mark.slow
 def test_export_write_error_is_a_clean_failure() -> None:
-    """Ein Schreibfehler endet mit Meldung und Code 2, nicht mit Traceback."""
+    """A write error reports a message and returns code 2, not a traceback."""
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export, report
@@ -559,11 +558,11 @@ def test_export_write_error_is_a_clean_failure() -> None:
 @pytest.mark.external
 @pytest.mark.slow
 def test_export_never_overwrites_a_foreign_report() -> None:
-    """Eine eigene ``01_zusammenfassung.md`` im Zielordner bleibt unangetastet.
+    """Preserve a user-owned ``01_zusammenfassung.md`` in the target folder.
 
-    Vorher schrieb ``write_report`` feste Namen und ersetzte die Datei ohne
-    Rückfrage - obwohl der Sortierpfad die Zusage "nichts wird überschrieben"
-    über ``free_target`` einhält.
+    Previously, ``write_report`` used fixed names and replaced the file
+    without asking, even though the sorting path's ``free_target`` promises
+    not to overwrite anything.
     """
     import unittest.mock as mock
 
@@ -594,7 +593,7 @@ def test_export_never_overwrites_a_foreign_report() -> None:
 @pytest.mark.external
 @pytest.mark.slow
 def test_export_keeps_foreign_files_when_source_is_output() -> None:
-    """Quelle = Ausgabe wird abgewiesen, ohne fremde Dateien zu verändern."""
+    """Reject source = output without changing foreign files."""
     import unittest.mock as mock
 
     from sortiton.features.export import cmd_export
@@ -619,11 +618,11 @@ def test_export_keeps_foreign_files_when_source_is_output() -> None:
 @pytest.mark.external
 @pytest.mark.slow
 def test_export_replaces_only_manifest_files() -> None:
-    """Ein früherer Lauf wird ersetzt, Fremdes bleibt.
+    """Replace files from an earlier run while preserving foreign files.
 
-    Das alte Manifest nennt einen überzähligen TSV-Teil und ``03_duplikate.md``;
-    beide stammen aus einem Sortiton-Lauf und müssen verschwinden. Die fremde
-    Datei mit Berichtsnamen steht in keinem Manifest und bleibt.
+    The old manifest lists an extra TSV part and ``03_duplikate.md``; both
+    were created by Sortiton and must be removed. The foreign file with a
+    report-like name is not in any manifest and must remain.
     """
     import unittest.mock as mock
 
@@ -673,11 +672,11 @@ def test_export_replaces_only_manifest_files() -> None:
 @pytest.mark.external
 @pytest.mark.slow
 def test_export_without_manifest_deletes_nothing() -> None:
-    """Ein fehlendes Manifest ist kein Freibrief zum Löschen.
+    """A missing manifest is not permission to delete files.
 
-    Nur wenn der Lauf abbricht, bevor er seine Berichte schreibt, zeigt sich
-    der Unterschied: mit altem Manifest verschwinden die alten Berichte, ohne
-    Manifest bleibt alles liegen - auch bei kaputtem Manifest.
+    The difference appears only when a run stops before writing its reports:
+    an old manifest allows old reports to be removed, but without a usable
+    manifest all files remain untouched.
     """
     import unittest.mock as mock
 
@@ -715,11 +714,11 @@ def test_export_without_manifest_deletes_nothing() -> None:
 
 
 def test_fingerprint_cache_rejects_invalid_entries() -> None:
-    """Liste/falsche Typen im Cache dürfen den Export nicht sprengen.
+    """Lists and invalid types in the cache must not crash export.
 
-    Der Cache ist JSON von der Platte: ein Eintrag als Liste ließ ``c.get`` mit
-    ``AttributeError`` abstürzen, falsche ``meta``/``fp``-Typen kamen ungeprüft
-    in die Auswertung.
+    The cache is JSON from disk: a list entry caused ``c.get`` to raise
+    ``AttributeError``, while invalid ``meta``/``fp`` types reached processing
+    without validation.
     """
     import hashlib
     import unittest.mock as mock
@@ -777,7 +776,7 @@ def test_fingerprint_cache_rejects_invalid_entries() -> None:
 
 
 def test_fingerprint_index_drops_common_values() -> None:
-    """Ein Sub-Fingerprint in zu vielen Dateien wird entfernt statt ewig behalten."""
+    """Discard a sub-fingerprint found in too many files instead of keeping it forever."""
     import unittest.mock as mock
 
     from sortiton.features.export import fingerprint

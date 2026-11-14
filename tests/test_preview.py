@@ -1,4 +1,4 @@
-"""Vertrag der Tk-freien Vorschau."""
+"""Contract for the Tk-free preview."""
 
 import pytest
 

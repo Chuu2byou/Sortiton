@@ -1,4 +1,4 @@
-"""Gemeinsame Beschreibungen der vier Kernaufträge für CLI und GUI."""
+"""Shared descriptions of the four core operations for the CLI and GUI."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ PATTERN_DEFAULT = "%artist% - %title%"
 
 @dataclass(frozen=True)
 class CoreFeature:
-    """Argumente und sichtbare Seitenbesonderheiten eines Kernauftrags."""
+    """Arguments and visible page-specific details for a core operation."""
 
     key: str
     options: tuple[Option, ...]
@@ -27,7 +27,7 @@ class CoreFeature:
 
     @property
     def target_required(self) -> bool:
-        """Ob das Ziel laut gemeinsamer Pfadrolle verpflichtend ist."""
+        """Whether the shared path role makes the target mandatory."""
         return any(option.path_role == "target_folder" for option in self.options)
 
 
@@ -78,5 +78,5 @@ CORE_FEATURES = (
 
 
 def core_feature(key: str) -> CoreFeature:
-    """Beschreibung eines Kernauftrags anhand seines Schlüssels finden."""
+    """Find a core operation description by its key."""
     return next(feature for feature in CORE_FEATURES if feature.key == key)

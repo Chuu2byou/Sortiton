@@ -160,7 +160,7 @@ class RestoreWindow(tk.Toplevel):
         self._fill()
 
     def _translate_preview(self) -> None:
-        """Vorschau für die vorhandene Auswahl in der neuen Sprache anzeigen."""
+        """Show a preview of the current selection in the new language."""
         if self._selected() is not None:
             self._pick()
         elif not self._journals:

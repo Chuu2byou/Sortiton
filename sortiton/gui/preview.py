@@ -1,4 +1,4 @@
-"""Tk-freie Signaturen, Aggregation und Darstellung von Vorschauplänen."""
+"""Tk-free signatures, aggregation and rendering of preview plans."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _display_path(path: object, root: str = "") -> str:
 
 
 def signature(page: str, values: tuple, rules_id: tuple = ()) -> tuple:
-    """Erzeuge dieselbe Signatur aus konkreten Formwerten wie die GUI."""
+    """Build the same signature from concrete form values as the GUI."""
     if page == "tools":
         return ("tools", *values) if values else ("tools",)
     if page == "restore":

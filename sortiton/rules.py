@@ -145,7 +145,7 @@ def snapshot() -> CustomRules:
 
 
 def _set_custom_rules(rules: CustomRules) -> None:
-    """Die aktive Regelmenge atomar tauschen (Leser sehen alt oder neu, nie halb)."""
+    """Atomically replace the active rule set (readers see old or new, never partial)."""
     global _CUSTOM  # pylint: disable=global-statement
     with _custom_lock:
         _CUSTOM = rules

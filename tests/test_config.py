@@ -1,8 +1,7 @@
-"""Pfade (``sortiton/config.py``) und die Nutzereinstellungen (``settings.ini``).
+"""Paths (``sortiton/config.py``) and user settings (``settings.ini``).
 
-``settings.ini`` ist eine von Hand editierbare Datei: sie muss Kommentare und
-Reihenfolge behalten, ``%``-Werte durchreichen und darf bei kaputtem Inhalt
-nicht abstürzen.
+``settings.ini`` is editable by hand: preserve comments and ordering, keep
+``%`` values intact, and do not crash on malformed content.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from _support import BASE, Path, check, settings, tempfile
 
 
 def test_data_dir_environment_wins_in_checkout() -> None:
-    """SORTITON_DATA_DIR verschiebt auch den Datenordner einer Quellcode-Kopie."""
+    """SORTITON_DATA_DIR also relocates the data folder in a source checkout."""
     with tempfile.TemporaryDirectory() as data:
         env = dict(os.environ)
         env["SORTITON_DATA_DIR"] = data
@@ -29,7 +28,7 @@ def test_data_dir_environment_wins_in_checkout() -> None:
 
 
 def test_paths_are_resolved_and_injected_per_run(tmp_path) -> None:
-    """Zwei Läufe können nach dem Import unabhängige Pfade verwenden."""
+    """Two runs can use independent paths after import."""
     from concurrent.futures import ThreadPoolExecutor
 
     from sortiton import config, journal, output, rules
@@ -72,7 +71,7 @@ def test_paths_are_resolved_and_injected_per_run(tmp_path) -> None:
 
 
 def test_paths_follow_environment_after_import(tmp_path, monkeypatch) -> None:
-    """Auch später gesetzte Umgebungswerte wirken auf neue Konfigurationen."""
+    """Environment changes made later apply to newly created configurations."""
     from dataclasses import FrozenInstanceError
 
     import pytest
@@ -97,7 +96,7 @@ def test_paths_follow_environment_after_import(tmp_path, monkeypatch) -> None:
 
 
 def test_production_paths_resolve_xdg_and_frozen_install(tmp_path) -> None:
-    """XDG-Nutzerordner und Paketpfade werden aus dem Adapter bestimmt."""
+    """Resolve XDG user folders and package paths through the adapter."""
     from sortiton import config
 
     xdg = tmp_path / "konfiguration"
@@ -164,11 +163,10 @@ def test_theme_setting_and_resolution() -> None:
 
 
 def test_settings_keep_percent_values() -> None:
-    """settings.ini muss einen Wert mit "%" verlustfrei zurückgeben.
+    """Ensure settings.ini round-trips values containing ``%``.
 
-    Mit der Standard-Interpolation von configparser warf das Schreiben von "50%"
-    einen ValueError, und eine von Hand editierte Datei ließ
-    ``read_tool_values`` abstürzen.
+    With configparser's default interpolation, writing ``50%`` raised
+    ValueError and a hand-edited file caused ``read_tool_values`` to crash.
     """
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "settings.ini"
@@ -182,7 +180,7 @@ def test_settings_keep_percent_values() -> None:
 
 
 def test_settings_keep_comments_and_order() -> None:
-    """Ein Schreibvorgang verliert keine Kommentare in settings.ini."""
+    """Writing settings must preserve comments in settings.ini."""
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "settings.ini"
         path.write_text(

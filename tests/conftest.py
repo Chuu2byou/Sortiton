@@ -44,10 +44,10 @@ def _suite_environment():
 
 @pytest.fixture(autouse=True)
 def _active_run_context():
-    """Jeder Test läuft in einem eigenen Laufkontext.
+    """Run each test in its own context.
 
-    ``report_plan()``, ``report_stats()`` und ``clear_stats()`` verlangen einen
-    aktiven Kontext; die Tests rufen die ``cmd_*``-Funktionen aber direkt auf.
+    ``report_plan()``, ``report_stats()`` and ``clear_stats()`` require an
+    active context, but tests call the ``cmd_*`` functions directly.
     """
     from sortiton import output  # noqa: WPS433
 
@@ -58,18 +58,18 @@ def _active_run_context():
 
 @pytest.fixture(autouse=True)
 def _no_blocking_dialogs(monkeypatch):
-    """Ein modaler Dialog ohne Nutzer hängt den Lauf bis zum Timeout.
+    """A modal dialog without a user response hangs until the test times out.
 
-    Auf dem CI-Runner fehlen ``kdialog`` und ``zenity``, deshalb fällt
-    ``sortiton.gui.dialogs._ask_yes_no`` auf ``tkinter.messagebox`` zurück und
-    wartet auf eine Antwort, die nie kommt - belegt durch den faulthandler-Dump
-    des GUI-Jobs (``_llm_rules_apply`` -> ``_rules_editor`` -> ``askyesno``).
-    Tests, die eine Rückfrage brauchen, patchen die Funktion in ihrem Modul;
-    alles andere scheitert hier sofort mit einer lesbaren Meldung.
+    CI runners do not have ``kdialog`` or ``zenity``, so
+    ``sortiton.gui.dialogs._ask_yes_no`` falls back to ``tkinter.messagebox``
+    and waits for a response that never arrives. This was confirmed by the GUI
+    job's faulthandler dump (``_llm_rules_apply`` -> ``_rules_editor`` ->
+    ``askyesno``). Tests that need a prompt patch the function in their module;
+    all other attempts fail immediately here with a readable message.
     """
     try:
         from tkinter import filedialog, messagebox  # noqa: WPS433
-    except ImportError:  # Tkinter fehlt (headless build) - nichts zu schützen
+    except ImportError:  # Tkinter is unavailable in a headless build.
         return
 
     def refuse(name: str):

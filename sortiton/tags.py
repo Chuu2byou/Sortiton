@@ -20,7 +20,7 @@ TAG_FIELDS = ("artist", "album_artist", "album", "title", "genre",
 EMPTY_TAGS = dict.fromkeys(TAG_FIELDS, "")
 
 MULTI_VALUE_FIELDS = frozenset({"artist", "album_artist", "genre"})
-"""Felder, die mehrere Werte haben dürfen - nur sie werden an ``;`` getrennt."""
+"""Fields that may contain multiple values; only these are split on ``;``."""
 
 UNREADABLE = "unreadable"
 
@@ -357,13 +357,13 @@ def probe_many(files: list[Path], report=None, cancel=None,
 def write_tags(path: Path, updates: dict) -> bool:
     """Write tags: mutagen preferred, otherwise an ffmpeg remux.
 
-    Liefert bei Erfolg ``True`` und wirft bei jedem Fehler ``RuntimeError`` -
-    auch dann, wenn gar kein Schreibprogramm vorhanden ist. Der Rückgabewert
-    lügt damit nie über einen Fehlerpfad hinweg.
+    Returns ``True`` on success and raises ``RuntimeError`` on any failure,
+    including when no writing tool is installed. The return value therefore
+    never hides a failure.
     """
     try:
         return _write_mutagen(path, updates)
-    except Exception:  # noqa: BLE001 - mutagen darf fehlen oder scheitern
+    except Exception:  # noqa: BLE001 - mutagen may be missing or fail
         pass
     return _write_ffmpeg(path, updates)
 
@@ -402,11 +402,11 @@ def _write_mutagen_inplace(path: Path, updates: dict) -> bool:
     from mutagen.mp4 import MP4
 
     def values_of(key: str, value: str) -> list[str]:
-        """Mehrfachwerte nur dort trennen, wo auch so gelesen wird.
+        """Split multiple values only for fields that are read the same way.
 
-        ``artist``/``album_artist``/``genre`` werden beim Lesen mit ``"; "``
-        verbunden; ``title``/``album``/``year`` sind Einzelwerte, in denen ein
-        Semikolon zum Text gehört und keinen zweiten Frame erzeugen darf.
+        ``artist``/``album_artist``/``genre`` are joined with ``"; "`` when
+        read. ``title``/``album``/``year`` are single values, where a semicolon
+        is part of the text and must not create another frame.
         """
         if key not in MULTI_VALUE_FIELDS:
             text = value.strip()

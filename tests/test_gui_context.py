@@ -1,4 +1,4 @@
-"""Weiterleitung gleichzeitiger Scan- und Laufmeldungen."""
+"""Forward concurrent scan and run messages."""
 
 import gc
 from queue import Queue
@@ -76,7 +76,7 @@ def test_run_worker_emits_live_events_before_completion(monkeypatch):
 
 
 def test_gui_worker_receives_explicit_paths(monkeypatch, tmp_path):
-    """Der GUI-Arbeitsthread übernimmt den Pfadwert des aufrufenden Kontexts."""
+    """The GUI worker thread inherits the path value from its calling context."""
     from sortiton import config
 
     paths = config.production_paths(environ={"SORTITON_DATA_DIR": str(tmp_path)},

@@ -1,4 +1,4 @@
-"""Sprachabhängige GUI-Texte und lebensdauergebundene Benachrichtigung."""
+"""Language-aware GUI text and lifetime-bound notifications."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def __getattr__(name):
 
 
 class Text(str):
-    """Ein Text mit einer Funktion zur erneuten Übersetzung."""
+    """A text value with a function to retranslate it."""
 
     def __new__(cls, render):
         obj = super().__new__(cls, render())
@@ -51,7 +51,7 @@ def t_count(key, count, *, lang=None, **kwargs):
 
 
 def subscribe(widget, slot, callback):
-    """Registriere einen Rückruf nur für die Lebensdauer des Widgets."""
+    """Register a callback only for the lifetime of the widget."""
     callbacks = getattr(widget, "_language_callbacks", None)
     if callbacks is None:
         if callback is None:
@@ -72,7 +72,7 @@ def subscribe(widget, slot, callback):
 
 
 def notify(root):
-    """Aktualisiere ausschließlich Widgets des betroffenen Hauptfensters."""
+    """Update only widgets belonging to the affected main window."""
     for widget in list(_listeners):
         try:
             if widget._root() is root and widget.winfo_exists():
@@ -83,7 +83,7 @@ def notify(root):
 
 
 class StringVar(tk.StringVar):
-    """Eine Textvariable mit optional erneut übersetzbarem Wert."""
+    """A text variable with an optional re-translatable value."""
 
     def __init__(self, *args, **kwargs):
         self._translated_value = None
@@ -94,7 +94,7 @@ class StringVar(tk.StringVar):
         super().set(resolve(value))
 
     def refresh(self):
-        """Den gespeicherten Schlüssel in der aktiven Sprache rendern."""
+        """Render the stored key in the active language."""
         if self._translated_value is not None:
             super().set(resolve(self._translated_value))
 
@@ -105,7 +105,7 @@ def bind_title(window, text):
 
 
 class Label(tk.Label):
-    """Label, dessen übersetzbare Beschriftung bei Sprachwechsel folgt."""
+    """A label whose translatable text follows language changes."""
 
     def __init__(self, master=None, cnf=None, **kwargs):
         text = kwargs.get("text")

@@ -1,4 +1,4 @@
-"""Command line, German output and console progress."""
+"""Command line, localized output and console progress."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def test_german_cli() -> None:
 
 
 def test_console_progress() -> None:
-    """Der stderr-Sink drosselt, beendet die Zeile und beachtet ``--quiet``."""
+    """The stderr sink throttles output, terminates the line and respects ``--quiet``."""
     import unittest.mock as mock
 
     from sortiton import cli
@@ -115,13 +115,13 @@ def test_cli_tags_and_rename_target() -> None:
 
 
 def test_tags_apply_requires_a_writing_tool() -> None:
-    """``tags --apply`` bricht früh ab, wenn nur ein Leser installiert ist."""
+    """``tags --apply`` stops early when only a reader is installed."""
     import unittest.mock as mock
 
     from sortiton import cli, external
 
     def available(tool):
-        return tool is external.FFPROBE  # lesen ja, schreiben nein
+        return tool is external.FFPROBE  # Reading is available; writing is not.
 
     with tempfile.TemporaryDirectory() as tmp:
         with mock.patch.object(external, "available", available), \
@@ -133,7 +133,7 @@ def test_tags_apply_requires_a_writing_tool() -> None:
 
 
 def test_write_command_aborts_when_the_journal_cannot_open() -> None:
-    """Ein Schreibkommando startet nicht ohne das erforderliche Journal."""
+    """A write command must not start without the required journal."""
     import unittest.mock as mock
 
     from sortiton import cli

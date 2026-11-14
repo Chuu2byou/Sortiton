@@ -15,7 +15,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class AppPaths:
-    """Unveränderliche Pfade eines Anwendungsstarts."""
+    """Immutable paths for an application startup."""
 
     package_dir: Path
     source_dir: Path
@@ -39,10 +39,10 @@ class AppPaths:
 
 def _xdg_user_dir(variable: str, fallback: Path, config_home: Path | None = None,
                   home: Path | None = None) -> Path:
-    """Der XDG-Nutzerordner ``variable`` (z. B. ``XDG_DOWNLOAD_DIR``).
+    """The XDG user directory for ``variable`` (for example, ``XDG_DOWNLOAD_DIR``).
 
-    Gelesen wird ``~/.config/user-dirs.dirs``; fehlt die Datei oder der
-    Eintrag, gilt ``fallback``. ``$HOME`` in der Datei wird aufgelöst.
+    Read ``~/.config/user-dirs.dirs``; use ``fallback`` if the file or entry
+    is missing. Resolve ``$HOME`` in the file.
     """
     try:
         directory = config_home if config_home is not None else current_paths().config_home
@@ -62,7 +62,7 @@ def _xdg_user_dir(variable: str, fallback: Path, config_home: Path | None = None
 def production_paths(*, environ: Mapping[str, str] | None = None,
                      home: Path | None = None, source_dir: Path | None = None,
                      frozen: bool | None = None, assets_base: Path | None = None) -> AppPaths:
-    """Produktionspfade aus Umgebung und Installation zum Aufrufzeitpunkt bestimmen."""
+    """Resolve production paths from the environment and installation at call time."""
     env = os.environ if environ is None else environ
     home = Path.home() if home is None else Path(home)
     package = Path(__file__).resolve().parent
@@ -103,18 +103,18 @@ _paths_context: ContextVar[AppPaths | None] = ContextVar("sortiton_paths", defau
 
 
 def selected_paths() -> AppPaths | None:
-    """Explizit für den aktuellen Ausführungskontext gewählte Pfade liefern."""
+    """Return paths explicitly selected for the current execution context."""
     return _paths_context.get()
 
 
 def current_paths() -> AppPaths:
-    """Gewählte Pfade oder die aktuelle Produktionskonfiguration liefern."""
+    """Return selected paths or the current production configuration."""
     return selected_paths() or production_paths()
 
 
 @contextmanager
 def use_paths(paths: AppPaths) -> Iterator[None]:
-    """Pfade für einen Lauf setzen und anschließend den Kontext wiederherstellen."""
+    """Set paths for a run and restore the context afterwards."""
     token = _paths_context.set(paths)
     try:
         yield
@@ -123,7 +123,7 @@ def use_paths(paths: AppPaths) -> Iterator[None]:
 
 
 def __getattr__(name: str):
-    """Alte Konstantennamen als dynamischen Kompatibilitätsadapter anbieten."""
+    """Expose legacy constant names through a dynamic compatibility adapter."""
     if name in _PATH_NAMES:
         return getattr(current_paths(), _PATH_NAMES[name])
     raise AttributeError(name)
@@ -165,10 +165,10 @@ OFF_VALUES = {"0", "false", "no", "off", "nein", "aus"}
 
 
 def display_path(path: Path | str) -> str:
-    """Ein Pfad für die Anzeige: das Home-Verzeichnis wird zu ``~``.
+    """Format a path for display, replacing the home directory with ``~``.
 
-    In der Oberfläche steht damit ``~/Downloads/Sortiton`` statt eines
-    vollständigen, nutzerspezifischen Pfades.
+    The UI then shows ``~/Downloads/Sortiton`` instead of a full
+    user-specific path.
     """
     text = str(path or "").strip()
     if not text:

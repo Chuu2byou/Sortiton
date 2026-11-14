@@ -100,13 +100,13 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/config.py` | Constants and paths (project folder, `logs/`, `my_rules.ini`, `settings.ini`) |
 | `sortiton/i18n.py` | Translations - every visible text lives here |
 | `sortiton/settings.py` | User settings (`settings.ini`: language, backup, fine-tuning) |
-| `sortiton/output.py` | Laufkontext, Live-Ausgabe, Fortschritt und Logdatei |
+| `sortiton/output.py` | Run context, live output, progress and log file |
 | `sortiton/journal.py` | Run journal: what a run changed, the basis for `restore` |
 | `sortiton/rules.py` | Rule tables, `my_rules.ini`, text cleanup |
 | `sortiton/files.py` | File names, target paths, content comparison |
 | `sortiton/tags.py` | Read/write tags (mutagen or ffprobe/ffmpeg) |
 | `sortiton/tasks.py` | The tasks (`cmd_*`) |
-| `sortiton/core_features.py` | Gemeinsame Beschreibungen der vier Kernaufträge für CLI und GUI |
+| `sortiton/core_features.py` | Shared descriptions of the four core operations for the CLI and GUI |
 | `sortiton/features/base.py` | Feature interface (`Feature`, `Option`, argparse builder) |
 | `sortiton/features/export/` | Read-only export for an LLM (`cmd_export`) |
 | `sortiton/cli.py` | Command line arguments |
@@ -119,8 +119,8 @@ The scripts in the main folder are entry points; the logic lives in the
 | `sortiton/gui/restore.py` | Undo window (pick a journal, check the plan, undo) |
 | `sortiton/gui/dialogs.py` | System dialogs (`kdialog` → `zenity` → Tkinter) |
 | `sortiton/gui/app.py` | Composition root: `SortitonGUI`, `__init__`, window startup |
-| `sortiton/gui/common.py` | GUI-Konstanten und Formatierungshilfen |
-| `sortiton/gui/preview.py` | Tk-freie Vorschauaggregation und Signaturen |
+| `sortiton/gui/common.py` | GUI constants and formatting helpers |
+| `sortiton/gui/preview.py` | Tk-free preview aggregation and signatures |
 | `sortiton/gui/translations.py` | Translatable GUI texts that follow a language switch |
 | `sortiton/gui/log_history.py` | Log history and line colours without widget dependencies |
 | `sortiton/gui/mixins/` | Mixins for the window frame, pages, log view, runs, rules and settings |
@@ -148,7 +148,7 @@ The scripts in the main folder are entry points; the logic lives in the
 | Change command behaviour | `sortiton/tasks.py` |
 | Change a visible text / add a language | `sortiton/i18n.py` |
 | Appearance (colours/fonts) | `sortiton/gui/design.py` |
-| Neue Option für einen Kernauftrag | `sortiton/core_features.py` |
+| New option for a core operation | `sortiton/core_features.py` |
 | New field or new page in the GUI | `sortiton/gui/mixins/pages.py` |
 | New control | `sortiton/gui/widgets.py` |
 
@@ -159,28 +159,27 @@ The scripts in the main folder are entry points; the logic lives in the
 - Every visible text lives in `sortiton/i18n.py`, in `_EN` **and** `_DE` (keep
   the lines aligned); `tests/test_public_api.py` enforces both catalogs and every
   `i18n.t("literal")`.
-- Ausgaben laufen über `output.message()`, Fortschritt über `progress()` und
-  strukturierte Ergebnisse über `report_plan()` und `report_stats()`. Jeder
-  Lauf braucht einen eigenen `RunContext`; dessen Adapter senden Ereignisse live
-  an die GUI-Queue, und `RunContext.execute()` liefert einen `RunReport` mit den
-  Zählern. Poolaufträge übernehmen den Kontext mit `submit_with_context()`.
-  `report_plan()`, `report_stats()` und `clear_stats()` ohne aktiven Kontext
-  lösen einen `RuntimeError` aus; die `cmd_*`-Funktionen prüfen ihn mit
-  `require_run_context()` am Anfang, bevor sie Dateien anfassen. `message()`
-  schreibt ohne Kontext auf die Konsole. Die früheren globalen
-  `set_*`-Funktionen und `last_stats()` gibt es nicht mehr - Zähler liest man
-  aus `RunReport.stats` oder `RunContext.last_stats()`.
-  Logdatei und Journal sind weiterhin global und erlauben keine beliebigen
-  parallelen Schreibläufe.
+- Output goes through `output.message()`, progress through `progress()`, and
+  structured results through `report_plan()` and `report_stats()`. Each run
+  needs its own `RunContext`; its adapters send events live to the GUI queue,
+  and `RunContext.execute()` returns a `RunReport` with the counters. Pool tasks
+  inherit the context through `submit_with_context()`.
+  Calling `report_plan()`, `report_stats()` or `clear_stats()` without an
+  active context raises `RuntimeError`; each `cmd_*` function checks this with
+  `require_run_context()` before accessing files. Without a context,
+  `message()` writes to the console. The former global `set_*` functions and
+  `last_stats()` no longer exist; read counters from `RunReport.stats` or
+  `RunContext.last_stats()`. The log file and journal remain global and do not
+  support arbitrary concurrent write runs.
 - The `cmd_*` functions in `sortiton/tasks.py` take an `argparse.Namespace`
   (CLI) or a `SimpleNamespace` (GUI) with the same field names.
 - Every user path can be overridden with an environment variable
   (`SORTITON_RULES`, `SORTITON_LOG_DIR`, `SORTITON_SETTINGS`, …).
-  Für isolierte Aufrufe erzeugt `config.production_paths()` einen unveränderlichen
-  `AppPaths`-Wert; `config.use_paths(pfade)` oder `RunContext(paths=pfade)` bindet
-  ihn an den aktuellen Kontext. Poolaufträge benötigen `submit_with_context()`.
-- Anzahltexte verwenden `i18n.t_count()`, Zahlen `i18n.format_number()`;
-  Pluralformen erhalten den Katalogschlüssel mit dem Suffix `_plural`.
+  For isolated calls, `config.production_paths()` creates an immutable
+  `AppPaths` value; `config.use_paths(paths)` or `RunContext(paths=paths)`
+  binds it to the current context. Pool tasks require `submit_with_context()`.
+- Count labels use `i18n.t_count()` and numbers use `i18n.format_number()`;
+  plural forms use the catalog key with the `_plural` suffix.
 - A preview is the default and `--apply` writes; existing files stay untouched
   (`sortiton/files.py::free_path()` appends `(2)`, `(3)`, …).
 - `sortiton/__init__.py::__all__` is the stable interface; new public names

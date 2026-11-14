@@ -1,8 +1,8 @@
-"""Dateinamen und die Kopier-/Verschiebe-Helfer.
+"""File names and copy/move helpers.
 
-Geprüft wird ``sortiton/files.py`` (Namen, freie Ziele, Inhaltsvergleich) und
-``sortiton/fileops.py`` (kopieren/verschieben ohne Überschreiben) - jeweils
-über das nach außen sichtbare Verhalten auf der Platte.
+Test ``sortiton/files.py`` (names, free targets, content comparison) and
+``sortiton/fileops.py`` (copy/move without overwriting) through their
+observable behaviour on disk.
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ from _support import Path, check, files, tempfile
 
 
 def test_build_name_keeps_placeholders_in_tag_values_literal() -> None:
-    """Ein Tag-Wert, der wie ein Platzhalter aussieht, wird nicht ersetzt."""
+    """Do not replace a tag value that looks like a placeholder."""
     tags = {"artist": "A", "album_artist": "A", "album": "ALBUM",
             "title": "100% %track%"}
     name = files.build_name(tags, "fallback", "%artist% - %title%")
     check("placeholders inside a tag stay literal",
           name == "A - 100% %track%", name)
 
-    # Der Schnitt bei MAX_NAME_LENGTH darf keinen Punkt am Ende hinterlassen.
+    # Truncation at MAX_NAME_LENGTH must not leave a trailing period.
     chopped = files.safe_name("x" * (files.MAX_NAME_LENGTH - 1) + "." + "y" * 10)
     check("a truncated name does not end in a dot",
           not chopped.endswith("."), repr(chopped[-5:]))
@@ -37,7 +37,7 @@ def test_file_names_cannot_escape_the_folder() -> None:
 
 
 def test_target_inside_source_is_rejected() -> None:
-    """Ein Ziel im Quellordner würde die sortierten Dateien erneut einlesen."""
+    """A target inside the source would be scanned again on the next run."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         source = root / "music"
@@ -69,9 +69,8 @@ def test_free_target_never_blocks_its_own_name() -> None:
         check("a file never blocks its own name",
               files.free_target(own, set(), ignore=own) == own)
 
-        # Auf einem Dateisystem ohne Groß-/Kleinschreibung existiert der Pfad
-        # auch dann, wenn nur die Schreibweise abweicht: das darf nicht zu
-        # "Artist - Track (2)" führen.
+        # On a case-insensitive filesystem, the path exists even when only
+        # its spelling differs; this must not produce "Artist - Track (2)".
         upper = folder / "ARTIST - TRACK.mp3"
         with mock.patch.object(Path, "exists", return_value=True):
             got = files.free_target(upper, set(), ignore=own)
@@ -101,7 +100,7 @@ def test_free_target_keeps_case_variants_apart() -> None:
 
 
 def test_free_path_moves_to_a_numbered_name() -> None:
-    """Ein belegter Name bekommt " (2)" statt überschrieben zu werden."""
+    """Use " (2)" for an occupied name instead of overwriting it."""
     with tempfile.TemporaryDirectory() as tmp:
         taken = Path(tmp) / "sortiton_2026-01-01_12-00-00.log"
         check("a free name is left alone", files.free_path(taken) == taken)
@@ -127,7 +126,7 @@ def test_open_new_never_truncates() -> None:
 
 
 def test_same_content_rejects_an_early_difference() -> None:
-    """Gleiche Größe, anderes erstes Byte: der Vergleich muss "anders" sagen."""
+    """Same size, different first byte: the comparison must detect the difference."""
     with tempfile.TemporaryDirectory() as tmp:
         first = Path(tmp) / "a.bin"
         second = Path(tmp) / "b.bin"
@@ -188,7 +187,7 @@ def test_copy_failure_removes_partial_destination() -> None:
 
 
 def test_copy_and_move_fall_back_without_hardlinks() -> None:
-    """Dateisysteme ohne Hardlinks unterstützen weiterhin Kopieren und Verschieben."""
+    """Copying and moving still work on filesystems without hard links."""
     from sortiton import fileops
 
     for move in (False, True):
@@ -209,7 +208,7 @@ def test_copy_and_move_fall_back_without_hardlinks() -> None:
 
 
 def test_copy_fallback_keeps_a_racing_destination() -> None:
-    """Auch ohne Hardlinks darf eine zwischenzeitlich angelegte Zieldatei nicht verschwinden."""
+    """A destination created during the operation must survive without hard links."""
     from sortiton import fileops
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -235,7 +234,7 @@ def test_copy_fallback_keeps_a_racing_destination() -> None:
 
 
 def test_copy_fallback_removes_an_incomplete_destination() -> None:
-    """Ein Fehler in der exklusiven Fallback-Kopie hinterlässt keine Teilkopie."""
+    """A failed exclusive fallback copy must not leave a partial copy."""
     from sortiton import fileops
 
     with tempfile.TemporaryDirectory() as tmp:

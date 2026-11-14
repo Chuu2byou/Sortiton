@@ -1,4 +1,4 @@
-"""Gezielte Tests für den Sprachwechsel ohne Fensterneubau."""
+"""Focused tests for language changes without rebuilding windows."""
 
 import gc
 import tkinter as tk

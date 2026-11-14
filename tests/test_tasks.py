@@ -1,8 +1,8 @@
-"""Die klassischen Aufgaben: tags, rename, sort, all und Sicherungen.
+"""Core operations: tags, rename, sort, all and backups.
 
-Alle Tests arbeiten über ``cmd_*`` mit gepatchten Lesern/Schreibern, damit sie
-ohne Audio-Werkzeuge laufen und nur das Verhalten prüfen: welche Datei wohin
-geht, welcher Rückgabecode kommt und was in den Zählern landet.
+Tests use the ``cmd_*`` functions with patched readers/writers so they run
+without audio tools and verify only behaviour: where files go, which return
+code is produced and what the counters report.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def test_all_pipeline(tmp_path: Path) -> None:
 
 
 def test_target_inside_source_stops_all_operations() -> None:
-    """Alle Kernaufträge verweigern ein Ziel im Quellordner."""
+    """All core operations reject a target inside the source folder."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as source_dir:
@@ -83,7 +83,7 @@ def test_target_inside_source_stops_all_operations() -> None:
 
 
 def test_all_preview_passes_cleaned_tags_and_renamed_paths_forward() -> None:
-    """Rename- und Sort-Vorschau nutzen das geplante Ergebnis der Vorstufen."""
+    """Rename and sort previews use the planned output of preceding stages."""
     from sortiton import output as out, tasks
 
     with tempfile.TemporaryDirectory() as source_dir, \
@@ -120,7 +120,7 @@ def test_all_preview_passes_cleaned_tags_and_renamed_paths_forward() -> None:
 
 
 def test_all_preview_accounts_for_tag_changes_before_identical_check() -> None:
-    """Vorschau und Ausführung wählen nach Tagänderungen dieselbe freie Zieldatei."""
+    """Preview and execution choose the same free target after tag changes."""
     from sortiton import output as out, tasks
 
     for dirty in (False, True):
@@ -167,7 +167,7 @@ def test_all_preview_accounts_for_tag_changes_before_identical_check() -> None:
 
 
 def test_stats_count_only_written_files() -> None:
-    """Ein fehlgeschlagener Schreibvorgang ist ein Fehler, keine Änderung."""
+    """A failed write counts as an error, not a change."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -182,8 +182,8 @@ def test_stats_count_only_written_files() -> None:
                 raise OSError("disk full")
             return True
 
-        # Ein Leerzeichen am Ende lässt den bereinigten Artist vom rohen
-        # abweichen, also sind beide Dateien im Plan.
+        # A trailing space makes the cleaned artist differ from the raw value,
+        # so both files are included in the plan.
         tags = {"artist": "Old ", "album_artist": "", "album": "", "title": "T",
                 "genre": ""}
         args = SimpleNamespace(folder=str(root), apply=True, backup=False)
@@ -286,7 +286,7 @@ def test_tags_apply_track_format() -> None:
 
 
 def test_tags_with_target_copy_and_move() -> None:
-    """tags mit Ziel sortiert die Dateien in die Bibliothek (kopieren oder verschieben)."""
+    """With a target, tags sorts files into the library (copy or move)."""
     from sortiton import tasks
 
     tags = {"artist": "Artist ", "album_artist": "", "album": "Album",
@@ -317,7 +317,7 @@ def test_tags_with_target_copy_and_move() -> None:
 
 
 def test_tags_with_dirty_identical_target_places_cleaned_copy() -> None:
-    """Eine unsaubere Quelle wird nicht übersprungen, nur weil das Ziel identisch ist."""
+    """Do not skip a dirty source just because the target is identical."""
     from sortiton import tasks
 
     tags = {"artist": "Artist ", "album_artist": "", "album": "Album",
@@ -347,7 +347,7 @@ def test_tags_with_dirty_identical_target_places_cleaned_copy() -> None:
 
 
 def test_rename_with_target_copy_and_move() -> None:
-    """rename mit Ziel benennt um und sortiert in die Bibliothek (kopieren oder verschieben)."""
+    """With a target, rename renames files and sorts them into the library (copy or move)."""
     from sortiton import tasks
 
     tags = {"artist": "Artist", "album_artist": "", "album": "Album",
@@ -380,7 +380,7 @@ def test_rename_with_target_copy_and_move() -> None:
 
 
 def test_move_without_target_is_rejected() -> None:
-    """Verschieben ohne Ziel darf nicht stillschweigend an Ort und Stelle passieren."""
+    """Moving without a target must not silently happen in place."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as folder:
@@ -398,7 +398,7 @@ def test_move_without_target_is_rejected() -> None:
 
 
 def test_rename_does_not_replace_a_racing_destination() -> None:
-    """Ein nach der Planung angelegtes Ziel muss den Umbenenn-Versuch überleben."""
+    """A destination created after planning must survive the rename attempt."""
     from sortiton import fileops, tasks
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -426,7 +426,7 @@ def test_rename_does_not_replace_a_racing_destination() -> None:
 
 
 def test_sort_worker_stops_before_the_next_file_after_cancel() -> None:
-    """Ein Worker prüft den Abbruch unmittelbar vor jeder Dateioperation."""
+    """A worker checks for cancellation immediately before each file operation."""
     from sortiton import fileops, tasks
     from sortiton.cancel import CancelToken
 
@@ -466,7 +466,7 @@ def test_sort_worker_stops_before_the_next_file_after_cancel() -> None:
 
 
 def test_tags_workers_stop_even_when_completion_observer_is_delayed() -> None:
-    """Tag-Worker prüfen den Abbruch unabhängig von der Hauptthread-Auswertung."""
+    """Tag workers check cancellation independently of main-thread result handling."""
     from concurrent.futures import as_completed
     from sortiton import tasks
     from sortiton.cancel import CancelToken
@@ -503,7 +503,7 @@ def test_tags_workers_stop_even_when_completion_observer_is_delayed() -> None:
 
 
 def test_placement_cancellation_stops_queued_moves() -> None:
-    """Nach dem Abbruch starten eingeplante Verschiebungen nicht mehr."""
+    """Do not start queued moves after cancellation."""
     from sortiton import tasks
     from sortiton.cancel import CancelToken, Cancelled
 
@@ -534,7 +534,7 @@ def test_placement_cancellation_stops_queued_moves() -> None:
 
 
 def test_scan_counts_files_and_can_be_cancelled() -> None:
-    """``scan`` zählt die Dateien, meldet einen fehlenden Ordner und ist abbrechbar."""
+    """``scan`` counts files, reports a missing folder and can be cancelled."""
     from sortiton.cancel import Cancelled, CancelToken
     from sortiton.tasks import cmd_scan
 
@@ -554,7 +554,7 @@ def test_scan_counts_files_and_can_be_cancelled() -> None:
 
 
 def test_backup_deduplicates_paths_that_resolve_to_the_same_file() -> None:
-    """Eine CSV-Datei wird einmal gesichert, auch wenn mehrere Zeilen sie nennen."""
+    """Back up a CSV file only once even when multiple rows refer to it."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -570,7 +570,7 @@ def test_backup_deduplicates_paths_that_resolve_to_the_same_file() -> None:
 
 
 def test_incomplete_backup_stops_before_writing() -> None:
-    """Eine Sicherung, die nicht alle Dateien kopieren konnte, ist kein Schutz."""
+    """A backup that could not copy every file does not provide protection."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -580,7 +580,7 @@ def test_incomplete_backup_stops_before_writing() -> None:
 
 
 def test_backup_retention_does_not_let_incomplete_evict_complete() -> None:
-    """Eine unvollständige Sicherung darf die letzte brauchbare nicht verdrängen."""
+    """An incomplete backup must not displace the last usable one."""
     from sortiton import tasks
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -597,7 +597,7 @@ def test_backup_retention_does_not_let_incomplete_evict_complete() -> None:
             assert complete is not None
             check("the complete marker exists", (complete / ".complete").is_file())
 
-            # Absturz simulieren: ein neuerer Ordner mit unvollständiger Marke.
+            # Simulate a crash: a newer folder has an incomplete marker.
             incomplete = backups / "backup_2999-01-01_00-00-00"
             incomplete.mkdir()
             (incomplete / ".incomplete").write_text("incomplete\n", encoding="utf-8")
@@ -609,7 +609,7 @@ def test_backup_retention_does_not_let_incomplete_evict_complete() -> None:
             check("the incomplete folder is kept as evidence",
                   (backups / "failed" / incomplete.name).is_dir())
 
-            # Eine Sicherung, die beim Kopieren scheitert, zählt ebenfalls nicht.
+            # A backup that fails during copying does not count either.
             failed = tasks._backup_files(root, [root / "missing.mp3"])
             check("a failed backup is not returned", failed is None)
             tasks._prune_backups(keep=1)

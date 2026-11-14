@@ -1,232 +1,227 @@
-# Sortiton: UI-Handoff
+# Sortiton: UI Handoff
 
-Stand: 25.10.2026. Status: Gestaltungsempfehlung, keine implementierte UI.
+Status: 25 October 2026. Design recommendation; not implemented.
 
-## Entscheidung
+## Decision
 
-Sortiton soll sich wie ein Werkzeug zum Pruefen und Bearbeiten einer
-Musiksammlung anfuehlen, nicht wie eine lange Einstellungsseite.
-Empfohlen wird eine kompakte Zwei-Spalten-Arbeitsflaeche:
-Auftrag und Regeln links, Vorschau rechts, Freigabe und Status unten.
-Zusaetzlicher Fensterplatz soll mehr pruefbare Inhalte zeigen.
+Sortiton should feel like a tool for checking and editing a music collection,
+not like a long settings page. The recommended layout is a compact, two-column
+workspace: operation and rules on the left, preview on the right, and approval
+and status at the bottom. Additional window space should show more content
+that users can review.
 
-Zunaechst Tkinter beibehalten. Der groesste Nutzen entsteht durch die
-Informationsarchitektur, nicht durch neue Farben oder einen Frameworkwechsel.
-Eine spaetere PySide6-Migration separat entscheiden, falls eine grosse
-Dateitabelle, native Barrierefreiheit und bessere Desktop-Integration mit
-Tkinter nicht ausreichend erreichbar sind. Das waere ein eigener Auftrag
-mit neuen Abhaengigkeiten und Packaging-Arbeit.
+Keep Tkinter for now. The greatest benefit comes from improving the
+information architecture, not from new colours or a framework change. Decide
+separately on a future PySide6 migration if a large file table, native
+accessibility and better desktop integration cannot be achieved adequately
+with Tkinter. That would be a separate project involving new dependencies and
+packaging work.
 
-## Befunde und Evidenz
+## Findings and evidence
 
-Gesichtet wurden der README-Screenshot, der aktuelle Fensteraufbau,
-Designwerte, Vorschau-/Ergebniswidgets und die vorhandenen GUI-Tests.
-Die aktuelle Anwendung wurde unter Xvfb mit UI-Skalierung 100 Prozent
-bei drei Fenstergroessen vermessen und bei 1920 x 1080 fotografiert.
-Die aktuelle UI unterscheidet sich vom README-Screenshot: Sie hat unter
-anderem fuenf Seiten, Seitenueberschriften und weitere Ordner-/Modusfelder.
+The README screenshot, current window layout, design values, preview/result
+widgets and existing GUI tests were reviewed. The current application was
+measured under Xvfb at 100% UI scaling in three window sizes and captured at
+1920 x 1080.
 
-| Fenster | Formularbreite | Formularhoehe | Aktionszeile y | Ergebnishoehe |
+The current UI differs from the README screenshot: it has five pages, page
+headings and additional folder/mode fields.
+
+| Window | Form width | Form height | Action row y | Result height |
 | --- | ---: | ---: | ---: | ---: |
 | 900 x 600 | 841 px | 714 px | 321 px | 176 px |
 | 1920 x 1080 | 1120 px | 714 px | 801 px | 176 px |
 | 2560 x 1440 | 1120 px | 714 px | 1161 px | 176 px |
 
-Diese Werte beschreiben den Startzustand der Seite "Tags bereinigen".
-Bei 900 x 600 ist das Formular erwartungsgemaess scrollbar.
-Bei 2560 x 1440 nutzt es nur rund 44 Prozent der Fensterbreite;
-zwischen Formularende und Aktionszeile bleiben etwa 360 Pixel ungenutzt.
-Die Ergebnisflaeche waechst nicht mit.
+These values describe the initial state of the "Clean tags" page. At 900 x 600,
+the form is scrollable as expected. At 2560 x 1440, it uses only about 44% of
+the window width, leaving roughly 360 px unused between the form and action
+row. The result area does not grow.
 
-Die Breitenbegrenzung und Zentrierung steuert
-[`_resize_content_canvas`](sortiton/gui/mixins/layout.py#L318).
-Die flexible Hoehe liegt in der Inhaltszeile, waehrend das Ergebnis eine
-feste Mindesthoehe erhaelt:
-[`_build_window`](sortiton/gui/mixins/layout.py#L179).
-Formular und feste Zeilen verwenden unterschiedliche Breitenberechnungen:
-[`_content_inset`](sortiton/gui/mixins/layout.py#L47).
-Bei 2560 Pixeln startet das Formular bei x=720, die Aktionszeile bei x=713.
-Der Scrollbalken liegt zudem am aeusseren Fensterrand, weit vom Formular.
+The width limit and centering are controlled by
+[`_resize_content_canvas`](sortiton/gui/mixins/layout.py#L318). The flexible
+height is assigned to the content row, while the result has a fixed minimum
+height:
+[`_build_window`](sortiton/gui/mixins/layout.py#L179). The form and fixed rows
+use different width calculations:
+[`_content_inset`](sortiton/gui/mixins/layout.py#L47). At 2560 px, the form
+starts at x=720 and the action row at x=713. The scrollbar is also at the
+outer edge of the window, far from the form.
 
-Das erklaert die schlechte Raumnutzung bei grossen Fenstern. Eine konkrete
-Ueberlappung wurde nicht festgestellt. Echtes Maximieren unter KDE/Wayland,
-Fensterdekorationen, mehrere Monitore und HiDPI sind noch nicht verifiziert.
+This explains the poor use of space in large windows. No specific overlap was
+found. Maximizing under KDE/Wayland, window decorations, multiple monitors and
+HiDPI have not been verified yet.
 
-Der veraltete Eindruck ist eine gestalterische Bewertung:
-Viele grossflaechige Rahmen, verschachtelte Vorschau-Rahmen,
-Grossbuchstaben-Labels, ueberwiegend dunkle Flaechen und verstreute Aktionen
-geben gleich wichtigen und unwichtigen Informationen aehnliches Gewicht.
-Die Vorschau bleibt ein kleiner Zusammenfassungsblock statt Hauptarbeitsraum.
+The dated appearance is a design assessment: many large borders, nested
+preview frames, uppercase labels, mostly dark surfaces and scattered actions
+give important and secondary information similar visual weight. The preview
+remains a small summary block instead of the primary workspace.
 
-## Zielbild
+## Target layout
 
-Breites Desktopfenster, schematisch; Zahlen und Inhalte sind Beispieldaten:
+Wide desktop window, schematic; numbers and content are sample data:
 
 ```text
- Sortiton   Tags bereinigen | Umbenennen | Sortieren | Alles | Werkzeuge   [Zahnrad]
+ Sortiton   Clean tags | Rename | Sort | All | Tools                 [Settings]
  ------------------------------------------------------------------------------
- Auftrag / 320 px             | Vorschau                    [Suche] [Filter]
-                             | 120 Dateien / 198 Aenderungen
- Quellordner        [Ordner]  | ------------------------------------------------
- Zielordner         [Ordner]  | Datei       Feld       Bisher          Geplant
- Kopieren | Verschieben      | Track 01    Artist     SAMPLE BAND     Sample Band
-                             | Track 03    Titel      Track  03       Track 03
- Regeln                      | Track 08    Genre      jpop            J-Pop
- Eigene Regeln      [Bearb.]  | ... weitere sichtbare Zeilen ...
- Korrekturen        [Details] | ------------------------------------------------
-                             | Auswahl: Track 03
- Weitere Optionen       [v]  | Vollstaendige Werte / Pfad / zutreffende Regel
+ Operation / 320 px            | Preview                    [Search] [Filter]
+                               | 120 files / 198 changes
+ Source folder       [Folder]  | ---------------------------------------------
+ Target folder       [Folder]  | File       Field       Before       Planned
+ Copy | Move                   | Track 01   Artist      SAMPLE BAND  Sample Band
+                               | Track 03   Title       Track  03    Track 03
+ Rules                         | Track 08   Genre       jpop         J-Pop
+ Custom rules       [Edit]     | ... more visible rows ...
+ Corrections       [Details]   | ---------------------------------------------
+                               | Selected: Track 03
+ More options          [v]     | Full values / path / matching rule
  ------------------------------------------------------------------------------
- Bereit / Backup aktiv       [Vorschau erstellen]       [Aenderungen anwenden]
+ Ready / Backup on             [Create preview]       [Apply changes]
 ```
 
-Keine dekorativen Karten um ganze Seitenabschnitte. Eine schmale Trennlinie
-trennt Konfiguration und Pruefbereich. Tabellenzeilen und Gruppenabstaende
-strukturieren den Inhalt. Das vorhandene App-Icon bleibt die visuelle Marke.
-Keine Albumcover, wenn keine verlaesslichen Coverdaten vorhanden sind.
+Avoid decorative cards around entire page sections. A narrow divider separates
+configuration from the review area. Table rows and group spacing structure the
+content. Keep the existing app icon as the visual brand. Do not show album
+artwork when reliable cover data is unavailable.
 
-### Navigation und Raumaufteilung
+### Navigation and layout
 
-- Die fuenf vorhandenen Funktionen bleiben direkt erreichbar. Echte Tabs
-  ersetzen die optisch gleichwertige, breit gestreckte Segmentleiste.
-- Links ein veraenderbarer Konfigurationsbereich: Standard 320 logische
-  Pixel, Minimum 280, Maximum 420. Lange Pfade mit Volltextzugriff.
-- Rechts fuellt die Vorschau den verbleibenden Raum und waechst in der Hoehe.
-  Ihre Zeilen scrollen; Navigation und Freigabe bleiben sichtbar.
-- Ab 1200 logischen Pixeln zwei Spalten. Zwischen 900 und 1199 Pixeln
-  einklappbare Konfiguration. Darunter Konfiguration oberhalb der Vorschau,
-  ohne horizontales Scrollen der gesamten Anwendung.
-- Kein globales 1120-Pixel-Limit. Nur Lesetexte und einzelne Eingabefelder
-  bekommen sinnvolle Maximalbreiten. Scrollbalken direkt am scrollenden Inhalt.
-- Die Ergebniszusammenfassung ersetzt nach einem Lauf die Vorschau-Kopfzeile.
-  Logs werden bei Bedarf als eigener vergroesserbarer Bereich geoeffnet.
-  Kein dauerhaft 176 Pixel hoher, leerer Ergebnisblock.
-- Einstellungen bleiben ein eigenes Fenster. Wiederherstellung bleibt ein
-  eigener Dialog; Zugang ueber eine erkennbare Rueckgaengig-Aktion.
+- Keep all five existing functions directly accessible. Use real tabs instead
+  of the visually equal, stretched segment bar.
+- Use a resizable configuration pane on the left: 320 logical px by default,
+  280 minimum and 420 maximum. Long paths must remain accessible in full.
+- Let the preview fill the remaining space on the right and grow vertically.
+  Its rows scroll; navigation and approval remain visible.
+- At 1200 logical px and above, use two columns. Between 900 and 1199 px, make
+  configuration collapsible. Below that, place configuration above the
+  preview without horizontal scrolling of the entire application.
+- Remove the global 1120 px limit. Apply sensible maximum widths only to
+  reading text and individual input fields. Place scrollbars directly beside
+  the content they scroll.
+- After a run, replace the preview header with the result summary. Open logs
+  in a separate resizable area on demand. Do not keep an empty, permanently
+  176 px-high result block.
+- Keep settings in a separate window. Keep restore in its own dialog, reached
+  through a recognizable undo action.
 
-### Visuelle Spezifikation
+### Visual specification
 
-| Element | Vorgabe |
+| Element | Specification |
 | --- | --- |
-| Farbschema | Auto (System), Hell oder Dunkel; Auswahl in den Einstellungen, sofort angewendet |
-| Hintergrund / Arbeitsflaeche | `#F4F5F7` / `#FFFFFF` |
-| Haupttext / Sekundaertext | `#20242B` / `#545D6B` |
-| Linien | `#D8DDE4`, sparsam eingesetzt |
-| Primarakzent | Petrol `#006B68`, weisser Text |
-| Erfolg / Warnung / Fehler | `#187346` / `#875400` / `#B42318` |
-| Schrift | Cantarell, danach Noto Sans, danach vorhandener Systemfont |
-| Schriftgroessen | Basis 11 pt, Seitentitel 15 pt, Nebenwerte mindestens 10 pt |
-| Raster | 4 / 8 / 12 / 16 / 24 logische Pixel |
-| Bedienelemente | 36 px Hoehe, Icon-Ziele mindestens 32 x 32 px |
-| Tabellenzeilen | 32 px, konstante Hoehe, klarer Auswahlzustand |
-| Rundungen | 4 px fuer Felder und Buttons, keine Pillen fuer Statuswerte |
+| Colour scheme | Auto (system), Light or Dark; selected in settings and applied immediately |
+| Background / workspace | `#F4F5F7` / `#FFFFFF` |
+| Primary / secondary text | `#20242B` / `#545D6B` |
+| Lines | `#D8DDE4`, used sparingly |
+| Primary accent | Teal `#006B68`, white text |
+| Success / warning / error | `#187346` / `#875400` / `#B42318` |
+| Font | Cantarell, then Noto Sans, then the available system font |
+| Font sizes | 11 pt base, 15 pt page title, secondary values at least 10 pt |
+| Grid | 4 / 8 / 12 / 16 / 24 logical px |
+| Controls | 36 px high; icon targets at least 32 x 32 px |
+| Table rows | 32 px, fixed height, clear selection state |
+| Corners | 4 px for fields and buttons; no pill-shaped status labels |
 
-Keine rein farbliche Statuscodierung: immer Text und Symbol ergaenzen.
-Kontrast der finalen hellen und dunklen Kombinationen gegen WCAG AA pruefen.
-Ein konsistenter Icon-Satz, beispielsweise Lucide als vorbereitete
-PNG-Assets fuer Tkinter, ersetzt gemischte Unicode-Symbole.
-Ordner, Aktualisieren, Einstellungen und Rueckgaengig erhalten Icons,
-Tooltips und zugaengliche Namen. Primaere Befehle behalten Text.
-Sichtbarer Tastaturfokus; keine blinkenden Effekte oder dekorativen Animationen.
+Never convey status using colour alone: add text and an icon. Check the final
+light and dark colour combinations against WCAG AA. Use one consistent icon
+set, such as Lucide prepared as PNG assets for Tkinter, instead of mixed
+Unicode symbols. Folder, refresh, settings and undo controls need icons,
+tooltips and accessible names. Keep text on primary commands. Show keyboard
+focus clearly; avoid blinking effects and decorative animations.
 
-## Interaktion und Sicherheitsregeln
+## Interaction and safety rules
 
-| Zustand | Anzeige und erlaubte Aktion |
+| State | Display and allowed action |
 | --- | --- |
-| Kein Auftrag | Ordnerfelder sichtbar, Ausfuehren gesperrt |
-| Noch keine Vorschau | Leerer Pruefbereich, Vorschau als primaerer Befehl |
-| Analyse laeuft | Fortschritt und Abbrechen; keine parallele Ausfuehrung |
-| Vorschau aktuell | Anzahl Dateien/Aenderungen; Anwenden primaer |
-| Eingaben geaendert | Vorschau als veraltet markieren; Anwenden sperren |
-| Keine Aenderungen | Sachlicher Nullzustand; kein scheinbar noetiger Schreiblauf |
-| Ausfuehrung laeuft | Fortschritt, Abbrechen, Konfiguration gesperrt |
-| Fertig / teilweise fehlgeschlagen | Zaehler, Fehlerdetails, Log und Wiederherstellung |
+| No operation | Folder fields visible; execution disabled |
+| No preview yet | Empty review area; preview is the primary action |
+| Analysis running | Show progress and Cancel; prevent parallel execution |
+| Preview current | Show file/change counts; Apply is primary |
+| Inputs changed | Mark preview stale; disable Apply |
+| No changes | Show a clear empty state; do not imply a write run is needed |
+| Execution running | Show progress and Cancel; lock configuration |
+| Complete / partially failed | Show counters, error details, log and restore |
 
-Vorschau und Ausfuehrung bleiben getrennt. Die bestehende
-[`_preview_ready`](sortiton/gui/mixins/run.py#L397)-Pruefung darf durch das
-Redesign nicht entfallen. Geaenderte Ordner, Regeln, Muster oder Modi
-invalidieren weiterhin die Freigabe. Backup-Status ist sichtbar;
-die bestehende Bestaetigung zeigt Umfang, Ziel und Dateioperation.
-Verschieben und Duplikate behalten ihre speziellen Warnungen.
-Abbruch ist kein Rollback; Wiederherstellung ist eine separate Operation.
+Keep preview and execution separate. The existing
+[`_preview_ready`](sortiton/gui/mixins/run.py#L397) check must not be removed
+by the redesign. Changed folders, rules, patterns or modes must continue to
+invalidate approval. Show backup status; the existing confirmation shows
+scope, target and file operation. Keep the special warnings for moves and
+duplicates. Cancellation is not rollback; restore is a separate operation.
 
-Tags: Vorschau nach Datei und Tagfeld. Umbenennen/Sortieren: Quellpfad,
-Zielpfad und Operation. Alles: Schritte klar unterscheiden.
-Werkzeuge: vorhandene feature-spezifische Optionen und Statuswerte erhalten;
-Export und Duplikate nicht kuenstlich in eine Tag-Tabelle pressen.
+Tags: preview by file and tag field. Rename/sort: source path, target path and
+operation. All: distinguish the steps clearly. Tools: retain existing
+feature-specific options and status values; do not force export and duplicates
+into a tag table.
 
-## Umsetzungshandoff
+## Implementation handoff
 
-### Paket 1: Layout ohne Backend-Umbau
+### Package 1: Layout without backend changes
 
-In [`layout.py`](sortiton/gui/mixins/layout.py) Konfiguration und Vorschau
-in einen geteilten Arbeitsbereich ueberfuehren. Die flexible Grid-Zeile
-gehoert der Vorschau, nicht einer leeren Canvas-Flaeche.
-Ein gemeinsamer Aussenabstand ersetzt die getrennten Zentrierformeln.
-In [`log.py`](sortiton/gui/mixins/log.py) Ergebnis und Log bedarfsgerecht
-oeffnen; Status und Freigabe in einer stabilen unteren Zeile zusammenfassen.
-In [`design.py`](sortiton/gui/design.py) Farben, Abstaende und Typografie
-zentral pflegen; Widgets und Formulare daran anpassen.
+In [`layout.py`](sortiton/gui/mixins/layout.py), move configuration and preview
+into a split workspace. The flexible grid row belongs to the preview, not to
+an empty canvas area. Replace separate centering formulas with one shared
+outer margin. In [`log.py`](sortiton/gui/mixins/log.py), open results and logs
+on demand; combine status and approval in a stable bottom row. Keep colours,
+spacing and typography centralized in
+[`design.py`](sortiton/gui/design.py), and adapt widgets and forms to them.
 
-Zunaechst die vorhandene aggregierte Vorschau verwenden und eindeutig als
-Zusammenfassung kennzeichnen. Keine Suche oder Filter anbieten, die nur
-wenige Beispiele durchsuchen, aber Vollstaendigkeit suggerieren.
+Initially use the existing aggregated preview and label it clearly as a
+summary. Do not offer search or filters that scan only a few examples while
+implying completeness.
 
-### Paket 2: Vollstaendige Pruefansicht
+### Package 2: Complete review view
 
-[`PreviewCard`](sortiton/gui/panels.py#L29) zeigt aktuell Beispiele.
-[`_absorb_plan`](sortiton/gui/mixins/run.py#L303) aggregiert Ereignisse,
-[`_plan_rows`](sortiton/gui/mixins/run.py#L451) zeigt fuer Tags nur das
-erste Beispiel pro Feld und fuer Dateioperationen das erste Pfadpaar.
-Eine vollstaendige Tabelle ist deshalb mehr als ein Widget-Austausch.
+[`PreviewCard`](sortiton/gui/panels.py#L29) currently shows examples.
+[`_absorb_plan`](sortiton/gui/mixins/run.py#L303) aggregates events, and
+[`_plan_rows`](sortiton/gui/mixins/run.py#L451) shows only the first example
+per tag field and the first path pair for file operations. A complete table
+therefore needs more than replacing a widget.
 
-Plan-Ereignisse aus [`output.py`](sortiton/output.py) auf nutzbare Datei- und
-Feldinformationen pruefen, dann ein separates, strukturiertes Lesemodell
-mit Lauf-ID, Pfad, Operation, Feld, Alt-/Neuwert und belegbarem Status bauen.
-Regelherkunft nur anzeigen, wenn sie tatsaechlich mitgeliefert wird.
-Zaehler und Signatur-Sperre erhalten. Speicherbedarf begrenzen, grosse Plaene
-seitenweise laden oder auf temporaeren Speicher auslagern.
-Nicht fuer jede Aenderung neue Tk-Labels erzeugen.
+Review plan events from [`output.py`](sortiton/output.py) for usable file and
+field information. Then build a separate structured read model with run ID,
+path, operation, field, old/new value and a status supported by the evidence.
+Show rule provenance only when it is actually supplied. Bound memory use;
+page large plans or spill them to temporary storage. Do not create a Tk label
+for every change.
 
-Erst danach dateibezogene Suche, Filter und Detailansicht aktivieren.
-Die Tabelle ist zunaechst nur lesend: Auswahl bedeutet Detailansicht,
-nicht selektive Ausfuehrung. Checkboxen fuer Einzelaenderungen sind nicht
-Teil dieses Auftrags und benoetigen eine eigene Ausfuehrungssemantik.
+Only then enable file-level search, filters and detail view. The table is
+read-only initially: selecting a row opens its details; it does not enable
+selective execution. Per-change checkboxes are outside this scope and require
+their own execution semantics.
 
-### Nicht Teil des Auftrags
+### Out of scope
 
-Kein Backend-Rewrite, keine neue Regelengine, keine CLI-Aenderung,
-keine automatische Dateiaenderung, keine neue Musikplayer-Funktion.
-Keine neue Persistenz fuer Fensterlayout ohne gesonderte Entscheidung.
-Alle sichtbaren Texte bleiben deutsch/englisch in
-[`i18n.py`](sortiton/i18n.py); Features und gespeicherte Optionen erhalten.
+No backend rewrite, new rule engine, CLI changes, automatic file changes or
+new music-player functionality. Do not add persisted window layout without a
+separate decision. Keep all visible text in both German and English in
+[`i18n.py`](sortiton/i18n.py); preserve features and saved options.
 
-## Abnahme
+## Acceptance
 
-- Bei 900 x 600, 1280 x 720, 1920 x 1080 und 2560 x 1440 bleiben Tabs,
-  Freigabe und Abbrechen sichtbar; keine ueberlappenden Bedienelemente.
-- Bei 100, 150 und 200 Prozent Skalierung zaehlen logische Masse;
-  kein doppeltes Skalieren von Fonts und Widgets. Kleine Arbeitsflaechen
-  wechseln in das schmale Layout statt grosse Mindestbreiten zu erzwingen.
-- Mehr Fensterhoehe vergroessert die Vorschau, nicht eine Leerflaeche
-  zwischen Konfiguration und Aktionen. Mehr Breite verbessert die Pruefansicht.
-- Formular, Kopf und Fuss haben dieselben Aussenkanten. Scrollbalken
-  erscheinen nur bei Ueberlauf und liegen an ihrem Inhaltsbereich.
-- Alle fuenf Seiten, deutsche/englische Texte und lange Pfade pruefen.
-  Vollstaendige Werte bleiben ueber Detailansicht oder Tooltip erreichbar.
-- Tastaturbedienung inklusive Tab-Reihenfolge, Fokus, Seitenwechsel,
-  Bestaetigung und Abbruch ist moeglich. Icons allein brauchen Tooltips.
-- Tests fuer aktuelle/veraltete Vorschau, Sperren waehrend eines Laufs,
-  Backup, Fehler und Wiederherstellung bleiben gruen.
-- Paket 2: 10.000 Aenderungen mit synthetischen Daten pruefen;
-  Suche, Scrollen und Abbrechen blockieren den UI-Thread nicht merklich.
-  Vollstaendigkeit und Zaehler muessen mit dem Plan uebereinstimmen.
-- Layout-Regressionen in [`test_gui.py`](tests/test_gui.py) ergaenzen;
-  aktuell werden kleine Fenster und Scrollen, aber keine breite adaptive
-  Arbeitsflaeche geprueft. Danach das vorhandene Projekt-Gate ausfuehren.
-- Screenshots nur mit synthetischen Pfaden und Daten erstellen:
-  breite/schmale Ansicht, helle/dunkle Darstellung, Vorschau, Lauf und Fehler.
-  Zusaetzlich echtes Maximieren unter KDE/Wayland und Monitorwechsel testen.
+- At 900 x 600, 1280 x 720, 1920 x 1080 and 2560 x 1440, tabs, approval and
+  Cancel remain visible; controls do not overlap.
+- At 100%, 150% and 200% scaling, use logical measurements. Do not scale fonts
+  and widgets twice. Smaller workspaces switch to the narrow layout instead
+  of enforcing large minimum widths.
+- More window height grows the preview, not empty space between configuration
+  and actions. More width improves the review view.
+- The form, header and footer share the same outer edges. Scrollbars appear
+  only when content overflows and stay beside that content.
+- Check all five pages, German/English text and long paths. Full values remain
+  accessible through details or tooltips.
+- Keyboard operation works, including tab order, focus, page switching,
+  confirmation and cancellation. Icons alone need tooltips.
+- Tests for current/stale previews, locking during a run, backup, errors and
+  restore remain green.
+- For Package 2, test 10,000 changes with synthetic data. Search, scrolling
+  and cancellation must not noticeably block the UI thread. Completeness and
+  counters must match the plan.
+- Add layout regression tests to [`test_gui.py`](tests/test_gui.py); currently
+  it covers small windows and scrolling, but not a wide adaptive workspace.
+  Then run the existing project gate.
+- Use only synthetic paths and data for screenshots: wide/narrow layouts,
+  light/dark appearance, preview, run and error states. Also test actual
+  maximizing under KDE/Wayland and switching monitors.
 
-Uebergabeziel: Zuerst Paket 1 abnehmen. Paket 2 erst beginnen, wenn
-Layout und Sicherheit stabil sind und das Lesemodell abgestimmt ist.
+Handoff goal: approve Package 1 first. Start Package 2 only after layout and
+safety are stable and the read model has been agreed.
